@@ -246,6 +246,13 @@ resource_broker:
   # tiempo antes de pagar el costo real de recargarlo (confirmado en
   # vivo: ~21s con el modelo frío vs. ~4s ya caliente).
   ollama_idle_timeout_seconds: 1800
+  # BUG REAL ENCONTRADO EN USO (2026-08-28): el chequeo de RAM baja de
+  # arriba solo se llamaba antes de un /chat o de cargar un pipeline
+  # pesado — nunca por su cuenta. Dos caídas reales de sistema pasaron
+  # con ningún pedido nuevo a kal disparando ese chequeo mientras la RAM
+  # se agotaba por otra causa. Este intervalo corre el MISMO chequeo de
+  # forma periódica, en background, independiente del tráfico real.
+  pressure_check_interval_seconds: 30
 
 # Primer paso opcional de /chat (ver agent_core/conversation_engine.py):
 # un modelo CHICO y siempre local clasifica intención/capacidades antes

@@ -288,6 +288,16 @@ class ResourceBrokerConfig(BaseModel):
     # excepción — esto solo cambia CUÁNTO tiempo de inactividad
     # tolera antes de liberarse por reloj.
     ollama_idle_timeout_seconds: int = 1800
+    # BUG REAL ENCONTRADO EN USO (2026-08-28): evict_idle_and_pressured()
+    # solo se llamaba en dos momentos puntuales (antes de un /chat, antes
+    # de cargar un pipeline pesado) — nunca por su cuenta. Dos caídas
+    # reales pasaron con NINGÚN pedido nuevo a kal disparando ese chequeo
+    # mientras la RAM se agotaba por otra causa (una suite de tests
+    # corriendo en paralelo) — nada evictaba nada hasta que el OOM
+    # killer del sistema operativo actuó a ciegas. Este intervalo dispara
+    # el MISMO chequeo (misma lógica, sin cambios) de forma periódica,
+    # independiente del tráfico real — ver agent_core/orchestrator.py.
+    pressure_check_interval_seconds: int = 30
 
 
 class ConversationEngineConfig(BaseModel):

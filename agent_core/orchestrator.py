@@ -23,6 +23,8 @@ que necesita compartir (el singleton `orchestrator`, `require_admin_token`,
 from __future__ import annotations
 
 import secrets
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -149,6 +151,56 @@ class Orchestrator:
 
 orchestrator = Orchestrator()
 
+# BUG REAL ENCONTRADO EN USO (2026-08-28): resource_broker.evict_idle_and_pressured()
+# (el chequeo de RAM baja que libera TODO — imagen/audio/STT/Ollama —
+# ante presión real, ver kernel/broker/resource_broker.py) solo se
+# llamaba en dos momentos puntuales: antes de un /chat y antes de
+# cargar un pipeline pesado. Dos caídas reales de sistema pasaron con
+# NINGÚN pedido nuevo a kal disparando ese chequeo mientras la RAM se
+# agotaba por otra causa (una suite de tests corriendo en paralelo,
+# sin pedirle nada a kal) — nada evictaba nada hasta que el OOM killer
+# del sistema operativo actuó a ciegas (mató un proceso de VS Code, no
+# necesariamente el que más RAM usaba). Este thread corre el MISMO
+# chequeo (sin cambios de lógica) de forma periódica, independiente
+# del tráfico real — la lógica de qué evictar y cuándo sigue siendo
+# exactamente la que ya existía y ya está probada.
+_pressure_check_stop = threading.Event()
+
+
+def _pressure_check_loop() -> None:
+    interval = settings.resource_broker.pressure_check_interval_seconds
+    while not _pressure_check_stop.wait(interval):
+        try:
+            resource_broker.evict_idle_and_pressured()
+        except Exception as e:
+            # Nunca debe tumbar el thread de background por un error
+            # transitorio (Ollama caído un instante, etc.) — el próximo
+            # ciclo lo vuelve a intentar solo.
+            logger.warning(f"Chequeo periódico de presión de RAM falló, se reintenta en el próximo ciclo: {e}")
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # Arranca SOLO cuando la app realmente se sirve (uvicorn, o un
+    # TestClient usado como context manager) — nunca con solo importar
+    # este módulo, que es como lo usan los ~40 archivos de test de este
+    # proyecto (`TestClient(app, base_url=...)` sin `with`), verificado
+    # en vivo antes de este cambio para no arrancar un thread real de
+    # background (con llamadas de red reales a Ollama) en cada test.
+    # clear() antes de arrancar: _pressure_check_stop es un Event a
+    # nivel de módulo — sin esto, un segundo arranque de la app dentro
+    # del MISMO proceso (p.ej. dos usos consecutivos de
+    # `with TestClient(app) as client:`, ver tests) vería la señal de
+    # parada del apagado ANTERIOR ya activa y el thread nuevo terminaría
+    # de inmediato, sin correr ni un solo ciclo.
+    _pressure_check_stop.clear()
+    thread = threading.Thread(target=_pressure_check_loop, daemon=True, name="ram-pressure-check")
+    thread.start()
+    yield
+    _pressure_check_stop.set()
+    thread.join(timeout=5)
+
+
 # --- API HTTP ---
 #
 # Fase 0 de la propuesta "kal-in" (2026-08-23, ver docs/HISTORY.md):
@@ -160,6 +212,7 @@ orchestrator = Orchestrator()
 # documentación no cuentan, FastAPI solo lee el docstring real).
 app = FastAPI(
     title="Kal",
+    lifespan=_lifespan,
     description=(
         "API HTTP del agente Kal: cada acción (herramienta, escritura de "
         "archivo, acceso a red) pasa por un kernel de seguridad propio — "

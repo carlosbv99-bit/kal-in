@@ -7922,3 +7922,60 @@ cargado, rechaza por RAM, acepta con margen, fail-closed sin tamaño,
 el chequeo nuevo. Suite completa (`pytest tests/ -q`, corrida sola, sin
 otra operación pesada en paralelo — lección directa de este mismo
 incidente): 1142 passed, 0 regresiones.
+
+## Barrido periódico de presión de RAM (2026-08-28)
+
+Durante la verificación en vivo del fix anterior, la máquina se quedó
+sin RAM DOS VECES MÁS (una con la suite completa corriendo sola, sin
+ningún pedido nuevo a kal). Diagnóstico real: `resource_broker.evict_idle_and_pressured()`
+(el chequeo de RAM baja que libera TODO — imagen/audio/STT/Ollama —
+ante presión real) solo se llamaba en dos momentos puntuales: antes de
+un `/chat` (`ollama_client.py::chat()`) y antes de cargar un pipeline
+pesado. Si nada de eso pasa mientras la RAM se agota por otra causa
+(una suite de tests corriendo en paralelo, otra app, otro proceso),
+nada dispara el chequeo — el mecanismo de defensa existe y funciona
+bien, pero es 100% reactivo al tráfico de kal, ciego a cualquier otra
+causa de presión.
+
+**Fix**: `agent_core/orchestrator.py` — nuevo thread de background
+(`_pressure_check_loop`) que corre el MISMO `evict_idle_and_pressured()`
+(sin cambios de lógica) cada `resource_broker.pressure_check_interval_seconds`
+(nuevo, default 30s, `utils/config.py`/`config.yaml`), arrancado vía
+`lifespan` de FastAPI — independiente de si llega o no un pedido real.
+
+**Detalle de diseño verificado en vivo, no asumido**: un `lifespan`
+de FastAPI solo se dispara cuando la app REALMENTE se sirve (`uvicorn`,
+o un `TestClient` usado como `with TestClient(app) as client:`) —
+nunca con solo importar el módulo, que es como los ~40 archivos de
+test de este proyecto usan `TestClient(app, base_url=...)` (sin
+`with`). Confirmado empíricamente ANTES de escribir el fix (con un
+`FastAPI()` de juguete) y DESPUÉS (con la app real): sin `with`, cero
+threads nuevos; con `with`, el thread `ram-pressure-check` aparece y
+al salir del `with` desaparece limpio (`thread.join()`). Verificado
+además con un `uvicorn.Server` real (no solo `TestClient`), inspeccionando
+`threading.enumerate()` directamente.
+
+**Bug propio encontrado escribiendo el test, antes de que llegara a
+producción**: `_pressure_check_stop` es un `threading.Event` a nivel
+de módulo — sin `.clear()` al arrancar, un SEGUNDO arranque del
+lifespan dentro del mismo proceso (dos usos consecutivos de `with
+TestClient(app) as client:`, exactamente lo que hace
+`test_pressure_check_stop_event_is_reset_between_uses`) vería la señal
+de parada del apagado anterior ya activa y el thread nuevo terminaría
+de inmediato sin correr ni un ciclo. Corregido antes de que ningún
+test lo ejercitara accidentalmente mal.
+
+**Bug propio encontrado corriendo la suite completa (flakiness real,
+no solo local)**: el primer test de "no arranca sin `with`"/"para
+limpio al salir" comparaba `threading.active_count()` antes/después —
+pasaba siempre solo, pero era flaky corriendo junto a otros archivos
+de test (otros threads ajenos a esta feature, de fixtures de otros
+archivos, pueden arrancar/terminar en cualquier momento en una suite
+de +1000 tests). Corregido a verificar por NOMBRE del thread
+(`"ram-pressure-check" in/not in threading.enumerate()`), la propiedad
+real que importa, no el conteo total del proceso.
+
+5 tests nuevos en `test_orchestrator_pressure_check.py`. Suite completa
+corriendo, esta vez con más margen de RAM de entrada (6.6GB disponibles
+al arrancar, Ollama sin nada cargado) tras la lección de los incidentes
+anteriores.
