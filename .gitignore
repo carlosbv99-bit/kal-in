@@ -1,8 +1,15 @@
 __pycache__/
 *.pyc
 .env
-data/
-logs/
+# Ancladas a la raíz del repo (con "/" inicial): sin esto, "data/"/"logs/"
+# también matchean cualquier subcarpeta con ese nombre en cualquier
+# profundidad — mismo bug real encontrado en Likay-OS (se comía un
+# archivo de verdad bajo config/includes.chroot/usr/local/), acá
+# verificado que hoy no muerde a nadie (no hay data/ ni logs/ anidados
+# en otro lado del repo) pero es el mismo patrón de riesgo, corregido
+# antes de que llegue a causar el mismo problema.
+/data/
+/logs/
 *.db
 .pytest_cache/
 .venv/
