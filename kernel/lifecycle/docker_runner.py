@@ -51,16 +51,27 @@ class SandboxResult:
 
 class DockerSandboxRunner:
     def __init__(self):
-        try:
-            self.client = docker.from_env()
-        except DockerException as e:
-            # Fallo aquí es un problema de infraestructura (daemon no
-            # accesible), no del código que se intenta ejecutar. Se
-            # propaga en __init__ a propósito: sin daemon, este runner
-            # no puede operar en absoluto.
-            logger.error(f"No se pudo conectar al daemon de Docker: {e}")
-            raise
+        # BUG REAL ENCONTRADO EN USO (2026-09-12, validando Likay-OS):
+        # conectar acá adentro (antes: docker.from_env() directo en
+        # __init__, propagando DockerException si fallaba) hacía que
+        # construir el Orchestrator singleton sin Docker disponible
+        # tirara abajo TODA la app al importar agent_core.orchestrator
+        # — confirmado en vivo apuntando DOCKER_HOST a algo inalcanzable:
+        # ni siquiera llegaba a levantar /health. Mucho más grave que
+        # "una herramienta falla": la app entera no arrancaba. La
+        # conexión ahora es perezosa (ver la property `client` abajo) —
+        # recién se intenta al primer uso real, dentro de run(), que ya
+        # atrapa DockerException/APIError y devuelve un SandboxResult de
+        # error en vez de propagar — la ausencia de Docker degrada ESA
+        # llamada puntual, nunca el arranque de la aplicación.
+        self._client: "docker.DockerClient | None" = None
         self.cfg = settings.sandbox
+
+    @property
+    def client(self) -> "docker.DockerClient":
+        if self._client is None:
+            self._client = docker.from_env()
+        return self._client
 
     @staticmethod
     def _prepare_workdir(

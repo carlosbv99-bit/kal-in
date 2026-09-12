@@ -7979,3 +7979,48 @@ real que importa, no el conteo total del proceso.
 corriendo, esta vez con más margen de RAM de entrada (6.6GB disponibles
 al arrancar, Ollama sin nada cargado) tras la lección de los incidentes
 anteriores.
+
+## kal no arrancaba en absoluto sin Docker disponible (2026-09-12)
+
+Encontrado validando el arranque de kal en Likay-OS (proyecto nuevo,
+repo separado — ver `vendor/kal` ahí), en una ISO live-boot que no
+incluye Docker todavía. La suposición era "kal arranca y chatea bien,
+solo fallan los tool calls que dependen del sandbox" — verificado en
+vivo que esa suposición era **falsa**.
+
+**Diagnóstico real**: `agent_core/orchestrator.py::Orchestrator.__init__()`
+→ `self.tasks = TaskExecutor()` (sin override) → `SandboxExecutor()`
+(sin override) → `DockerSandboxRunner()` → `docker.from_env()` — esta
+última llamada se ejecutaba en el **constructor**, no al primer uso
+real. Confirmado apuntando `DOCKER_HOST` a un puerto inalcanzable e
+importando `agent_core.orchestrator`: el import completo explota,
+`uvicorn` nunca llega a levantar la app. No era "algunas herramientas
+fallan" — kal no arrancaba en absoluto, ni `/health` respondía.
+
+**Fix**: `kernel/lifecycle/docker_runner.py::DockerSandboxRunner` —
+la conexión a Docker ahora es perezosa (`@property client`, conecta
+recién al primer acceso real). El único uso de `self.client` en todo
+el archivo ya vivía dentro del `try` de `run()` que atrapa
+`DockerException`/`APIError` — mover la conexión ahí no requirió
+tocar `run()` en absoluto, el manejo de errores ya existente lo cubre
+sin cambios.
+
+**Verificado en vivo** (no solo con mocks): con `DOCKER_HOST` apuntando
+a un puerto inalcanzable, `import agent_core.orchestrator` ahora
+termina OK y `GET /health` responde 200 — confirmado que el resto de
+la app degrada con gracia (la skill `qr_code`, que necesita construir
+una imagen Docker propia, simplemente no se registra, sin tumbar nada
+más; 20 de 21 herramientas estáticas siguen activas).
+
+Nuevo `tests/test_docker_runner_lazy_connection.py` (construcción
+nunca conecta a Docker, `run()` degrada a un `SandboxResult` de error
+en vez de propagar, la conexión se cachea tras el primer uso, y un
+test con Docker real de verdad confirmando que el camino feliz sigue
+igual que antes del fix). 126 tests de sandbox/Docker/self-modification
+corridos aparte, 0 regresiones.
+
+**Nota sobre el flujo cruzado con Likay-OS**: este fix vive en kal —
+Likay-OS lo consume vía `vendor/kal` (submódulo fijado a un commit
+específico, no sigue `main` en vivo). Hasta que alguien actualice ese
+pin explícitamente, este fix es invisible para cualquier ISO que se
+construya — no se propaga solo.
