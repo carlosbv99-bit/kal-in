@@ -45,6 +45,7 @@ from agent_core.runtime.llm_runtimes import OllamaRuntime, OpenAICompatibleRunti
 from agent_core.runtime.managed_provider import RuntimeManagedLLMProvider
 from agent_core.runtime.manager import runtime_manager
 from agent_core.memory.manager import MemoryManager
+from agent_core.default_tools import register_default_static_tools
 from agent_core.self_diagnosis import SelfDiagnosisAgent
 from agent_core.self_modification import self_modification_manager
 from agent_core.sessions import session_manager
@@ -54,6 +55,14 @@ from task_execution.executor import TaskExecutor
 from utils.admin_token import get_or_create_admin_token
 from utils.config import settings
 from utils.logger import get_logger
+
+# Reemplaza el disparo implícito que antes ocurría al importar
+# kernel.registry.registry (ver kernel/registry/registry.py) — decidir
+# qué herramientas concretas existen por defecto es responsabilidad del
+# agente, no del kernel. tests/conftest.py ya importa
+# agent_core.orchestrator a nivel de módulo para TODOS los tests del
+# repo, así que esta llamada sigue ocurriendo antes de cualquier test.
+register_default_static_tools()
 
 logger = get_logger(__name__)
 

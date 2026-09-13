@@ -79,7 +79,7 @@ class ImageService:
         # instancia compartida real de producción (usada por el Kernel
         # Service Bus) es una instancia aparte, registrada una sola vez
         # al arrancar — ver
-        # kernel/registry/registry.py::_register_default_static_tools().
+        # agent_core/default_tools.py::register_default_static_tools().
         self.cfg = cfg or settings.multimodal.image
         self.editing_cfg = editing_cfg or settings.multimodal.image_editing
         self._pipeline = None

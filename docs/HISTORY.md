@@ -8081,3 +8081,52 @@ Likay-OS porque confirma en código, no solo en discurso, que `kernel/`
 es importable sin ninguna capacidad de agente/ML — la base para que
 Likay-OS pueda depender solo del kernel de kal sin arrastrar peso de
 agente que no necesita.
+
+## kernel/registry/registry.py aún importaba tool_integration al importarse — último cablecito real (2026-09-13)
+
+Encontrado investigando el split kal/kal-in (kal pasa a ser kernel puro;
+el kal actual, con todo su código y su historia, pasa a llamarse
+kal-in). El movimiento anterior de `services.py` no cerró el
+acoplamiento del todo: `kernel/registry/registry.py` definía
+`_register_default_static_tools()` — ~11 imports de
+`tool_integration/adapters/*` más las 4 clases de servicio — y la
+ejecutaba a nivel de MÓDULO, al final del archivo. Consecuencia real:
+cualquier `import kernel.registry.registry`, incluso desde un test que
+solo quería probar el kernel, disparaba la construcción completa de
+`ImageService`/`AudioService`/`STTService`/`DownloadService`. Era
+exactamente el vector de colisión que preocupaba para Likay-OS: si el
+"kernel" que se monta junto a un agente externo trae consigo la
+decisión de qué herramientas multimedia existen por defecto, ambos
+mundos quedan mezclados en el mismo paquete.
+
+**Fix**: la función (con todo su contenido, sin cambios de lógica) se
+movió a `agent_core/default_tools.py::register_default_static_tools()`
+— nuevo módulo, cero relación con el kernel salvo usarlo desde afuera
+(importa `tool_registry` y `kernel_service_bus`, no al revés).
+`kernel/registry/registry.py` queda con SOLO la clase `ToolRegistry`
+(mecanismo genérico: register/list/rollback/load_skills), cero imports
+de `tool_integration`/`agent_core`. `agent_core/orchestrator.py` llama
+`register_default_static_tools()` explícitamente al importarse,
+reemplazando el disparo implícito que antes dependía de que algo
+importara `kernel.registry.registry`.
+
+**Por qué no hizo falta tocar ningún test**: `tests/conftest.py` ya
+hace `from agent_core.orchestrator import orchestrator` a nivel de
+módulo, y pytest carga conftest.py antes de cualquier test del
+directorio — la nueva registración (ahora disparada por importar
+`agent_core.orchestrator`, no `kernel.registry.registry`) sigue
+ocurriendo antes de cada test sin excepción, para los 114 archivos de
+`tests/`.
+
+**Verificado en vivo**: `python3 -c "import kernel.registry.registry"`
+ya no emite ningún log de registro de herramientas y
+`tool_registry.active_tools()` da vacío — kernel realmente puro ahora.
+`python3 -c "import agent_core.orchestrator"` sigue registrando las 21
+herramientas estáticas de siempre. Suite completa, 1152 tests, 0
+regresiones.
+
+Con esto, `kernel/`+`sdk/`+`audit/`+`code_analysis/`+`utils/` quedan
+sin ningún import de `agent_core`/`tool_integration` — la frontera
+kernel/agente es ahora real en código, no solo documentada. Este es el
+Paso 1 del split: sigue el renombrado del repo actual a `kal-in` y la
+extracción del kernel puro a un repo nuevo llamado `kal`.
