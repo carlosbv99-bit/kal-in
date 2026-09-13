@@ -1,6 +1,15 @@
-# Kal
+# Kal-in
 
 🇬🇧 [English](README.md) | 🇪🇸 Español
+
+> Este repo (antes `kal`) es **kal-in** — el agente de referencia de
+> kal, construido sobre el kernel kal. El kernel puro (sin agente, sin
+> ML — Access Manager, sandbox, audit log, Kernel Service Bus) se está
+> extrayendo a su propio repo, `kal`, para que otros agentes puedan
+> usarlo de forma independiente (ver
+> [Likay-OS](https://github.com/Kevindelb/Likay-OS) para el primer caso
+> de uso). Este README todavía describe todo el código actual; se
+> dividirá en consecuencia cuando esa extracción esté lista.
 
 **Un microkernel seguro para capacidades inteligentes.**
 
