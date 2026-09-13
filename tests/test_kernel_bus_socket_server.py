@@ -73,7 +73,7 @@ def test_allowed_method_dispatches_successfully(bus, socket_path):
 
 
 def test_skill_name_of_the_calling_skill_reaches_the_bus_dispatch(bus, socket_path):
-    """DownloadService (kernel/services/services.py) necesita saber
+    """DownloadService (tool_integration/services.py) necesita saber
     QUÉ skill lo llama para el permiso de red por-skill — el servidor
     de socket ya sabe su propio `self.skill_name` (viene de
     sandboxed_skill.py al construirlo), esto confirma que llega hasta

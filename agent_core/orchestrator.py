@@ -110,7 +110,7 @@ def build_llm_client() -> LLMProvider:
         # llamar a Ollama (ver OllamaClient.chat()), pero nunca al
         # revés — nada liberaba el modelo de Ollama antes de que un
         # pipeline local pesado intentara cargar. Registrarlo acá cierra
-        # ese hueco: kernel/services/services.py ahora llama
+        # ese hueco: tool_integration/services.py ahora llama
         # evict_idle_and_pressured() (que incluye esto) ANTES de cargar.
         # Diagnóstico de lentitud (2026-08-23): timeout PROPIO, más largo
         # que el general — el modelo de chat es chico y de uso muy

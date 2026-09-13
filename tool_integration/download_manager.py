@@ -26,7 +26,7 @@ tamaño, malware, contenido real) siguen acá, sin cambios.
 
 Usado por tool_integration/adapters/vscode_files.py::ImportResourceTool
 (agente de VS Code, proceso host) Y por
-kernel/services/services.py::DownloadService (2026-07-24, Kernel
+tool_integration/services.py::DownloadService (2026-07-24, Kernel
 Download Service — expuesto vía el Kernel Service Bus para que una
 Skill de terceros pueda bajar un archivo real SIN necesitar
 Permission.NETWORK, que le daría red cruda sin ninguna de estas

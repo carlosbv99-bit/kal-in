@@ -1,5 +1,5 @@
 """
-Tests de kernel/services/services.py::DownloadService — el Kernel
+Tests de tool_integration/services.py::DownloadService — el Kernel
 Download Service (2026-07-24): para que una Skill de terceros pueda
 bajar un archivo real de Internet SIN necesitar Permission.NETWORK
 (que le daría red cruda sin validar nada, ver
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from kernel.services.services import DownloadService, KernelServiceError
+from tool_integration.services import DownloadService, KernelServiceError
 from tool_integration.download_manager import DownloadedResource, DownloadValidationError
 
 

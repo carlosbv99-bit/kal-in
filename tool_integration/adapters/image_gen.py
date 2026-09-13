@@ -39,7 +39,7 @@ from typing import Any, Callable
 
 import requests
 
-from kernel.services.services import ImageService
+from tool_integration.services import ImageService
 from sdk.skill import Tool, ToolManifest
 from sdk.artifacts import Artifact
 from utils.config import settings
@@ -82,7 +82,7 @@ class ImageGenerationTool(Tool):
         # Inyectable para tests (evita red real) — por defecto, requests.post real.
         self.http_post = http_post or requests.post
         Path(self.cfg.artifact_dir).mkdir(parents=True, exist_ok=True)
-        # La carga/generación real vive en ImageService (kernel/services/services.py)
+        # La carga/generación real vive en ImageService (tool_integration/services.py)
         # — antes este pipeline era privado de esta instancia; ahora, en
         # producción, es la MISMA instancia que usa el Kernel Service Bus
         # para las skills que declaran kernel_services: ["image.generate"]

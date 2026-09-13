@@ -1,6 +1,6 @@
 """
 Registro de recursos "pesados" cargados perezosamente en RAM
-(pipelines de imagen/audio/STT, ver kernel/services/services.py) — libera
+(pipelines de imagen/audio/STT, ver tool_integration/services.py) — libera
 los que llevan un rato sin usarse, o TODOS de inmediato si la RAM
 disponible del sistema ya está baja.
 

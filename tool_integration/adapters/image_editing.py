@@ -43,7 +43,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from kernel.services.services import ImageService
+from tool_integration.services import ImageService
 from sdk.skill import Tool, ToolManifest
 from sdk.artifacts import Artifact
 from utils.config import settings
@@ -134,7 +134,7 @@ class ImageEditingTool(Tool):
     def __init__(self, image_service: ImageService | None = None):
         self.cfg = settings.multimodal.image_editing
         Path(self.cfg.artifact_dir).mkdir(parents=True, exist_ok=True)
-        # El inpainting real vive en ImageService (kernel/services/services.py)
+        # El inpainting real vive en ImageService (tool_integration/services.py)
         # — mismo servicio COMPARTIDO que usa image_generation.py (mismo
         # dominio "image", dos acciones), no una copia por adaptador. Sin
         # inyectar, arma su propia instancia con su MISMO editing_cfg

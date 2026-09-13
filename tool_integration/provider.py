@@ -6,7 +6,7 @@ LLMProvider, aplicado a la capacidad de voz en vez de la de lenguaje.
 
 Antes de este archivo, AudioGenerationTool/SpeechToTextTool declaraban
 su dependencia inyectada como el tipo CONCRETO (`AudioService`/
-`STTService`, ver kernel/services/services.py) — funcionaba porque
+`STTService`, ver tool_integration/services.py) — funcionaba porque
 solo existe una implementación real de cada una (piper-tts,
 faster-whisper), pero el adaptador terminaba conociendo el motor
 concreto sin necesidad. Este archivo nombra la forma mínima que

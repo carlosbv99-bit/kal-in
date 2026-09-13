@@ -27,7 +27,7 @@ from kernel.lifecycle.docker_runner import DockerSandboxRunner
 from kernel.lifecycle.executor import SandboxExecutor
 from kernel.permissions.network_access_manager import NetworkAccessManager
 from kernel.registry.sandboxed_skill import SandboxedSkillTool
-from kernel.services.services import DownloadService
+from tool_integration.services import DownloadService
 from sdk.skill import ToolManifest
 from tool_integration.download_manager import DownloadManager
 

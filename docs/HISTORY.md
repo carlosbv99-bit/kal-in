@@ -8024,3 +8024,60 @@ Likay-OS lo consume vía `vendor/kal` (submódulo fijado a un commit
 específico, no sigue `main` en vivo). Hasta que alguien actualice ese
 pin explícitamente, este fix es invisible para cualquier ISO que se
 construya — no se propaga solo.
+
+## kernel/services/ salía de kernel/ — el único servicio del kernel que dependía de ML pesado (2026-09-13)
+
+Surgió analizando, para Likay-OS, la pregunta "¿qué es kal realmente?"
+bajo las premisas: un kernel no usa un LLM, un agente sí, un sistema
+operativo tampoco. Conclusión (ya cierta a nivel de código, verificada
+con grep antes de aceptarla): `kernel/` + `sdk/` + `audit/` no tienen
+NINGUNA dependencia de `agent_core/` — son kernel puro de verdad. La
+única grieta real encontrada: `kernel/services/services.py`
+(`ImageService`/`AudioService`/`STTService`/`DownloadService`) vivía
+bajo `kernel/` pero depende de `tool_integration/` (que a su vez
+carga diffusers/piper/faster-whisper de forma perezosa) — generación
+de imagen/audio/voz es capacidad de agente, no infraestructura de
+kernel, así que no pertenecía ahí aunque el archivo en sí fuera
+importable sin esas librerías instaladas (los imports pesados están
+dentro de los métodos, no al tope del módulo).
+
+**Movido** `kernel/services/services.py` → `tool_integration/services.py`
+y `kernel/services/provider.py` (interfaces `STTProvider`/`TTSProvider`
+que esos servicios implementan) → `tool_integration/provider.py`, vía
+`git mv` (renames limpios). `kernel/services/` queda eliminado.
+
+**Bug real encontrado de paso, no cosmético**: `kernel/api/bus.py`
+(el `KernelServiceBus` en sí — genuinamente kernel puro: despacho
+genérico por nombre "servicio.acción", sin saber nada de imagen/audio/
+modelos) construía y registraba él mismo, al importarse
+(`_build_default_bus()`), instancias PROPIAS de los 4 servicios
+multimedia — separadas de las instancias reales que
+`kernel/registry/registry.py::_register_default_static_tools()` ya
+construye para las Tools de primera parte. Mecanismo (el bus, genérico)
+mezclado con política (qué servicios concretos existen por defecto) —
+y además duplicaba trabajo: dos `ImageService()` distintas, una sin
+usar. Al sacar ese registro eager de `bus.py`, `DownloadService`
+habría quedado sin registrar en el bus en absoluto — `registry.py`
+nunca lo registraba (solo registraba `image`/`audio`/`stt`, no
+`download`; el download vive en `ImportResourceTool`, que no pasa por
+el bus). Corregido agregando el registro explícito de `DownloadService`
+en `registry.py`, junto a los otros tres, consolidando TODO el
+registro de servicios del bus en un único lugar. `kernel_service_bus`
+en `bus.py` queda ahora como un `KernelServiceBus()` vacío — el bus no
+sabe ni le importa qué servicios existan hasta que algo los registre.
+
+Actualizados los import sites reales (`tool_integration/adapters/
+{audio_gen,image_gen,image_editing,speech_to_text}.py` y 5 archivos de
+test) más las referencias de comentario a la ruta vieja, en todo el
+repo. Verificado en vivo: `import agent_core.orchestrator` limpio,
+`kernel_service_bus._services.keys()` = `{image, audio, stt,
+download}` tras el arranque normal. 38 tests dirigidos (bus, servicios,
+providers, integración audio/STT/inpaint con modelos reales) + suite
+completa, 0 regresiones.
+
+**Nota sobre Likay-OS**: esto no cambia ningún comportamiento
+observable de kal — es reordenamiento puro. Pero es relevante para
+Likay-OS porque confirma en código, no solo en discurso, que `kernel/`
+es importable sin ninguna capacidad de agente/ML — la base para que
+Likay-OS pueda depender solo del kernel de kal sin arrastrar peso de
+agente que no necesita.

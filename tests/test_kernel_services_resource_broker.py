@@ -1,5 +1,5 @@
 """
-Tests de kernel/services/services.py — ImageService/AudioService/STTService
+Tests de tool_integration/services.py — ImageService/AudioService/STTService
 ahora llaman resource_broker.evict_idle_and_pressured() ANTES de cargar
 su pipeline perezoso, no solo agent_core/llm/ollama_client.py::
 OllamaClient.chat() (que ya lo hacía).
@@ -17,8 +17,8 @@ se salte, y solo verifica que evict_idle_and_pressured() se llamó.
 """
 from __future__ import annotations
 
-import kernel.services.services as services_module
-from kernel.services.services import AudioService, ImageService, STTService
+import tool_integration.services as services_module
+from tool_integration.services import AudioService, ImageService, STTService
 
 
 class _FakeResourceBroker:

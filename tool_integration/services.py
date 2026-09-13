@@ -253,7 +253,7 @@ class AudioService:
     TTS) se queda en el adaptador, nunca pasa por el kernel (mismo
     criterio que ImageGenerationTool._generate_via_api).
 
-    Implementa kernel.services.provider.TTSProvider estructuralmente
+    Implementa tool_integration.provider.TTSProvider estructuralmente
     (conformidad de Protocol, sin heredar de nada) — los adaptadores
     que la usan (tool_integration/adapters/audio_gen.py) declaran su
     dependencia como TTSProvider, no como esta clase concreta.
@@ -377,7 +377,7 @@ class STTService:
     que tenía tool_integration/adapters/speech_to_text.py::execute.
     Sin backend "api" (el adaptador tampoco lo tenía).
 
-    Implementa kernel.services.provider.STTProvider estructuralmente
+    Implementa tool_integration.provider.STTProvider estructuralmente
     (conformidad de Protocol, sin heredar de nada) — los adaptadores
     que la usan (tool_integration/adapters/speech_to_text.py) declaran
     su dependencia como STTProvider, no como esta clase concreta.

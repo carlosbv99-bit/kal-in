@@ -27,7 +27,7 @@ class FakeEchoService:
 
     def whoami(self, skill_name):
         """Único método de este fake que declara `skill_name` — igual
-        que DownloadService.fetch() (ver kernel/services/services.py),
+        que DownloadService.fetch() (ver tool_integration/services.py),
         el único servicio real que hoy lo necesita."""
         return {"skill_name": skill_name}
 
@@ -120,7 +120,7 @@ def test_dispatch_leaves_non_artifact_strings_untouched(bus):
 
 
 # --- Inyección de skill_name (agregado para DownloadService, ver
-# kernel/services/services.py — el permiso de red es por-skill, el
+# tool_integration/services.py — el permiso de red es por-skill, el
 # único servicio que hoy necesita saber quién lo llama) ---
 
 

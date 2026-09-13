@@ -41,7 +41,7 @@ def _make_skill_tool(name: str, entry_point: str, kernel_services: list[str], tm
 
 def test_audio_via_kernel_skill_generates_real_audio(tmp_path):
     pytest.importorskip("piper")
-    from kernel.services.services import AudioService
+    from tool_integration.services import AudioService
 
     try:
         AudioService()._get_voice()
@@ -64,7 +64,7 @@ def test_audio_via_kernel_skill_generates_real_audio(tmp_path):
 def test_voice_roundtrip_via_kernel_skill_transcribes_its_own_synthesis(tmp_path):
     pytest.importorskip("piper")
     pytest.importorskip("faster_whisper")
-    from kernel.services.services import AudioService, STTService
+    from tool_integration.services import AudioService, STTService
 
     try:
         AudioService()._get_voice()
@@ -93,7 +93,7 @@ def test_voice_roundtrip_via_kernel_skill_transcribes_its_own_synthesis(tmp_path
 def test_image_inpaint_via_kernel_skill_edits_a_real_generated_image(tmp_path):
     pytest.importorskip("diffusers")
     pytest.importorskip("torch")
-    from kernel.services.services import ImageService
+    from tool_integration.services import ImageService
 
     service = ImageService()
     try:

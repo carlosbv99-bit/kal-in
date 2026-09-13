@@ -266,7 +266,7 @@ class MultimodalConfig(BaseModel):
 
 class ResourceBrokerConfig(BaseModel):
     """
-    ImageService/AudioService/STTService (kernel/services/services.py) cargan
+    ImageService/AudioService/STTService (tool_integration/services.py) cargan
     su modelo perezosamente pero nunca lo descargaban — BUG REAL
     ENCONTRADO EN USO: en una máquina sin GPU (todo corre en CPU), un
     pipeline de varios GB se queda en RAM para siempre una vez usado,
@@ -462,7 +462,7 @@ class DownloadsConfig(BaseModel):
     allow_http: bool = False  # solo https por default — una respuesta http puede alterarse en tránsito
     allowed_domains: list[str] = Field(default_factory=list)  # deny-by-default, igual que browser.allowed_domains
     max_size_mb: int = 10
-    # Usado por kernel/services/services.py::DownloadService (Kernel
+    # Usado por tool_integration/services.py::DownloadService (Kernel
     # Service Bus) — donde ImportResourceTool guarda su resultado como
     # una PROPUESTA sin tocar disco, DownloadService sí necesita un
     # directorio propio: su consumidor es una Skill aislada, que recibe

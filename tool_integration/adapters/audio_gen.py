@@ -44,8 +44,8 @@ from typing import Any, Callable
 
 import requests
 
-from kernel.services.provider import TTSProvider
-from kernel.services.services import AudioService
+from tool_integration.provider import TTSProvider
+from tool_integration.services import AudioService
 from sdk.skill import Tool, ToolManifest
 from sdk.artifacts import Artifact
 from utils.config import settings
@@ -73,7 +73,7 @@ class AudioGenerationTool(Tool):
         self.cfg = settings.multimodal.audio
         self.http_post = http_post or requests.post
         Path(self.cfg.artifact_dir).mkdir(parents=True, exist_ok=True)
-        # El tipo declarado es TTSProvider (kernel/services/provider.py)
+        # El tipo declarado es TTSProvider (tool_integration/provider.py)
         # — este adaptador no necesita saber que el motor concreto es
         # piper-tts. Por defecto, sin inyectar, arma su PROPIO
         # AudioService con su MISMO self.cfg (un test que monkeypatchea

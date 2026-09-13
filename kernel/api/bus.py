@@ -32,7 +32,7 @@ class KernelServiceBus:
         # adentro y no debería exponerse a código de terceros sin
         # necesidad. SandboxedSkillTool._to_artifact() resuelve acá
         # cuando la skill devuelve el mismo "artifact://" que recibió
-        # como resultado propio (ver kernel/services/services.py::ImageService.generate()).
+        # como resultado propio (ver tool_integration/services.py::ImageService.generate()).
         # Mecanismo deliberadamente mínimo — no un sistema de artefactos
         # completo (eso es la visión más grande de "Proyectos", no
         # construida todavía).
@@ -55,7 +55,7 @@ class KernelServiceBus:
         # a futuro para otro propósito (no pensado como acción del bus)
         # quedaría invocable igual, por accidente. ALLOWED_ACTIONS es la
         # lista explícita y con intención de cada servicio (ver
-        # kernel/services/services.py) — dispatch() ya no confía en que
+        # tool_integration/services.py) — dispatch() ya no confía en que
         # "es público" signifique "es una acción segura".
         allowed_actions = getattr(service, "ALLOWED_ACTIONS", frozenset())
         if action_name not in allowed_actions:
@@ -113,20 +113,23 @@ class KernelServiceBus:
         return resolved
 
 
-def _build_default_bus() -> KernelServiceBus:
-    from kernel.services.services import AudioService, DownloadService, ImageService, STTService
-
-    bus = KernelServiceBus()
-    bus.register("image", ImageService())
-    bus.register("audio", AudioService())
-    bus.register("stt", STTService())
-    bus.register("download", DownloadService())
-    return bus
-
-
 # Singleton, mismo patrón que tool_registry (kernel/registry/registry.py)
 # / audit_log (audit/audit_log.py) / permission_cascade
 # (kernel/permissions/permission_cascade.py). Nombrado `kernel_service_bus`,
 # no `kernel` a secas — evita la colisión confusa con el nombre del
 # propio paquete `kernel` que lo contiene.
-kernel_service_bus = _build_default_bus()
+#
+# BUG REAL ENCONTRADO EN REVISIÓN (2026-09-13, separando el "kernel puro"
+# para Likay-OS): antes, este módulo construía y registraba acá mismo
+# ImageService/AudioService/STTService/DownloadService al importarse
+# (_build_default_bus(), eliminada) — mecanismo (el bus en sí, genérico)
+# mezclado con política (QUÉ servicios concretos se registran por
+# defecto). El bus es kernel puro (dispatch genérico por nombre, sin
+# saber nada de imagen/audio/modelos); decidir qué servicios multimedia
+# existen es capacidad de agente, no del kernel — eso ahora lo hace
+# kernel/registry/registry.py::_register_static_tools(), el único lugar
+# que ya construía ImageService/AudioService/STTService para las Tools
+# de primera parte (antes duplicaba el trabajo: se construían UNA VEZ
+# acá al importar, sin usarse, y OTRA VEZ ahí de verdad). El bus queda
+# vacío hasta que algo lo registre explícitamente.
+kernel_service_bus = KernelServiceBus()

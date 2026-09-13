@@ -12,8 +12,8 @@ Hub (requiere red esa vez), luego queda cacheado en disco.
 """
 from __future__ import annotations
 
-from kernel.services.provider import STTProvider
-from kernel.services.services import KernelServiceError, STTService
+from tool_integration.provider import STTProvider
+from tool_integration.services import KernelServiceError, STTService
 from sdk.skill import Tool, ToolManifest
 from sdk.artifacts import Artifact
 from utils.config import settings
@@ -41,7 +41,7 @@ class SpeechToTextTool(Tool):
 
     def __init__(self, stt_service: STTProvider | None = None):
         self.cfg = settings.multimodal.stt
-        # El tipo declarado es STTProvider (kernel/services/provider.py)
+        # El tipo declarado es STTProvider (tool_integration/provider.py)
         # — este adaptador no necesita saber que el motor concreto es
         # faster-whisper. Por defecto, sin inyectar, arma su PROPIO
         # STTService — mismo patrón que ImageGenerationTool/ImageService.
