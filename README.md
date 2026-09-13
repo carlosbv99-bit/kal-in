@@ -4,12 +4,12 @@
 
 > This repo (formerly `kal`) is **kal-in** — kal's own reference agent,
 > built on top of the kal kernel. The pure kernel (no agent, no ML —
-> Access Manager, sandbox, audit log, Kernel Service Bus) is being
-> extracted into its own repo, `kal`, so it can be used independently
-> by other agents (see [Likay-OS](https://github.com/Kevindelb/Likay-OS)
-> for the first such use). This README still describes the whole
-> current codebase; it will be split accordingly once that extraction
-> lands.
+> Access Manager, sandbox, audit log, Kernel Service Bus) now lives in
+> its own repo, [carlosbv99-bit/kal](https://github.com/carlosbv99-bit/kal),
+> so it can be used independently by other agents (see
+> [Likay-OS](https://github.com/Kevindelb/Likay-OS) for the first such
+> use). This README still describes the whole current codebase; it
+> will be split accordingly in a future pass.
 
 **A secure microkernel for intelligent capabilities.**
 

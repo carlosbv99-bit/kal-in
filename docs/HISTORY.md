@@ -8130,3 +8130,43 @@ sin ningún import de `agent_core`/`tool_integration` — la frontera
 kernel/agente es ahora real en código, no solo documentada. Este es el
 Paso 1 del split: sigue el renombrado del repo actual a `kal-in` y la
 extracción del kernel puro a un repo nuevo llamado `kal`.
+
+## Split kal/kal-in completo: nuevo repo carlosbv99-bit/kal con el kernel puro (2026-09-13)
+
+Pasos 2-3 del split (ver Paso 1 arriba). `carlosbv99-bit/kal` se
+renombró a `carlosbv99-bit/kal-in` (este repo, con toda su historia,
+sigue como agente). El kernel puro se extrajo a un repo NUEVO,
+[carlosbv99-bit/kal](https://github.com/carlosbv99-bit/kal), vía
+`git filter-repo` sobre un clon aparte (nunca sobre el remoto
+compartido), preservando la historia de cada archivo movido.
+
+**Hallazgo real durante la extracción**: `kernel/registry/sandboxed_skill.py`
+dependía en tiempo de ejecución de `tool_integration/malware_scan.py`
+(escaneo ClamAV, sin ninguna librería de ML — solo `shutil`/`subprocess`/
+`tempfile`) — no solo en tests, como se pensaba. Se incluyó en la
+extracción y se reubicó a `kernel/security/malware_scan.py` en el repo
+nuevo.
+
+**Segundo hallazgo real**: 8 archivos de test de kal-in "pasaban" en la
+suite completa solo por accidente — usaban `pytest.importorskip("diffusers"/
+"piper"/etc.)` ANTES de un import real de `tool_integration.adapters.*`/
+`tool_integration.services`, así que sin esas librerías de ML instaladas
+nunca llegaban a ejecutar la línea que habría fallado. En el kernel
+extraído (sin esas librerías por diseño) esto se manifestó como 10
+skips que en realidad enmascaraban un `ModuleNotFoundError` de código
+de agente que no pertenece ahí — corregido borrando esos test files del
+repo nuevo (siguen existiendo acá, en kal-in, donde sí corresponden).
+
+`requirements-core.txt` del repo nuevo se recortó a lo que el kernel
+realmente usa (verificado con grep en todo el árbol extraído, no
+supuesto) — se sacaron `chromadb`/`sqlalchemy` (memoria del agente) y
+`Pillow`/`tenacity`/`structlog`/`python-multipart` (sin un solo uso
+real fuera de `agent_core`/`tool_integration`). El repo nuevo quedó
+con 367/367 tests pasando, standalone, instalando solo esa lista
+recortada — y con `pyproject.toml` (paquete `kal`, instalable en modo
+editable, verificado con `pip install -e .` desde fuera del directorio
+del repo).
+
+Pendiente explícito, no resuelto acá: qué agente (si alguno) corre
+sobre el kernel de Likay-OS — no se asume que sea kal-in por defecto,
+ver `vendor/kal` en Likay-OS, que debe actualizar su URL al repo nuevo.
