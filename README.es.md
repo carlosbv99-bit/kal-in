@@ -210,4 +210,6 @@ explicarle esto a gente que no programa, todo eso es genuinamente
 - Si quieres escribir o hablar sobre este proyecto, este README y el
   código mismo son la fuente primaria — cada afirmación aquí está
   pensada para poder verificarse contra lo que realmente hay en el
-  repo.
+  repo. Ese mismo nivel de minuciosidad es el método diario de
+  trabajo: cada cambio se revisa y se verifica en coordinación
+  permanente con Claude (Anthropic), no solo se documenta después.

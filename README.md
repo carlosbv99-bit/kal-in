@@ -190,4 +190,7 @@ aren't developers are all genuinely useful.
   propose something, report a bug, or just say you want to help.
 - If you want to write or talk about this project, this README and the
   code itself are the primary source — every claim here is meant to be
-  checkable against what's actually in the repo.
+  checkable against what's actually in the repo. That same level of
+  care is the day-to-day working method: every change gets reviewed
+  and verified in ongoing coordination with Claude (Anthropic), not
+  just documented after the fact.
