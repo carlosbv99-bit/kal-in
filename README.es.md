@@ -2,33 +2,27 @@
 
 🇬🇧 [English](README.md) | 🇪🇸 Español
 
-> Este repo (antes `kal`) es **kal-in** — el agente de referencia de
-> kal, construido sobre el kernel kal. El kernel puro (sin agente, sin
-> ML — Access Manager, sandbox, audit log, Kernel Service Bus) ahora
-> vive en su propio repo, [carlosbv99-bit/kal](https://github.com/carlosbv99-bit/kal),
-> para que otros agentes puedan usarlo de forma independiente (ver
+> **Kal-in** (antes este repo era simplemente `kal`) es el agente de
+> referencia de kal, construido sobre el kernel kal. El kernel puro
+> (sin agente, sin ML — Access Manager, sandbox, audit log, Kernel
+> Service Bus) ahora vive en su propio repo,
+> [carlosbv99-bit/kal](https://github.com/carlosbv99-bit/kal), para que
+> otros agentes puedan usarlo de forma independiente (ver
 > [Likay-OS](https://github.com/Kevindelb/Likay-OS) para el primer caso
-> de uso). Este README todavía describe todo el código actual; se
-> dividirá en consecuencia en un paso futuro.
+> de uso). Este README describe todo el código actual de kal-in, que
+> todavía trae su propia copia del kernel en vez de depender del
+> paquete `kal` separado — esa migración es trabajo futuro, contado aquí
+> con honestidad en vez de disimulado.
 
 **Un microkernel seguro para capacidades inteligentes.**
 
-La mayoría de los asistentes de IA acoplan sus funcionalidades a un
-modelo y proveedor específicos. Kal separa las capacidades
-inteligentes de los motores de IA subyacentes mediante una
-arquitectura de microkernel segura: las capacidades son **Skills**
-aisladas y sandboxeadas que hablan con el kernel a través de un
-protocolo estable, nunca directamente con un modelo concreto — así,
-una Skill escrita hoy sigue funcionando cuando el modelo detrás de
-ella cambia mañana.
-
-Kal es local-first (Ollama, o cualquier endpoint compatible con
-OpenAI — sin necesidad de GPU, todo funciona primero en CPU) y de
-código abierto ([Apache 2.0](LICENSE)).
-
-Si estás conectando un LLM para que ejecute código, cargue plugins de
-terceros, o toque su propio código fuente, Kal está construido
-alrededor de ese riesgo específico: cada Skill corre en un contenedor
+Dale a un LLM la capacidad de ejecutar código, instalar un plugin, o
+tocar su propio código fuente, y le diste la capacidad de hacer daño
+de verdad en el momento en que algo sale mal — una llamada a
+herramienta mal hecha, una dependencia envenenada, una inyección de
+prompt que lo convence de hacer algo que no debería. Kal-in está
+construido alrededor de ese riesgo específico, no alrededor de confiar
+en que el modelo se porte bien: cada Skill corre en un contenedor
 Docker aislado y non-root sin importar de dónde vino, una cascada de
 permisos por niveles decide qué puede tocar cualquier pieza de código,
 el contenido de memoria que coincide con patrones de credenciales
@@ -36,6 +30,19 @@ conocidos se redacta antes de persistir a largo plazo, y la
 auto-modificación requiere aprobación humana explícita antes de que
 nada llegue a disco. Ver [Seguridad primero](#seguridad-primero) más
 abajo para exactamente qué cubre esto, y qué no.
+
+La mayoría de los asistentes de IA acoplan sus funcionalidades a un
+modelo y proveedor específicos. Kal-in separa las capacidades
+inteligentes de los motores de IA subyacentes mediante una
+arquitectura de microkernel segura: las capacidades son **Skills**
+aisladas y sandboxeadas que hablan con el kernel a través de un
+protocolo estable, nunca directamente con un modelo concreto — así,
+una Skill escrita hoy sigue funcionando cuando el modelo detrás de
+ella cambia mañana.
+
+Kal-in es local-first (Ollama, o cualquier endpoint compatible con
+OpenAI — sin necesidad de GPU, todo funciona primero en CPU) y de
+código abierto ([Apache 2.0](LICENSE)).
 
 ```
                           Usuario
@@ -52,9 +59,9 @@ abajo para exactamente qué cubre esto, y qué no.
     Skills (sandboxeadas, sin confianza permanente)
 ```
 
-## ¿Por qué Kal?
+## ¿Por qué Kal-in?
 
-| Asistentes de IA tradicionales        | Kal                                                              |
+| Asistentes de IA tradicionales        | Kal-in                                                            |
 |-----------------------------------------|-------------------------------------------------------------------|
 | Acoplados a un solo modelo              | Agnóstico al modelo — local (Ollama) o cualquier endpoint compatible con OpenAI |
 | Capacidades integradas en la app        | Cada capacidad es una **Skill**, cargada de forma independiente   |
@@ -161,19 +168,19 @@ abajo para exactamente qué cubre esto, y qué no.
 ## Visión
 
 Creemos que las capacidades inteligentes no deberían estar atadas a un
-solo modelo, proveedor, o aplicación monolítica. Kal es un microkernel
+solo modelo, proveedor, o aplicación monolítica. Kal-in es un microkernel
 seguro donde los desarrolladores construyen Skills en vez de
 integraciones puntuales — el modelo, el almacenamiento, el proveedor
 de IA específico son detalles intercambiables detrás de un límite
 estable, nunca supuestos incrustados en cada herramienta. Así como un
 kernel de sistema operativo habilitó un ecosistema de aplicaciones
-independientes, Kal apunta a habilitar un ecosistema de Skills de IA
+independientes, Kal-in apunta a habilitar un ecosistema de Skills de IA
 independientes y confiables.
 
 ## Cómo empezar
 
-- **[Explorar el Skill Market](https://carlosbv99-bit.github.io/kal/)** — mirá qué hay disponible antes de instalar nada.
-- `scripts/run_kal.sh` — correr kal localmente.
+- **[Explorar el Skill Market](https://carlosbv99-bit.github.io/kal/)** — mira qué hay disponible antes de instalar nada.
+- `scripts/run_kal.sh` — correr kal-in localmente.
 - `scripts/enable_skill.py` — instalar una Skill desde una carpeta local.
 - `scripts/install_from_market.py --list` — explorar e instalar una
   Skill desde el market basado en Git (por defecto, este mismo repo).
@@ -184,3 +191,23 @@ independientes y confiables.
 El historial de ingeniería detallado de este proyecto — cada fase,
 decisión de diseño, y bug real encontrado en el camino, en español —
 vive en [docs/HISTORY.md](docs/HISTORY.md).
+
+## Cómo colaborar
+
+Es un proyecto joven, en desarrollo activo, y hay lugar de verdad para
+aportar — no hace falta ser un especialista en seguridad para tener
+algo útil que sumar. Código, revisión de seguridad, probarlo en
+hardware o configuraciones que aquí no probamos, e incluso simplemente
+explicarle esto a gente que no programa, todo eso es genuinamente
+útil.
+
+- Empieza por [`CONTRIBUTING.md`](CONTRIBUTING.es.md) — tiene el
+  setup, la estructura del repo, y el criterio con el que se evalúa
+  cada cambio.
+- Abre un [issue](https://github.com/carlosbv99-bit/kal-in/issues)
+  para proponer algo, reportar un bug, o simplemente decir que quieres
+  ayudar.
+- Si quieres escribir o hablar sobre este proyecto, este README y el
+  código mismo son la fuente primaria — cada afirmación aquí está
+  pensada para poder verificarse contra lo que realmente hay en el
+  repo.
