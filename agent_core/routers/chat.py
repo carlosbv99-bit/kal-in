@@ -182,11 +182,21 @@ def chat(req: ChatRequest):
     # estructuralmente imposible que llame una herramienta) en vez de una
     # respuesta enlatada — a diferencia de get_trivial_reply(), acá el
     # mensaje no es exacto, así que no hay un texto fijo posible.
+    #
+    # llm_client=orchestrator.conversation_engine.llm_client + model=
+    # settings.conversation_engine.model (el CHICO, no self.llm/
+    # default_model): sin herramientas de por medio, no hay motivo para
+    # cargar/usar el modelo grande solo para charlar — reusa el mismo
+    # cliente+modelo chico que ya usa el Conversation Engine (siempre
+    # local por diseño, nunca el proveedor en la nube que self.llm
+    # podría tener configurado), así una sesión mayormente
+    # conversacional puede no necesitar cargar nunca el modelo grande.
     if settings.tool_need_classifier.enabled:
         needs_tool, tool_confidence = predict_needs_tool(req.goal)
         if not needs_tool and tool_confidence >= settings.tool_need_classifier.confidence_threshold:
             final_answer = orchestrator.agent.answer_directly(
-                req.goal, history=context_bundle.history, session_context=context_bundle.session_context,
+                req.goal, llm_client=orchestrator.conversation_engine.llm_client, model=settings.conversation_engine.model,
+                history=context_bundle.history, session_context=context_bundle.session_context,
             )
             orchestrator.sessions.record_turn(session, req.goal, final_answer)
             return {
@@ -197,7 +207,7 @@ def chat(req: ChatRequest):
                 "status": "no_tool_needed",
                 "plan": [],
                 "steps": [],
-                "model_used": settings.llm.default_model,
+                "model_used": settings.conversation_engine.model,
             }
 
     # Conversation Engine (ver agent_core/conversation_engine.py): paso

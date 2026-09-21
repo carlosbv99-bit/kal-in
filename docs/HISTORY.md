@@ -8303,3 +8303,26 @@ paso razonable, no una solución completa. Queda como trabajo futuro
 (no incluido acá): loguear localmente pares reales
 `(mensaje, se_llamó_herramienta)` para reentrenar periódicamente con
 datos de uso real.
+
+## Bug real encontrado antes de producción: answer_directly() usaba el cliente equivocado (2026-09-22)
+
+Al armar el pedido del usuario de reusar el modelo CHICO en
+`answer_directly()` (en vez del modelo grande, para no cargarlo cuando
+no hace falta ninguna herramienta), el primer diseño pasaba
+`model=settings.conversation_engine.model` a través de `self.llm` (el
+cliente del modelo PRINCIPAL, configurado por `settings.llm.provider`/
+`base_url` — que podría apuntar a un proveedor en la nube). Eso
+hubiera mandado el nombre de un modelo local a un endpoint
+potencialmente equivocado.
+
+**Fix, antes de que llegara a ningún test**: `AgentLoop.answer_directly()`
+ahora acepta `llm_client` además de `model` — chat.py pasa
+`orchestrator.conversation_engine.llm_client` (el cliente PROPIO del
+Conversation Engine, siempre local por diseño, ver
+`ConversationEngine._build_default_client`), no `self.llm`. Mismo
+patrón que ya usa `ConversationEngine.classify()` internamente.
+`model_used` en la respuesta de `/chat` también corregido a
+`settings.conversation_engine.model` (antes decía
+`settings.llm.default_model`, incorrecto para este camino).
+
+Suite completa: 1171/1171.

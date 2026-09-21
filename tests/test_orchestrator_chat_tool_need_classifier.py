@@ -28,6 +28,11 @@ class _FakeConversationEngine:
     def __init__(self, result=None):
         self._result = result
         self.calls: list[str] = []
+        # answer_directly() en el camino no_tool_needed lee
+        # orchestrator.conversation_engine.llm_client — cualquier
+        # sentinel alcanza en los tests que mockean answer_directly()
+        # entero, pero el atributo tiene que existir.
+        self.llm_client = object()
 
     def classify(self, goal: str):
         self.calls.append(goal)
@@ -54,14 +59,15 @@ def test_confident_no_tool_prediction_answers_directly_without_classify_or_agent
     monkeypatch.setattr(
         "agent_core.routers.chat.predict_needs_tool", lambda goal: (False, 0.95)
     )
-    fake_answer_directly_calls: list[str] = []
+    fake_answer_directly_calls: list[dict] = []
 
-    def _fake_answer_directly(goal, history=None, session_context=None):
-        fake_answer_directly_calls.append(goal)
+    def _fake_answer_directly(goal, llm_client=None, model=None, history=None, session_context=None):
+        fake_answer_directly_calls.append({"goal": goal, "llm_client": llm_client, "model": model})
         return "Todo bien por acá, ¿en qué te ayudo?"
 
+    fake_ce = _FakeConversationEngine(None)
     monkeypatch.setattr(orchestrator_module.orchestrator.agent, "answer_directly", _fake_answer_directly)
-    monkeypatch.setattr(orchestrator_module.orchestrator, "conversation_engine", _FakeConversationEngine(None))
+    monkeypatch.setattr(orchestrator_module.orchestrator, "conversation_engine", fake_ce)
     monkeypatch.setattr(orchestrator_module.orchestrator, "planning_agent", _NeverCallMePlanningAgent())
 
     response = client.post("/chat", json={"goal": "todo bien por ahi?"})
@@ -72,8 +78,14 @@ def test_confident_no_tool_prediction_answers_directly_without_classify_or_agent
     assert body["final_answer"] == "Todo bien por acá, ¿en qué te ayudo?"
     assert body["plan"] == []
     assert body["steps"] == []
-    assert body["model_used"] == settings.llm.default_model
-    assert fake_answer_directly_calls == ["todo bien por ahi?"]
+    # El modelo CHICO (Conversation Engine), nunca el grande — no hay
+    # herramientas de por medio, no hace falta cargar/usar el default.
+    assert body["model_used"] == settings.conversation_engine.model
+    assert len(fake_answer_directly_calls) == 1
+    call = fake_answer_directly_calls[0]
+    assert call["goal"] == "todo bien por ahi?"
+    assert call["llm_client"] is fake_ce.llm_client
+    assert call["model"] == settings.conversation_engine.model
 
 
 def test_low_confidence_no_tool_prediction_falls_through_to_the_agent_normally(monkeypatch):

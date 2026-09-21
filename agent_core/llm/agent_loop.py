@@ -758,6 +758,8 @@ class AgentLoop:
     def answer_directly(
         self,
         goal: str,
+        llm_client: LLMProvider | None = None,
+        model: str | None = None,
         history: list[dict] | None = None,
         session_context: dict | None = None,
     ) -> str:
@@ -777,6 +779,27 @@ class AgentLoop:
         pasos/self-check/tool-repeat-limiter de run() (irrelevantes
         acá: no hay herramientas que llamar, así que no hay nada que
         limitar ni auto-chequear).
+
+        `llm_client`/`model`: chat.py pasa explícitamente
+        orchestrator.conversation_engine.llm_client + settings.conversation_engine.model
+        (el modelo CHICO, no self.llm/default_model) — no tiene sentido
+        cargar/usar el modelo grande solo para una respuesta
+        conversacional sin herramientas de por medio. Tiene que ser el
+        cliente PROPIO del Conversation Engine, no self.llm con el
+        nombre de modelo chico pasado por encima: self.llm apunta a
+        donde diga settings.llm.base_url/provider (podría ser un
+        proveedor en la nube), mientras que el cliente del Conversation
+        Engine siempre queda local por diseño (ver
+        agent_core/conversation_engine.py::_build_default_client) — el
+        modelo chico solo existe ahí. Default a self.llm si no se pasa
+        nada, preservando el comportamiento previo para cualquier otro
+        llamador.
+
+        La única debilidad conocida de ese modelo chico (llamar una
+        herramienta de más — ver
+        technical_model_calls_unnecessary_tool_for_simple_messages)
+        queda estructuralmente imposible acá, porque nunca se le ofrece
+        ninguna herramienta para llamar.
         """
         system_content = SYSTEM_PROMPT
         if session_context:
@@ -785,7 +808,8 @@ class AgentLoop:
         if history:
             messages.extend(history)
         messages.append({"role": "user", "content": goal})
-        return self.llm.chat(messages).content
+        client = llm_client or self.llm
+        return client.chat(messages, model=model).content
 
     def _dispatch_tool(
         self, name: str, arguments: dict[str, Any], tools: dict[str, AgentTool],
