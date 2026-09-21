@@ -78,14 +78,15 @@ def test_confident_no_tool_prediction_answers_directly_without_classify_or_agent
     assert body["final_answer"] == "Todo bien por acá, ¿en qué te ayudo?"
     assert body["plan"] == []
     assert body["steps"] == []
-    # El modelo CHICO (Conversation Engine), nunca el grande — no hay
-    # herramientas de por medio, no hace falta cargar/usar el default.
-    assert body["model_used"] == settings.conversation_engine.model
+    # El modelo propio de este rol (tool_need_classifier.answer_model),
+    # nunca el grande ni conversation_engine.model — no hay herramientas
+    # de por medio, no hace falta cargar/usar el default.
+    assert body["model_used"] == settings.tool_need_classifier.answer_model
     assert len(fake_answer_directly_calls) == 1
     call = fake_answer_directly_calls[0]
     assert call["goal"] == "todo bien por ahi?"
     assert call["llm_client"] is fake_ce.llm_client
-    assert call["model"] == settings.conversation_engine.model
+    assert call["model"] == settings.tool_need_classifier.answer_model
 
 
 def test_low_confidence_no_tool_prediction_falls_through_to_the_agent_normally(monkeypatch):

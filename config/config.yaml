@@ -267,6 +267,18 @@ conversation_engine:
   confidence_threshold: 0.5
   temperature: 0.1                      # bajo a propósito: es una clasificación, no charla creativa
 
+# Clasificador local "¿necesita herramienta?" (ver agent_core/tool_need_classifier.py,
+# generaliza get_trivial_reply()/issue #4) — TF-IDF+regresión logística,
+# sin LLM. Cuando predice needs_tool=False con alta confianza,
+# AgentLoop.answer_directly() responde con answer_model (evaluado
+# empíricamente 2026-09-22 solo para ESTE rol conversacional — NO
+# reemplazó a conversation_engine.model en classify(), que mostró
+# sub-confianza/confusión semántica con el mismo modelo).
+tool_need_classifier:
+  enabled: true
+  confidence_threshold: 0.75
+  answer_model: "qwen3:1.7b"            # necesita `ollama pull qwen3:1.7b`
+
 sandbox:
   network_mode: none
   memory_limit_mb: 512

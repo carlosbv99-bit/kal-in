@@ -781,18 +781,18 @@ class AgentLoop:
         limitar ni auto-chequear).
 
         `llm_client`/`model`: chat.py pasa explícitamente
-        orchestrator.conversation_engine.llm_client + settings.conversation_engine.model
-        (el modelo CHICO, no self.llm/default_model) — no tiene sentido
-        cargar/usar el modelo grande solo para una respuesta
-        conversacional sin herramientas de por medio. Tiene que ser el
-        cliente PROPIO del Conversation Engine, no self.llm con el
-        nombre de modelo chico pasado por encima: self.llm apunta a
-        donde diga settings.llm.base_url/provider (podría ser un
-        proveedor en la nube), mientras que el cliente del Conversation
-        Engine siempre queda local por diseño (ver
-        agent_core/conversation_engine.py::_build_default_client) — el
-        modelo chico solo existe ahí. Default a self.llm si no se pasa
-        nada, preservando el comportamiento previo para cualquier otro
+        orchestrator.conversation_engine.llm_client (el cliente PROPIO
+        del Conversation Engine, SIEMPRE local por diseño — ver
+        agent_core/conversation_engine.py::_build_default_client) +
+        settings.tool_need_classifier.answer_model — un modelo chico
+        PROPIO para este rol, distinto de conversation_engine.model
+        (evaluado empíricamente 2026-09-22 específicamente para
+        conversación sin herramientas, no para el JSON estructurado de
+        classify()). Nunca self.llm con el nombre de modelo chico
+        pasado por encima: self.llm apunta a donde diga
+        settings.llm.base_url/provider, que podría ser un proveedor en
+        la nube sin ese modelo. Default a self.llm si no se pasa nada,
+        preservando el comportamiento previo para cualquier otro
         llamador.
 
         La única debilidad conocida de ese modelo chico (llamar una

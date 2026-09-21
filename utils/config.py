@@ -361,6 +361,19 @@ class ToolNeedClassifierConfig(BaseModel):
     # cruzarlo. Solo aplica cuando el clasificador predice needs_tool=False
     # — nunca fuerza lo contrario (ver el diseño asimétrico en chat.py).
     confidence_threshold: float = 0.75
+    # Modelo usado por AgentLoop.answer_directly() (ver agent_core/routers/chat.py)
+    # — DISTINTO de conversation_engine.model a propósito. Evaluado
+    # empíricamente (2026-09-22) contra qwen2.5:3b para este rol
+    # específico: restraint perfecto en vivo (0/7 casos de prueba
+    # llamaron una herramienta, sin tools disponibles de por medio de
+    # todos modos) y más chico/rápido (1.7B vs 3B, ~0.4-2.4s con
+    # think=false, que ya aplica siempre — ver OllamaClient.chat()).
+    # NO se adoptó también para conversation_engine.model/classify():
+    # ahí mismo mostró sub-confianza en intents claros (confidence=0.0
+    # para "ejecutá este código") y confusión semántica
+    # (speech-to-text vs text-to-speech) — evidencia real, no supuesta,
+    # de que no es un reemplazo limpio para ESE rol más exigente.
+    answer_model: str = "qwen3:1.7b"     # necesita `ollama pull qwen3:1.7b`
 
 
 class SandboxConfig(BaseModel):

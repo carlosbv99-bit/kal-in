@@ -8326,3 +8326,50 @@ patrón que ya usa `ConversationEngine.classify()` internamente.
 `settings.llm.default_model`, incorrecto para este camino).
 
 Suite completa: 1171/1171.
+
+## answer_directly() cambia a qwen3:1.7b — evaluación real, no un reemplazo a ciegas (2026-09-22)
+
+Pedido: buscar un modelo TODAVÍA más chico que `qwen2.5:3b` para
+reducir uso de recursos, aprovechando que `answer_directly()` (recién
+agregado) nunca ofrece herramientas — investigado sin limitarse a la
+familia Qwen. Un benchmark público de tool-calling
+([MikeVeerman/tool-calling-benchmark](https://github.com/MikeVeerman/tool-calling-benchmark))
+señaló a `qwen3:1.7b` con restraint perfecto (1.000 — nunca llama una
+herramienta de más) y buen action score (0.900), pero latencia
+reportada alta (10.665ms) — sospecha razonable: el modo "thinking" de
+la familia Qwen3, ya conocido en este proyecto
+(`technical_qwen35_thinking_mode_empty_content.md`).
+
+**Evaluado en vivo, no adoptado por el benchmark solo**: `ollama pull
+qwen3:1.7b` + batería real contra los dos roles, usando el
+`OllamaClient` real de producción (`think=false` ya aplicado siempre,
+sin cambios de código):
+
+- **`answer_directly()` (conversación sin tools) — ganador claro**:
+  0 de 7 casos de prueba llamó una herramienta (confirma el restraint
+  del benchmark en la práctica), respuestas coherentes, latencia real
+  0.4-2.4s (nada que ver con los 10.6s del benchmark — confirmada la
+  sospecha del thinking mode).
+- **`classify()` (JSON estructurado) — NO es un pase limpio, 2 fallas
+  reales encontradas**: sub-confianza en intents claros (confidence=0.0
+  para "ejecutá este código: print('hola')", con una negación de
+  capacidad — mismo patrón de `technical_web_client_false_audio_capability_denial.md`)
+  y confusión semántica (clasificó un pedido de texto-a-voz como
+  `speech-to-text`, lo opuesto).
+
+**Decisión, con evidencia — no un swap total**: `qwen3:1.7b` reemplaza
+a `qwen2.5:3b` SOLO en `answer_directly()`
+(`ToolNeedClassifierConfig.answer_model`, nuevo campo, separado de
+`conversation_engine.model` a propósito). `classify()` sigue con
+`qwen2.5:3b`, ya validado para ese rol más exigente — no se tocó.
+Ambos roles nunca corren en el mismo turno (el clasificador local
+decide UNO de los dos caminos, nunca ambos), así que esto no reintroduce
+el problema de "3 modelos siempre cargados en simultáneo" que se había
+descartado antes por ese motivo.
+
+Verificado en vivo con el servidor real (no solo mockeado): `"che, todo
+bien por ahi?"` (fuera de la allowlist exacta de `get_trivial_reply()`)
+responde con `status: "no_tool_needed"`, `model_used: "qwen3:1.7b"`; en
+`ollama ps` solo aparece `qwen3:1.7b` cargado (el modelo grande nunca
+se tocó) tras una sesión puramente conversacional. Suite completa:
+1171/1171.
