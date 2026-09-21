@@ -46,7 +46,7 @@ GPU required, everything ships CPU-first) and open source
                            │
             VS Code extension / Web frontend
                            │
-              Kernel (agent_core/orchestrator.py)
+              Agent (agent_core/orchestrator.py)
    ─────────────────────────────────────────────────
     Permission Cascade   Tool Registry   Audit Log
     Kernel Bus           Sandbox         Circuit Breaker
@@ -68,12 +68,23 @@ GPU required, everything ships CPU-first) and open source
 
 ## Architecture
 
-- **Kernel** (`agent_core/`) — coordinates the LLM conversation loop,
-  permissions, sandboxing and auditing. It does not implement AI
+- **Kernel** (`kernel/` + `sdk/` + `audit/`) — Access Manager /
+  permission cascade, Docker sandbox, hash-chained audit log, Tool
+  Registry, Kernel Bus. Pure security infrastructure: no LLM, no ML,
+  no agent logic. Extracted into its own repo,
+  [carlosbv99-bit/kal](https://github.com/carlosbv99-bit/kal) — this
+  repo (kal-in) still embeds its own copy rather than depending on
+  that package (future migration, see the note at the top of this
+  README).
+- **Agent** (`agent_core/`) — kal-in itself: coordinates the LLM
+  conversation loop, calling into the kernel for permission checks,
+  sandboxing and auditing on every tool call. It does not implement AI
   capabilities itself.
-- **Kernel Services** (`kernel/services/services.py`) — shared,
-  persistent services that hold a heavy resource (a loaded ML model) so
-  it's never reloaded per call. Today: image generation, image
+- **Tool integration** (`tool_integration/`) — image/audio/video
+  generation, browser automation, and the Kernel Services
+  (`tool_integration/services.py`) that back the Kernel Bus: shared,
+  persistent services that hold a heavy resource (a loaded ML model)
+  so it's never reloaded per call. Today: image generation, image
   inpainting, audio synthesis, speech-to-text.
 - **Skills** (`skills/`) — sandboxed capabilities. A Skill never loads
   a model or touches the filesystem/network directly; it asks a
@@ -163,7 +174,7 @@ of independent, trustworthy AI Skills.
 
 ## Getting started
 
-- **[Browse the Skill Market](https://carlosbv99-bit.github.io/kal/)** — see what's available before installing anything.
+- **[Browse the Skill Market](https://carlosbv99-bit.github.io/kal-in/)** — see what's available before installing anything.
 - `scripts/run_kal.sh` — run kal-in locally.
 - `scripts/enable_skill.py` — install a Skill from a local folder.
 - `scripts/install_from_market.py --list` — browse and install a Skill

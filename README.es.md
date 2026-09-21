@@ -49,7 +49,7 @@ código abierto ([Apache 2.0](LICENSE)).
                            │
           Extensión de VS Code / Frontend web
                            │
-              Kernel (agent_core/orchestrator.py)
+              Agente (agent_core/orchestrator.py)
    ─────────────────────────────────────────────────
     Cascada de Permisos   Registro de Herram.   Audit Log
     Kernel Bus            Sandbox               Circuit Breaker
@@ -71,14 +71,24 @@ código abierto ([Apache 2.0](LICENSE)).
 
 ## Arquitectura
 
-- **Kernel** (`agent_core/`) — coordina el loop de conversación del
-  LLM, los permisos, el sandboxing y la auditoría. No implementa
+- **Kernel** (`kernel/` + `sdk/` + `audit/`) — Access Manager /
+  cascada de permisos, sandbox Docker, audit log encadenado por hash,
+  Tool Registry, Kernel Bus. Infraestructura de seguridad pura: sin
+  LLM, sin ML, sin lógica de agente. Extraído a su propio repo,
+  [carlosbv99-bit/kal](https://github.com/carlosbv99-bit/kal) — este
+  repo (kal-in) todavía trae su propia copia en vez de depender de ese
+  paquete (migración futura, ver la nota al principio de este README).
+- **Agente** (`agent_core/`) — kal-in en sí: coordina el loop de
+  conversación del LLM, llamando al kernel para chequeos de permisos,
+  sandboxing y auditoría en cada llamada a herramienta. No implementa
   capacidades de IA por sí mismo.
-- **Kernel Services** (`kernel/services/services.py`) — servicios
-  compartidos y persistentes que mantienen un recurso pesado (un
-  modelo de ML cargado) para que nunca se recargue en cada llamada.
-  Hoy: generación de imágenes, inpainting de imágenes, síntesis de
-  audio, voz-a-texto.
+- **Integración de herramientas** (`tool_integration/`) — generación
+  de imagen/audio/video, automatización de navegador, y los Kernel
+  Services (`tool_integration/services.py`) que sostienen al Kernel
+  Bus: servicios compartidos y persistentes que mantienen un recurso
+  pesado (un modelo de ML cargado) para que nunca se recargue en cada
+  llamada. Hoy: generación de imágenes, inpainting de imágenes,
+  síntesis de audio, voz-a-texto.
 - **Skills** (`skills/`) — capacidades sandboxeadas. Una Skill nunca
   carga un modelo ni toca el filesystem/red directamente; le pide a un
   Kernel Service lo que necesita a través del Kernel Bus, mediante el
@@ -179,7 +189,7 @@ independientes y confiables.
 
 ## Cómo empezar
 
-- **[Explorar el Skill Market](https://carlosbv99-bit.github.io/kal/)** — mira qué hay disponible antes de instalar nada.
+- **[Explorar el Skill Market](https://carlosbv99-bit.github.io/kal-in/)** — mira qué hay disponible antes de instalar nada.
 - `scripts/run_kal.sh` — correr kal-in localmente.
 - `scripts/enable_skill.py` — instalar una Skill desde una carpeta local.
 - `scripts/install_from_market.py --list` — explorar e instalar una
