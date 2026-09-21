@@ -8170,3 +8170,66 @@ del repo).
 Pendiente explícito, no resuelto acá: qué agente (si alguno) corre
 sobre el kernel de Likay-OS — no se asume que sea kal-in por defecto,
 ver `vendor/kal` en Likay-OS, que debe actualizar su URL al repo nuevo.
+
+## Issue #4: un saludo trivial disparaba el modelo principal completo con tool-calling (2026-09-21)
+
+Reportado y confirmado en dos entornos reales de Likay-OS (ver
+[kal-in#4](https://github.com/carlosbv99-bit/kal-in/issues/4)):
+`is_trivial_message()` (agregada 2026-08-23 como optimización de
+latencia) solo evitaba la llamada al Conversation Engine
+(`classify()`) — pero el flujo en `agent_core/routers/chat.py` seguía
+de largo hasta `planning_agent.run()` → `AgentLoop.run()` → el modelo
+principal completo, CON tool-calling habilitado. SYSTEM_PROMPT ya le
+pide al modelo "no llamar ninguna herramienta" para un saludo, pero
+esa instrucción ya estaba probada como no confiable (mismo patrón que
+`technical_model_calls_unnecessary_tool_for_simple_messages.md`, nunca
+corregido del todo): el modelo a veces igual llama `system_info`.
+
+**Dos manifestaciones reales, mismo root cause**: (1) sin red, el pull
+implícito de la imagen Docker de `system_info` colgaba varios minutos
+sin timeout ni error visible; (2) con Podman rootless (sin daemon
+Docker), `system_info` fallaba rápido, pero el agente reintentaba,
+pivoteaba a llamadas inválidas de `remember`/`recall`, y agotaba
+`max_steps` sin responder — mismo resultado final para el usuario
+(nunca una respuesta a "hola"), solo cambiaba cuánto tardaba en
+fallar.
+
+**Fix real, no solo prompting**: `agent_core/conversation_engine.py` —
+`_TRIVIAL_MESSAGES` pasó de ser un `frozenset` a un `dict` que mapea
+cada mensaje trivial a su propia respuesta enlatada (en el mismo
+idioma del mensaje — la allowlist ya mezclaba variantes ES/EN).
+Nueva función `get_trivial_reply()`. `agent_core/routers/chat.py` la
+usa para cortar el turno COMPLETO antes de tocar cualquier modelo —
+mismo patrón que el camino existente de `needs_clarification`
+(`record_turn` + return directo), nuevo `status: "trivial_reply"`,
+`model_used: None`. `is_trivial_message()` se mantiene (tests propios
+la siguen usando) pero ya no se llama desde `chat.py`.
+
+**Segundo fix, independiente** (sugerido en el mismo issue): en
+`kernel/lifecycle/docker_runner.py`, `containers.run()` — que puede
+disparar un pull implícito de imagen — no tenía NINGÚN timeout propio;
+solo `container.wait()` (llamado después) estaba acotado por
+`sandbox.timeout_seconds`. Ahora `containers.run()` corre en un thread
+con `future.result(timeout=target_timeout_seconds)` — un pull colgado
+por falta de red ahora también produce un `SandboxResult("timeout", ...)`
+rápido y visible, en vez de un cuelgue silencioso. El thread no se
+espera tras un timeout a propósito (no hay forma de cancelar una
+llamada bloqueante de docker-py ya en curso).
+
+Tests nuevos: `TestGetTrivialReply` en `test_conversation_engine.py`,
+2 tests nuevos + 1 reescrito en `test_orchestrator_chat_conversation_engine.py`
+(confirman que ni `classify()` ni `planning_agent.run()` se llaman
+para un mensaje trivial), `tests/test_docker_runner_pull_timeout.py`
+(nuevo, incluye un test con Docker real). Un test preexistente
+(`test_orchestrator_chat_project_files.py::test_no_artifact_serializes_as_none`)
+usaba `"hola"` como goal de ejemplo sin relación con este bug —
+actualizado a un goal real para seguir ejercitando lo que probaba.
+
+Suite completa: 1160/1161 — el único fallo
+(`test_kernel_bus_audio_stt_inpaint_integration.py::test_image_inpaint_via_kernel_skill_edits_a_real_generated_image`)
+es un problema de caché preexistente y no relacionado: el modelo
+`runwayml/stable-diffusion-inpainting` en caché local (descargado en
+julio) solo tiene pesos `.bin`, no `.safetensors`, y el fallback de
+diffusers para ese formato falla en este entorno — nada que ver con
+este fix, confirmado inspeccionando el caché de HuggingFace
+directamente.

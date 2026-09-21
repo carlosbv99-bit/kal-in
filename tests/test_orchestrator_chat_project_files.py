@@ -55,6 +55,10 @@ def test_project_files_artifact_is_serialized_with_request_id_and_files(monkeypa
 def test_no_artifact_serializes_as_none(monkeypatch):
     monkeypatch.setattr(orchestrator_module.orchestrator, "planning_agent", type("_", (), {"run": staticmethod(lambda *a, **kw: _scripted_result(None))})())
 
-    response = client.post("/chat", json={"goal": "hola"})
+    # "hola" ya no sirve acá (kal-in issue #4): es un mensaje trivial que
+    # ahora corta el turno ANTES de planning_agent.run() — ver
+    # get_trivial_reply() en agent_core/conversation_engine.py. Este test
+    # necesita un goal real para seguir ejercitando la serialización.
+    response = client.post("/chat", json={"goal": "crear un sitio"})
 
     assert response.json()["steps"][0]["artifact"] is None

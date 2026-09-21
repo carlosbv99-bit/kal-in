@@ -116,14 +116,63 @@ Usuario: "Convertí este texto en audio"
 # largo) — el riesgo de saltear classify() por error en un pedido real
 # es peor que el ahorro, así que ante cualquier duda se sigue llamando
 # al Conversation Engine como siempre.
-_TRIVIAL_MESSAGES = frozenset({
-    "hola", "hola!", "hola.", "buenas", "buen dia", "buenos dias", "buenas tardes",
-    "buenas noches", "hey", "hi", "hello",
-    "como estas", "como estas?", "que tal", "que tal?", "todo bien?",
-    "quien sos", "quien sos?", "quien eres", "quien eres?", "who are you",
-    "gracias", "muchas gracias", "gracias!", "thank you", "thanks",
-    "chau", "chau!", "adios", "bye", "nos vemos", "hasta luego",
-})
+#
+# BUG REAL ENCONTRADO EN USO (kal-in issue #4, 2026-09-14/21): saltear
+# classify() NO alcanzaba — is_trivial_message() solo evitaba la
+# llamada al Conversation Engine, pero el flujo seguía de largo hasta
+# el modelo principal completo (con tool-calling habilitado) en
+# agent_core/routers/chat.py. SYSTEM_PROMPT ya le dice al modelo "no
+# llames ninguna herramienta para un saludo", pero esa instrucción ya
+# estaba probada como NO confiable (mismo patrón que
+# technical_model_calls_unnecessary_tool_for_simple_messages, nunca
+# corregido del todo): el modelo a veces igual llama system_info para
+# "¿quién sos?". Confirmado en dos entornos reales de Likay-OS: sin red
+# (pull de imagen Docker cuelga sin timeout, minutos sin respuesta) y
+# con Podman rootless (system_info falla rápido, pero el agente
+# reintenta y termina agotando max_steps sin responder de todos modos).
+# Un saludo trivial ya no debería depender en absoluto del modelo — acá
+# cada entrada mapea a su propia respuesta enlatada, en el mismo idioma
+# del mensaje, para que el turno se resuelva sin llamar a NINGÚN
+# modelo (ver get_trivial_reply() abajo y su uso en chat.py).
+_TRIVIAL_MESSAGES: dict[str, str] = {
+    "hola": "¡Hola! ¿En qué te puedo ayudar?",
+    "hola!": "¡Hola! ¿En qué te puedo ayudar?",
+    "hola.": "¡Hola! ¿En qué te puedo ayudar?",
+    "buenas": "¡Buenas! ¿En qué te puedo ayudar?",
+    "buen dia": "¡Buen día! ¿En qué te puedo ayudar?",
+    "buenos dias": "¡Buenos días! ¿En qué te puedo ayudar?",
+    "buenas tardes": "¡Buenas tardes! ¿En qué te puedo ayudar?",
+    "buenas noches": "¡Buenas noches! ¿En qué te puedo ayudar?",
+    "hey": "Hey! What can I help you with?",
+    "hi": "Hi! What can I help you with?",
+    "hello": "Hello! What can I help you with?",
+    "como estas": "¡Todo bien! ¿En qué te puedo ayudar?",
+    "como estas?": "¡Todo bien! ¿En qué te puedo ayudar?",
+    "que tal": "¡Todo bien! ¿En qué te puedo ayudar?",
+    "que tal?": "¡Todo bien! ¿En qué te puedo ayudar?",
+    "todo bien?": "¡Todo bien! ¿En qué te puedo ayudar?",
+    "quien sos": "Soy kal, un agente de IA que ejecuta tareas usando herramientas reales, no solo texto. ¿En qué te puedo ayudar?",
+    "quien sos?": "Soy kal, un agente de IA que ejecuta tareas usando herramientas reales, no solo texto. ¿En qué te puedo ayudar?",
+    "quien eres": "Soy kal, un agente de IA que ejecuta tareas usando herramientas reales, no solo texto. ¿En qué te puedo ayudar?",
+    "quien eres?": "Soy kal, un agente de IA que ejecuta tareas usando herramientas reales, no solo texto. ¿En qué te puedo ayudar?",
+    "who are you": "I'm kal, an AI agent that carries out tasks using real tools, not just text. What can I help you with?",
+    "gracias": "¡De nada! Si necesitás algo más, decime.",
+    "muchas gracias": "¡De nada! Si necesitás algo más, decime.",
+    "gracias!": "¡De nada! Si necesitás algo más, decime.",
+    "thank you": "You're welcome! Let me know if you need anything else.",
+    "thanks": "You're welcome! Let me know if you need anything else.",
+    "chau": "¡Chau! Que andes bien.",
+    "chau!": "¡Chau! Que andes bien.",
+    "adios": "¡Chau! Que andes bien.",
+    "bye": "Bye! Take care.",
+    "nos vemos": "¡Nos vemos!",
+    "hasta luego": "¡Hasta luego!",
+}
+
+
+def _normalize_goal(goal: str) -> str:
+    normalized = unicodedata.normalize("NFD", goal.strip().lower())
+    return "".join(c for c in normalized if unicodedata.category(c) != "Mn")
 
 
 def is_trivial_message(goal: str) -> bool:
@@ -134,9 +183,20 @@ def is_trivial_message(goal: str) -> bool:
     para la justificación completa. Coincidencia de mensaje ENTERO,
     nunca de una palabra suelta dentro de un pedido más largo.
     """
-    normalized = unicodedata.normalize("NFD", goal.strip().lower())
-    normalized = "".join(c for c in normalized if unicodedata.category(c) != "Mn")
-    return normalized in _TRIVIAL_MESSAGES
+    return _normalize_goal(goal) in _TRIVIAL_MESSAGES
+
+
+def get_trivial_reply(goal: str) -> str | None:
+    """
+    La respuesta enlatada para un mensaje trivial (mismo criterio EXACTO
+    que is_trivial_message()), o None si no coincide con ninguna. Usada
+    por agent_core/routers/chat.py para resolver el turno COMPLETO sin
+    llamar a ningún modelo — ver el comentario arriba de
+    _TRIVIAL_MESSAGES para el porqué (is_trivial_message() sola no
+    alcanzaba, solo saltaba el Conversation Engine, no el modelo
+    principal).
+    """
+    return _TRIVIAL_MESSAGES.get(_normalize_goal(goal))
 
 
 @dataclass

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_core.conversation_engine import _RUNTIME_NAME, ConversationEngine, is_trivial_message
+from agent_core.conversation_engine import _RUNTIME_NAME, ConversationEngine, get_trivial_reply, is_trivial_message
 from agent_core.llm.ollama_client import OllamaClient
 from agent_core.llm.openai_compatible_client import OpenAICompatibleClient
 from agent_core.llm.provider import ProviderError
@@ -228,3 +228,37 @@ class TestIsTrivialMessage:
     def test_empty_message_is_not_trivial(self):
         assert is_trivial_message("") is False
         assert is_trivial_message("   ") is False
+
+
+class TestGetTrivialReply:
+    """
+    get_trivial_reply() — kal-in issue #4 (2026-09-14/21): saltear
+    classify() no alcanzaba, el turno completo seguía llegando al
+    modelo principal con tool-calling habilitado. Mismo criterio EXACTO
+    que is_trivial_message() (misma allowlist), pero devuelve la
+    respuesta enlatada en vez de un bool — agent_core/routers/chat.py
+    la usa para resolver el turno SIN llamar a ningún modelo.
+    """
+
+    def test_returns_a_reply_for_a_known_greeting(self):
+        assert get_trivial_reply("hola") == "¡Hola! ¿En qué te puedo ayudar?"
+
+    def test_returns_none_for_a_non_trivial_message(self):
+        assert get_trivial_reply("hazme un logo") is None
+
+    def test_matches_case_accent_and_whitespace_insensitively(self):
+        assert get_trivial_reply("  HOLA  ") == get_trivial_reply("hola")
+        assert get_trivial_reply("qué tal") == get_trivial_reply("que tal")
+
+    def test_replies_in_the_same_language_as_the_greeting(self):
+        assert "hola" not in get_trivial_reply("hi").lower()
+        assert "hi" not in get_trivial_reply("hola").lower()
+
+    def test_every_trivial_message_has_a_reply(self):
+        """Ningún mensaje de la allowlist debería quedar sin respuesta
+        enlatada — is_trivial_message() y get_trivial_reply() deben
+        coincidir siempre sobre el MISMO conjunto de mensajes."""
+        for msg in ["hola", "buenas", "hey", "como estas", "quien sos",
+                    "who are you", "gracias", "thanks", "chau", "bye"]:
+            assert is_trivial_message(msg) is True
+            assert get_trivial_reply(msg) is not None

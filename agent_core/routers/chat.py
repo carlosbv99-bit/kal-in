@@ -10,7 +10,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from agent_core.context_service import EditorContextSignals
-from agent_core.conversation_engine import is_trivial_message
+from agent_core.conversation_engine import get_trivial_reply
 from agent_core.llm.provider import ProviderError
 from agent_core.orchestrator import _artifact_url, orchestrator
 from sdk.artifacts import Artifact
@@ -138,22 +138,43 @@ def chat(req: ChatRequest):
     # mientras hace polling.
     orchestrator.sessions.clear_progress(session)
 
+    # BUG REAL ENCONTRADO EN USO (kal-in issue #4, 2026-09-14/21): un
+    # saludo trivial ("hola", "¿quién sos?", etc.) resolvía el turno
+    # COMPLETO contra el modelo principal (con tool-calling habilitado)
+    # — is_trivial_message() antes solo evitaba la llamada al
+    # Conversation Engine, no el resto del flujo. SYSTEM_PROMPT ya le
+    # pide al modelo "no llamar ninguna herramienta" para estos casos,
+    # pero esa instrucción ya se había probado NO confiable (el modelo a
+    # veces igual llama system_info) — confirmado en dos entornos reales
+    # de Likay-OS: sin red (pull de imagen Docker cuelga sin timeout) y
+    # con Podman rootless (agota max_steps reintentando sin responder).
+    # get_trivial_reply() corta acá, ANTES de tocar cualquier modelo —
+    # ver agent_core/conversation_engine.py para la lista completa y el
+    # porqué de la respuesta enlatada por mensaje.
+    trivial_reply = get_trivial_reply(req.goal)
+    if trivial_reply is not None:
+        orchestrator.sessions.record_turn(session, req.goal, trivial_reply)
+        return {
+            "session_id": session.id,
+            "correlation_id": correlation_id,
+            "goal": req.goal,
+            "final_answer": trivial_reply,
+            "status": "trivial_reply",
+            "plan": [],
+            "steps": [],
+            # Ningún modelo resolvió este turno — reflectLastModelUsed()
+            # en frontend/app.js ya maneja un valor falsy sin tocar el
+            # selector visible.
+            "model_used": None,
+        }
+
     # Conversation Engine (ver agent_core/conversation_engine.py): paso
     # PREVIO y opcional, "fail-open" — si detecta baja confianza (pedido
     # ambiguo), responde de inmediato con la aclaración sin correr el
     # planner/agent_loop completo. Si falla por cualquier motivo o la
     # confianza alcanza, el flujo sigue exactamente como antes de este
     # cambio.
-    #
-    # BUG REAL ENCONTRADO EN USO (2026-08-23, diagnóstico de lentitud):
-    # classify() es una llamada COMPLETA a otro modelo, incluso para
-    # "hola" — is_trivial_message() salta esa llamada para el puñado
-    # de mensajes donde SYSTEM_PROMPT ya dice "no llames ninguna
-    # herramienta" de todos modos (ver conversation_engine.py para la
-    # allowlist completa y por qué es deliberadamente angosta).
-    # ce_result=None es el mismo camino fail-open que ya existía para
-    # cuando el Conversation Engine está deshabilitado o falla.
-    ce_result = None if is_trivial_message(req.goal) else orchestrator.conversation_engine.classify(req.goal)
+    ce_result = orchestrator.conversation_engine.classify(req.goal)
     if ce_result is not None:
         orchestrator.sessions.append_progress(session, {
             "stage": "conversation_engine", "model": settings.conversation_engine.model,

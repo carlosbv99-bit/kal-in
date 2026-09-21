@@ -13,6 +13,7 @@ directamente, para reducir superficie de ataque.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import os
 import tempfile
 import time
@@ -204,30 +205,55 @@ class DockerSandboxRunner:
 
             start = time.time()
             container = None
+            run_kwargs = dict(
+                image=target_image,
+                command=["python", "/workspace/main.py"],
+                volumes=volumes,
+                environment=environment,
+                tmpfs={"/tmp": "rw,noexec,nosuid,size=64m"},
+                working_dir="/workspace",
+                network_mode=target_network_mode,          # "none" por defecto
+                mem_limit=f"{target_memory_limit_mb}m",
+                memswap_limit=f"{target_memory_limit_mb}m",  # sin swap extra
+                nano_cpus=int(target_cpu_limit * 1e9),
+                pids_limit=target_pids_limit,
+                read_only=True,
+                # Mismo UID/GID que este proceso, no un valor
+                # hardcodeado — ver _prepare_workdir() para el motivo
+                # (evita el mismatch que antes se compensaba abriendo
+                # el bind mount a cualquier usuario del host).
+                user=f"{os.getuid()}:{os.getgid()}",
+                cap_drop=["ALL"],
+                security_opt=["no-new-privileges"],
+                detach=True,
+                remove=False,  # False para poder leer logs tras terminar; se limpia abajo
+            )
             try:
-                container = self.client.containers.run(
-                    image=target_image,
-                    command=["python", "/workspace/main.py"],
-                    volumes=volumes,
-                    environment=environment,
-                    tmpfs={"/tmp": "rw,noexec,nosuid,size=64m"},
-                    working_dir="/workspace",
-                    network_mode=target_network_mode,          # "none" por defecto
-                    mem_limit=f"{target_memory_limit_mb}m",
-                    memswap_limit=f"{target_memory_limit_mb}m",  # sin swap extra
-                    nano_cpus=int(target_cpu_limit * 1e9),
-                    pids_limit=target_pids_limit,
-                    read_only=True,
-                    # Mismo UID/GID que este proceso, no un valor
-                    # hardcodeado — ver _prepare_workdir() para el motivo
-                    # (evita el mismatch que antes se compensaba abriendo
-                    # el bind mount a cualquier usuario del host).
-                    user=f"{os.getuid()}:{os.getgid()}",
-                    cap_drop=["ALL"],
-                    security_opt=["no-new-privileges"],
-                    detach=True,
-                    remove=False,  # False para poder leer logs tras terminar; se limpia abajo
-                )
+                # BUG REAL ENCONTRADO EN USO (kal-in issue #4, 2026-09-21):
+                # containers.run() dispara un pull IMPLÍCITO de la imagen
+                # si no está cacheada — sin red (o con red caída a mitad
+                # de pull), esa llamada puede colgar sin ningún timeout
+                # propio. container.wait() en _wait_and_collect() de abajo
+                # solo acota la ESPERA de un contenedor que YA arrancó, no
+                # esta llamada. Envuelta en un thread con
+                # future.result(timeout=...) para acotarla también acá —
+                # mismo target_timeout_seconds que ya se confía para la
+                # ejecución. No se espera a que el thread termine tras un
+                # timeout (ver más abajo): no hay forma de cancelar una
+                # llamada bloqueante de docker-py ya en curso, y esperarla
+                # anularía el propio timeout que se acaba de aplicar.
+                pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                future = pool.submit(self.client.containers.run, **run_kwargs)
+                try:
+                    container = future.result(timeout=target_timeout_seconds)
+                except concurrent.futures.TimeoutError:
+                    logger.error(
+                        f"docker run/pull de '{target_image}' no respondió en "
+                        f"{target_timeout_seconds}s (probable red caída o pull colgado)"
+                    )
+                    return SandboxResult(
+                        "timeout", "", f"docker run/pull excedió {target_timeout_seconds}s sin responder", None
+                    )
             except ImageNotFound:
                 logger.error(f"Imagen de sandbox no encontrada: {target_image}")
                 return SandboxResult("error", "", f"sandbox image not found: {target_image}", None)

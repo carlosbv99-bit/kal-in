@@ -6,6 +6,10 @@ planning_agent.run() (ahorro real de cómputo). Si la confianza alcanza
 (o el clasificador devuelve None, "fail-open"), el flujo sigue
 exactamente como antes de este cambio.
 
+Un mensaje trivial ("hola", etc. — ver get_trivial_reply() en
+conversation_engine.py) corta el turno TODAVÍA antes: ni classify() ni
+planning_agent.run() se llaman en absoluto (kal-in issue #4).
+
 `orchestrator.conversation_engine`/`orchestrator.planning_agent`
 mockeados — no se ejercita ningún LLM real.
 """
@@ -141,21 +145,61 @@ def test_conversation_engine_returning_none_falls_through_to_the_agent_normally(
     assert fake_ce.calls == ["hacé una página web"]
 
 
-def test_a_trivial_message_never_calls_classify(monkeypatch):
+def test_a_trivial_message_never_calls_classify_nor_the_agent(monkeypatch):
     """
-    BUG REAL ENCONTRADO EN USO (2026-08-23, diagnóstico de lentitud):
-    classify() es una llamada COMPLETA a otro modelo — is_trivial_message()
-    la salta para saludos conocidos como "hola", donde SYSTEM_PROMPT ya
-    le dice al modelo que no llame ninguna herramienta de todos modos.
+    BUG REAL ENCONTRADO EN USO (kal-in issue #4, 2026-09-14/21): saltear
+    classify() NO alcanzaba — el flujo seguía de largo hasta el modelo
+    principal completo (con tool-calling habilitado), confirmado en dos
+    entornos reales de Likay-OS (pull de Docker colgado sin red; Podman
+    rootless agotando max_steps). get_trivial_reply() ahora corta el
+    turno COMPLETO en chat.py, sin llamar a classify() NI a
+    planning_agent.run() — ver agent_core/conversation_engine.py.
     """
     fake_ce = _FakeConversationEngine(None)
+    monkeypatch.setattr(orchestrator_module.orchestrator, "conversation_engine", fake_ce)
+    monkeypatch.setattr(orchestrator_module.orchestrator, "planning_agent", _NeverCallMePlanningAgent())
+
+    response = client.post("/chat", json={"goal": "hola"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "trivial_reply"
+    assert body["final_answer"] == "¡Hola! ¿En qué te puedo ayudar?"
+    assert body["plan"] == []
+    assert body["steps"] == []
+    assert body["model_used"] is None
+    assert fake_ce.calls == []
+
+
+def test_a_trivial_message_is_case_and_punctuation_insensitive(monkeypatch):
+    fake_ce = _FakeConversationEngine(None)
+    monkeypatch.setattr(orchestrator_module.orchestrator, "conversation_engine", fake_ce)
+    monkeypatch.setattr(orchestrator_module.orchestrator, "planning_agent", _NeverCallMePlanningAgent())
+
+    response = client.post("/chat", json={"goal": "  HOLA!  "})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "trivial_reply"
+    assert fake_ce.calls == []
+
+
+def test_a_non_trivial_message_still_reaches_the_agent(monkeypatch):
+    """Guarda contra un falso positivo: "hola, hazme un logo" NO es trivial
+    (mismo criterio EXACTO que is_trivial_message(), ver conversation_engine.py)
+    — debe seguir el camino normal, clasificador incluido."""
+    fake_ce = _FakeConversationEngine(
+        ConversationEngineResult(
+            intent="crear_imagen", confidence=0.95, required_capabilities=["image-generation"], user_reply="listo"
+        )
+    )
     monkeypatch.setattr(orchestrator_module.orchestrator, "conversation_engine", fake_ce)
     monkeypatch.setattr(
         orchestrator_module.orchestrator, "planning_agent",
         type("_", (), {"run": staticmethod(lambda *a, **kw: _scripted_planning_result())})(),
     )
 
-    response = client.post("/chat", json={"goal": "hola"})
+    response = client.post("/chat", json={"goal": "hola, hazme un logo"})
 
     assert response.status_code == 200
-    assert fake_ce.calls == []
+    assert response.json()["status"] != "trivial_reply"
+    assert fake_ce.calls == ["hola, hazme un logo"]
