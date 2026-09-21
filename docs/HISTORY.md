@@ -8233,3 +8233,73 @@ julio) solo tiene pesos `.bin`, no `.safetensors`, y el fallback de
 diffusers para ese formato falla en este entorno — nada que ver con
 este fix, confirmado inspeccionando el caché de HuggingFace
 directamente.
+
+## Clasificador local "¿necesita herramienta?" — generaliza el fix de la issue #4 (2026-09-22)
+
+`get_trivial_reply()` (issue #4) solo cubre coincidencia EXACTA de un
+puñado de saludos/despedidas. Cualquier otro mensaje puramente
+conversacional que no calce exacto ("che, todo bien por ahí?", "en qué
+me podés ayudar") seguía cayendo en el mismo patrón de falla ya
+documentado dos veces
+(`technical_model_calls_unnecessary_tool_for_simple_messages.md`,
+issue #4): el modelo a veces llama una herramienta pese a que
+SYSTEM_PROMPT se lo prohíbe explícitamente.
+
+**Investigado antes de construir nada**: no existe ningún dataset ya
+persistido de "mensaje → se llamó una herramienta o no" en este
+proyecto (ni audit log, ni memoria, ni logs lo registran) — se
+bootstrapeó a mano un dataset chico (~90 ejemplos,
+`agent_core/tool_need_classifier_data.jsonl`) desde los ejemplos ya
+escritos en SYSTEM_PROMPT y en `tests/test_agent_loop.py`.
+
+**Diseño**: TF-IDF + regresión logística (`scikit-learn`, nueva
+dependencia en `requirements-core.txt`) — clasificador clásico, sin
+LLM, sin RL, sin servicio de terceros. Entrenado con
+`scripts/train_tool_need_classifier.py`, artefacto commiteado
+(`agent_core/tool_need_classifier.joblib`, ~22KB). Corre en
+microsegundos, sin GPU.
+
+**Hallazgo real durante el entrenamiento, antes de aceptar el
+resultado**: con la regularización default de scikit-learn (C=1.0),
+`predict_proba()` nunca superaba ~0.6 de confianza ni para casos
+obvios como "hola" — un umbral de confianza razonable (0.9) habría
+dejado el clasificador efectivamente MUERTO (nunca dispara en la
+práctica, confirmado corriendo el reporte completo contra el split de
+test: 0/23 ejemplos cruzaban 0.9). Subir `C` a 20.0 separa las
+probabilidades de forma mucho más útil ("hola" pasa de p=0.61 a
+p=0.90) — validado además contra 10 frases NUEVAS fuera del dataset de
+entrenamiento (10/10 en la dirección correcta, ningún caso real de
+"necesita herramienta" cerca de cruzar el umbral). `confidence_threshold`
+final: 0.75, no 0.9 — documentado en `utils/config.py::ToolNeedClassifierConfig`
+como una calibración empírica sobre un dataset chico, no una garantía
+universal.
+
+**Diseño asimétrico a propósito** (`agent_core/routers/chat.py`, entre
+`get_trivial_reply()` y `classify()` del Conversation Engine): el
+clasificador SOLO puede cortar el flujo hacia "no hace falta
+herramienta" — nunca fuerza lo contrario. Si predice needs_tool=True o
+su confianza no alcanza el umbral, el flujo sigue exactamente como
+antes, sin ningún cambio. Nuevo método `AgentLoop.answer_directly()`
+(agent_core/llm/agent_loop.py) — UNA llamada al LLM SIN pasar `tools`,
+estructuralmente imposible que llame cualquier herramienta (no hay
+ninguna declarada), a diferencia de confiar en que respete la
+instrucción del prompt. No pasa por el loop de pasos/self-check/
+tool-repeat-limiter de `run()` (irrelevante acá).
+
+`agent_core/tool_need_classifier.py::predict_needs_tool()` — fail-open
+hacia needs_tool=True (nunca hacia False): un falso "no hace falta"
+suprimiría una capacidad real; un falso "sí hace falta" solo deja que
+el flujo normal siga, sin regresión.
+
+Tests nuevos: `test_tool_need_classifier.py` (predicciones + fail-open
+ante modelo ausente/corrupto), `test_orchestrator_chat_tool_need_classifier.py`
+(diseño asimétrico: confianza alta corta el turno, confianza baja o
+needs_tool=True siguen el flujo normal, `enabled=False` nunca llama al
+clasificador). Suite completa: 1171/1171.
+
+**Limitación honesta, documentada a propósito**: el dataset bootstrap
+es chico y curado a mano, no tráfico real de producción — es un primer
+paso razonable, no una solución completa. Queda como trabajo futuro
+(no incluido acá): loguear localmente pares reales
+`(mensaje, se_llamó_herramienta)` para reentrenar periódicamente con
+datos de uso real.

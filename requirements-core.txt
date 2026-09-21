@@ -42,3 +42,8 @@ psutil>=5.9            # RAM disponible del sistema, ver kernel/broker/resource_
 # (download_manager.py, image_editing.py) y en tests sin importorskip —
 # va en core, no en multimodal.
 Pillow>=10.0
+
+# --- Clasificador local de necesidad de herramienta ---
+# TF-IDF + regresión logística (agent_core/tool_need_classifier.py) —
+# CPU puro, sin GPU, joblib viene como dependencia transitiva.
+scikit-learn>=1.4

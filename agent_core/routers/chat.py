@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from agent_core.context_service import EditorContextSignals
 from agent_core.conversation_engine import get_trivial_reply
+from agent_core.tool_need_classifier import predict_needs_tool
 from agent_core.llm.provider import ProviderError
 from agent_core.orchestrator import _artifact_url, orchestrator
 from sdk.artifacts import Artifact
@@ -167,6 +168,37 @@ def chat(req: ChatRequest):
             # selector visible.
             "model_used": None,
         }
+
+    # Generalización de get_trivial_reply(): un clasificador LOCAL
+    # chico (TF-IDF + regresión logística, sin LLM — ver
+    # agent_core/tool_need_classifier.py) cubre mensajes conversacionales
+    # que NO calzan exacto con ningún saludo de la allowlist ("che, todo
+    # bien por ahí?", "en qué me podés ayudar") pero tampoco necesitan
+    # ninguna herramienta. Diseño asimétrico a propósito: SOLO corta acá
+    # si predice needs_tool=False con alta confianza — si predice que sí
+    # hace falta, o no está seguro, el flujo sigue exactamente igual que
+    # hoy (Conversation Engine + agente completo), sin ningún cambio de
+    # comportamiento. Llama al LLM UNA vez sin `tools` (AgentLoop.answer_directly,
+    # estructuralmente imposible que llame una herramienta) en vez de una
+    # respuesta enlatada — a diferencia de get_trivial_reply(), acá el
+    # mensaje no es exacto, así que no hay un texto fijo posible.
+    if settings.tool_need_classifier.enabled:
+        needs_tool, tool_confidence = predict_needs_tool(req.goal)
+        if not needs_tool and tool_confidence >= settings.tool_need_classifier.confidence_threshold:
+            final_answer = orchestrator.agent.answer_directly(
+                req.goal, history=context_bundle.history, session_context=context_bundle.session_context,
+            )
+            orchestrator.sessions.record_turn(session, req.goal, final_answer)
+            return {
+                "session_id": session.id,
+                "correlation_id": correlation_id,
+                "goal": req.goal,
+                "final_answer": final_answer,
+                "status": "no_tool_needed",
+                "plan": [],
+                "steps": [],
+                "model_used": settings.llm.default_model,
+            }
 
     # Conversation Engine (ver agent_core/conversation_engine.py): paso
     # PREVIO y opcional, "fail-open" — si detecta baja confianza (pedido

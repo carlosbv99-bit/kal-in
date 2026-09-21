@@ -340,6 +340,29 @@ class ConversationEngineConfig(BaseModel):
     temperature: float = 0.1
 
 
+class ToolNeedClassifierConfig(BaseModel):
+    """
+    Clasificador local (TF-IDF + regresión logística, sin LLM) que
+    decide "¿este mensaje necesita alguna herramienta?" — ver
+    agent_core/tool_need_classifier.py. Generaliza get_trivial_reply()
+    (coincidencia EXACTA de un puñado de saludos, kal-in issue #4) a
+    cualquier mensaje conversacional. Dataset bootstrap chico y curado
+    a mano (agent_core/tool_need_classifier_data.jsonl) — ver ese
+    archivo y scripts/train_tool_need_classifier.py para el detalle y
+    las limitaciones honestas.
+    """
+    enabled: bool = True
+    # confidence_threshold=0.75, no 0.9: con este dataset chico,
+    # predict_proba() nunca supera 0.9 ni para casos obvios como "hola"
+    # (daba 0.61 con la regularización default) — confirmado en vivo
+    # antes de fijar este valor. 0.75 sí separa bien en la práctica
+    # (validado contra frases NUEVAS, fuera del dataset de entrenamiento)
+    # sin que ningún caso real de "necesita herramienta" se acerque a
+    # cruzarlo. Solo aplica cuando el clasificador predice needs_tool=False
+    # — nunca fuerza lo contrario (ver el diseño asimétrico en chat.py).
+    confidence_threshold: float = 0.75
+
+
 class SandboxConfig(BaseModel):
     network_mode: Literal["none", "bridge"] = "none"
     memory_limit_mb: int = 512
@@ -506,6 +529,7 @@ class Settings(BaseModel):
     multimodal: MultimodalConfig = MultimodalConfig()
     resource_broker: ResourceBrokerConfig = ResourceBrokerConfig()
     conversation_engine: ConversationEngineConfig = ConversationEngineConfig()
+    tool_need_classifier: ToolNeedClassifierConfig = ToolNeedClassifierConfig()
     context: ContextConfig = ContextConfig()
     sandbox: SandboxConfig
     tool_integration: ToolIntegrationConfig

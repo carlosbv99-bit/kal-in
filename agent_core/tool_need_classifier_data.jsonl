@@ -1,0 +1,92 @@
+{"text": "hola", "needs_tool": false}
+{"text": "buenas", "needs_tool": false}
+{"text": "buen dia", "needs_tool": false}
+{"text": "hey", "needs_tool": false}
+{"text": "hi", "needs_tool": false}
+{"text": "hello", "needs_tool": false}
+{"text": "como estas", "needs_tool": false}
+{"text": "que tal", "needs_tool": false}
+{"text": "todo bien?", "needs_tool": false}
+{"text": "quien sos", "needs_tool": false}
+{"text": "quien eres", "needs_tool": false}
+{"text": "who are you", "needs_tool": false}
+{"text": "gracias", "needs_tool": false}
+{"text": "muchas gracias", "needs_tool": false}
+{"text": "thank you", "needs_tool": false}
+{"text": "chau", "needs_tool": false}
+{"text": "adios", "needs_tool": false}
+{"text": "bye", "needs_tool": false}
+{"text": "nos vemos", "needs_tool": false}
+{"text": "che, todo bien por ahi?", "needs_tool": false}
+{"text": "sos un modelo de OpenAI?", "needs_tool": false}
+{"text": "que modelo de IA sos vos", "needs_tool": false}
+{"text": "en que me podes ayudar", "needs_tool": false}
+{"text": "que sabes hacer", "needs_tool": false}
+{"text": "contame un chiste", "needs_tool": false}
+{"text": "que opinas de la inteligencia artificial", "needs_tool": false}
+{"text": "te parece que la IA va a reemplazar a los programadores", "needs_tool": false}
+{"text": "explicame que es un kernel de sistema operativo", "needs_tool": false}
+{"text": "que diferencia hay entre python y javascript", "needs_tool": false}
+{"text": "cuanto es 2+2", "needs_tool": false}
+{"text": "cuanto es 15 por 3", "needs_tool": false}
+{"text": "en que año llego el hombre a la luna", "needs_tool": false}
+{"text": "cual es la capital de francia", "needs_tool": false}
+{"text": "dame un consejo para aprender a programar", "needs_tool": false}
+{"text": "que opinas de mi idea de proyecto", "needs_tool": false}
+{"text": "podrias resumir lo que hablamos hasta ahora", "needs_tool": false}
+{"text": "no entendi tu ultima respuesta, la podes explicar de nuevo", "needs_tool": false}
+{"text": "esta bien lo que hiciste recien", "needs_tool": false}
+{"text": "me podes dar un ejemplo mas simple", "needs_tool": false}
+{"text": "que significa la palabra sandbox en este contexto", "needs_tool": false}
+{"text": "¿qué hace este código? explicame:\ndef suma(a, b):\n    return a + b", "needs_tool": false}
+{"text": "revisa este texto y decime si tiene errores de ortografia: 'este es un texto de prueva con heror'", "needs_tool": false}
+{"text": "cual es la diferencia entre docker y una maquina virtual", "needs_tool": false}
+{"text": "que te parecio la ultima imagen que generaste", "needs_tool": false}
+{"text": "estas seguro de esa respuesta", "needs_tool": false}
+{"text": "dale, segui con lo que estabas haciendo", "needs_tool": false}
+{"text": "perfecto, gracias por la ayuda", "needs_tool": false}
+{"text": "no hace falta que hagas nada mas", "needs_tool": false}
+{"text": "genial, eso era lo que necesitaba", "needs_tool": false}
+{"text": "generame una imagen de un gato en la playa", "needs_tool": true}
+{"text": "hace una imagen de una montaña nevada", "needs_tool": true}
+{"text": "crea un logo para mi empresa", "needs_tool": true}
+{"text": "necesito una foto de un auto rojo deportivo", "needs_tool": true}
+{"text": "convertí este texto en audio", "needs_tool": true}
+{"text": "leeme este poema en voz alta", "needs_tool": true}
+{"text": "generame un audio diciendo hola mundo", "needs_tool": true}
+{"text": "transcribime este audio a texto", "needs_tool": true}
+{"text": "que dice este archivo de audio", "needs_tool": true}
+{"text": "hace un video corto combinando estas escenas", "needs_tool": true}
+{"text": "edita esta imagen y agregale un sombrero al gato", "needs_tool": true}
+{"text": "borra el fondo de esta imagen", "needs_tool": true}
+{"text": "combina estas dos imagenes en una sola", "needs_tool": true}
+{"text": "analiza esta imagen y decime que hay", "needs_tool": true}
+{"text": "cuantos objetos hay en esta foto", "needs_tool": true}
+{"text": "calcula 2+2 con codigo", "needs_tool": true}
+{"text": "ejecuta este script de python y decime el resultado", "needs_tool": true}
+{"text": "corre este codigo y verifica si tiene errores", "needs_tool": true}
+{"text": "buscá en internet las noticias de hoy sobre tecnologia", "needs_tool": true}
+{"text": "entra a esta pagina web y decime que dice", "needs_tool": true}
+{"text": "navega a wikipedia y buscame informacion sobre python", "needs_tool": true}
+{"text": "creame un archivo de texto con una lista de compras", "needs_tool": true}
+{"text": "escribime un poema y guardalo en un archivo", "needs_tool": true}
+{"text": "importa este recurso desde esta url", "needs_tool": true}
+{"text": "descarga esta imagen desde internet", "needs_tool": true}
+{"text": "creame un proyecto completo de una pagina web para una panaderia", "needs_tool": true}
+{"text": "arma los archivos de un sitio web simple con html y css", "needs_tool": true}
+{"text": "mostrame que archivos tengo en la carpeta actual del workspace", "needs_tool": true}
+{"text": "leeme el contenido del archivo main.py", "needs_tool": true}
+{"text": "generame un codigo qr con este link", "needs_tool": true}
+{"text": "necesito un qr para compartir mi wifi", "needs_tool": true}
+{"text": "que informacion tenes del sistema, memoria y disco disponible", "needs_tool": true}
+{"text": "revisa el estado del sistema, cuanta ram esta libre", "needs_tool": true}
+{"text": "acordate que mi color favorito es el azul", "needs_tool": true}
+{"text": "guardá que prefiero las respuestas cortas", "needs_tool": true}
+{"text": "te acordas que color te dije que me gusta", "needs_tool": true}
+{"text": "buscá en tu memoria si ya hablamos de este tema antes", "needs_tool": true}
+{"text": "compilá y sacale una captura de pantalla a esta app de android", "needs_tool": true}
+{"text": "proponeme una skill nueva para hacer traducciones", "needs_tool": true}
+{"text": "quiero una nueva herramienta que convierta celsius a fahrenheit", "needs_tool": true}
+{"text": "generame una imagen y despues describime que se ve en ella", "needs_tool": true}
+{"text": "hace un inpaint de esta imagen, reemplaza el cielo por uno nublado", "needs_tool": true}
+{"text": "creá el audio de este texto y despues transcribilo para verificar", "needs_tool": true}

@@ -755,6 +755,38 @@ class AgentLoop:
             self_checked_tools=self_check.as_frozenset(),
         )
 
+    def answer_directly(
+        self,
+        goal: str,
+        history: list[dict] | None = None,
+        session_context: dict | None = None,
+    ) -> str:
+        """
+        Una única llamada al LLM SIN pasar `tools` — estructuralmente
+        imposible que el modelo llame cualquier herramienta (no hay
+        ninguna declarada), a diferencia de confiar en que respete la
+        instrucción de SYSTEM_PROMPT ("no llames ninguna herramienta
+        para un saludo"), que ya se probó NO confiable dos veces (ver
+        agent_core/tool_need_classifier.py, kal-in issue #4).
+
+        Usada por agent_core/routers/chat.py cuando
+        tool_need_classifier.predict_needs_tool() predice, con alta
+        confianza, que el mensaje no necesita ninguna herramienta —
+        pero NO es un mensaje exacto de get_trivial_reply(), así que no
+        hay una respuesta enlatada posible. No pasa por el loop de
+        pasos/self-check/tool-repeat-limiter de run() (irrelevantes
+        acá: no hay herramientas que llamar, así que no hay nada que
+        limitar ni auto-chequear).
+        """
+        system_content = SYSTEM_PROMPT
+        if session_context:
+            system_content = f"{SYSTEM_PROMPT}\n\n{session_context['content']}"
+        messages: list[dict] = [{"role": "system", "content": system_content}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": goal})
+        return self.llm.chat(messages).content
+
     def _dispatch_tool(
         self, name: str, arguments: dict[str, Any], tools: dict[str, AgentTool],
         denied_permissions: frozenset[Permission] = frozenset(),
