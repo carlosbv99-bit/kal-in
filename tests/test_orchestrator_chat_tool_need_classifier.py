@@ -19,6 +19,7 @@ from agent_core.conversation_engine import ConversationEngineResult
 from agent_core.llm.agent_loop import AgentRunResult, AgentStep
 from agent_core.llm.planner import Plan, PlanRunResult, PlanStep, PlanStepResult
 from agent_core.orchestrator import app
+from sdk.artifacts import Artifact
 from utils.config import settings
 
 client = TestClient(app, base_url="http://localhost")
@@ -130,6 +131,50 @@ def test_needs_tool_prediction_falls_through_to_the_agent_normally(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] != "no_tool_needed"
     assert fake_ce.calls == ["ejecuta esto"]
+
+
+def test_active_image_artifact_skips_the_fast_path_even_with_confident_no_tool_prediction(monkeypatch):
+    """
+    BUG REAL ENCONTRADO EN USO (2026-09-22): "identifica a que cancion
+    pertenecen estas letras" (con una imagen recién subida) se clasificó
+    needs_tool=False con alta confianza — razonable para ese texto
+    AISLADO, pero predict_needs_tool() no ve el estado de la sesión, así
+    que ignoraba que había un artefacto de imagen activo que la pregunta
+    casi seguro necesitaba mirar. answer_directly() no tiene NINGUNA
+    herramienta disponible (estructural) — el modelo chico terminaba
+    repitiendo textualmente la instrucción de "llamá a analyze_image"
+    (agregada en agent_core/context_service.py) como si fuera su
+    respuesta, porque no tenía forma real de cumplirla. Con un artefacto
+    de imagen activo, el fast-path ya no debe ni preguntarle al
+    clasificador — sigue directo al Conversation Engine + agente
+    completo, que sí tiene analyze_image disponible.
+    """
+    monkeypatch.setattr(
+        "agent_core.routers.chat.predict_needs_tool",
+        lambda goal: (_ for _ in ()).throw(AssertionError("no debería llamarse con una imagen activa")),
+    )
+    fake_ce = _FakeConversationEngine(
+        ConversationEngineResult(intent="vision", confidence=0.95, required_capabilities=["vision"], user_reply="listo")
+    )
+    monkeypatch.setattr(orchestrator_module.orchestrator, "conversation_engine", fake_ce)
+    monkeypatch.setattr(
+        orchestrator_module.orchestrator, "planning_agent",
+        type("_", (), {"run": staticmethod(lambda *a, **kw: _scripted_planning_result())})(),
+    )
+
+    session = orchestrator_module.orchestrator.sessions.get_or_create(None)
+    orchestrator_module.orchestrator.sessions.update_active_artifact(
+        session, Artifact(modality="image", uri="data/artifacts/uploads/letras.png")
+    )
+
+    response = client.post(
+        "/chat",
+        json={"goal": "identifica a que cancion pertenecen estas letras", "session_id": session.id},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] != "no_tool_needed"
+    assert fake_ce.calls == ["identifica a que cancion pertenecen estas letras"]
 
 
 def test_disabled_via_config_never_short_circuits(monkeypatch):

@@ -85,7 +85,7 @@ def test_build_cut_short_final_answer_cites_the_last_real_artifact_when_one_exis
     answer = tracker.build_cut_short_final_answer("image_generation")
 
     assert "Generé el resultado" in answer
-    assert "Podés ver el resultado arriba" in answer
+    assert "Puedes ver el resultado arriba" in answer
 
 
 def test_build_cut_short_final_answer_is_honest_when_nothing_was_ever_generated():

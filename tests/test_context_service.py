@@ -68,6 +68,31 @@ def test_session_context_describes_the_active_artifact():
     assert "data/artifacts/images/logo.png" in bundle.session_context["content"]
 
 
+def test_session_context_covers_generic_references_beyond_the_word_imagen():
+    """
+    BUG REAL ENCONTRADO EN USO (2026-09-22): "de que se trata este
+    documento" (sobre una imagen subida por el usuario, ya artefacto
+    activo) hizo que el modelo respondiera "necesito verlo o leerlo
+    primero... ¿podrías indicarme cómo puedo acceder a él?" — cero
+    llamadas a herramientas, como si no hubiera ningún archivo
+    disponible. La instrucción solo cubría "la imagen"/"el audio"/"el
+    video" literalmente; "documento" no calzaba con ninguna, así que el
+    modelo no conectó la referencia genérica del usuario con el
+    artefacto activo real.
+    """
+    service = ContextService()
+    manager = SessionManager()
+    session = manager.get_or_create(None)
+    manager.update_active_artifact(session, Artifact(modality="image", uri="data/artifacts/images/foto.png"))
+
+    bundle = service.build(session)
+    content = bundle.session_context["content"]
+
+    assert "el documento" in content
+    assert "el archivo" in content
+    assert "lo que subí" in content
+
+
 def test_session_context_tells_the_model_to_call_analyze_image_for_an_active_image():
     """
     BUG REAL ENCONTRADO EN USO: pedido "describe esta imagen" sobre una
@@ -85,7 +110,30 @@ def test_session_context_tells_the_model_to_call_analyze_image_for_an_active_ima
 
     assert "analyze_image" in bundle.session_context["content"]
     assert "data/artifacts/images/leon.png" in bundle.session_context["content"]
-    assert "no podés ver imágenes" in bundle.session_context["content"]
+    assert "no puedes ver imágenes" in bundle.session_context["content"]
+
+
+def test_session_context_tells_the_model_to_use_ocr_instead_of_analyze_image_for_text_requests():
+    """
+    BUG REAL ENCONTRADO EN USO (2026-09-22): pedirle a analyze_image (un
+    modelo de visión-lenguaje) transcribir texto denso de una imagen
+    (una foto de CPU-Z) hizo que alucinara una sección de RAM completa
+    con números de parte falsos que no existen en la imagen. Para
+    pedidos de TEXTO, la instrucción tiene que dirigir a
+    extract_text_from_image (un pipeline de OCR clasificatorio, no
+    generativo) en vez de analyze_image.
+    """
+    service = ContextService()
+    manager = SessionManager()
+    session = manager.get_or_create(None)
+    manager.update_active_artifact(session, Artifact(modality="image", uri="data/artifacts/images/letras.png"))
+
+    bundle = service.build(session)
+    content = bundle.session_context["content"]
+
+    assert "extract_text_from_image" in content
+    assert "NUNCA analyze_image" in content
+    assert "ALUCINAR" in content
 
 
 def test_session_context_does_not_mention_analyze_image_for_non_image_artifacts():
@@ -97,6 +145,29 @@ def test_session_context_does_not_mention_analyze_image_for_non_image_artifacts(
     bundle = service.build(session)
 
     assert "analyze_image" not in bundle.session_context["content"]
+
+
+def test_session_context_tells_the_model_to_call_speech_to_text_for_an_active_audio():
+    """
+    BUG REAL ENCONTRADO EN USO (2026-09-22): un audio SUBIDO POR EL
+    USUARIO (a diferencia de uno generado por kal-in) ahora también se
+    convierte en artefacto activo (ver agent_core/routers/chat.py::
+    upload_image, que antes solo aceptaba imágenes) — mismo patrón que
+    ya se arregló para analyze_image: la herramienta speech_to_text
+    disponible no alcanza sin una instrucción que la conecte con la
+    intención del usuario.
+    """
+    service = ContextService()
+    manager = SessionManager()
+    session = manager.get_or_create(None)
+    manager.update_active_artifact(session, Artifact(modality="audio", uri="data/artifacts/uploads/nota.wav"))
+
+    bundle = service.build(session)
+    content = bundle.session_context["content"]
+
+    assert "speech_to_text" in content
+    assert "data/artifacts/uploads/nota.wav" in content
+    assert "no puedes escuchar audio" in content
 
 
 def test_session_context_describes_editor_context():
@@ -352,7 +423,7 @@ def test_vscode_client_instruction_tells_the_model_to_check_its_real_toolset_bef
     bundle = service.build(session, client="vscode")
     content = bundle.session_context["content"]
 
-    assert "fijate primero en tu lista real de herramientas" in content.lower()
+    assert "fíjate primero en tu lista real de herramientas" in content.lower()
 
 
 def test_vscode_client_instruction_tells_the_model_to_ask_for_clarification_instead_of_inventing_a_limitation():
@@ -370,7 +441,7 @@ def test_vscode_client_instruction_tells_the_model_to_ask_for_clarification_inst
     bundle = service.build(session, client="vscode")
     content = bundle.session_context["content"]
 
-    assert "con qué necesitás ayuda" in content.lower()
+    assert "con qué necesitas ayuda" in content.lower()
     assert "sin haber intentado" in content.lower()
 
 

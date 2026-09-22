@@ -18,6 +18,7 @@ from tool_integration.adapters.image_analysis import ImageAnalysisTool
 from tool_integration.adapters.image_composition import ImageCompositionTool
 from tool_integration.adapters.image_editing import ImageEditingTool
 from tool_integration.adapters.image_gen import ImageGenerationTool
+from tool_integration.adapters.ocr import TextExtractionTool
 from tool_integration.adapters.skill_creator_tool import ProposeSkillTool
 from tool_integration.adapters.speech_to_text import SpeechToTextTool
 from tool_integration.adapters.text_file import CreateTextFileTool
@@ -70,6 +71,7 @@ def register_default_static_tools() -> None:
     tool_registry.register_static_tool(ImageEditingTool(image_service=shared_image_service))
     tool_registry.register_static_tool(ImageCompositionTool())
     tool_registry.register_static_tool(ImageAnalysisTool())
+    tool_registry.register_static_tool(TextExtractionTool())
     tool_registry.register_static_tool(ProposeProjectFilesTool())
     tool_registry.register_static_tool(ImportResourceTool())
     tool_registry.register_static_tool(ReadWorkspaceFileTool())

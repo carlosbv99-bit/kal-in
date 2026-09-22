@@ -31,6 +31,16 @@ rembg>=2.0               # eliminar fondo (modelo u2net, se descarga la 1a vez)
 # resize Lanczos (Pillow), no super-resolución con IA — ver docstring
 # de ese adaptador.
 
+# --- Extracción de texto de una imagen (OCR dedicado, no vía LLM) ---
+rapidocr>=3.9              # modelos PP-OCR (Baidu) reimplementados sobre ONNXRuntime
+# NOTA: no paddleocr/paddlepaddle directo — paddlepaddle no tiene build
+# para Python 3.14 (el que usa este proyecto), ni wheel publicado en
+# PyPI todavía. rapidocr usa los MISMOS modelos PP-OCR (pesos y
+# arquitectura idénticos) sobre ONNXRuntime, que sí soporta 3.14. Ver
+# utils/config.py::OCRConfig para la comparación en vivo que motivó
+# esto (analyze_image, vía un modelo de visión-lenguaje, alucinaba
+# contenido en tareas de OCR de texto denso).
+
 # --- Navegador (browser agent) ---
 playwright>=1.40
 # NOTA: además del paquete pip, hace falta instalar el binario de Chromium

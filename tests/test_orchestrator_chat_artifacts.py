@@ -135,3 +135,34 @@ def test_uploading_an_image_records_it_into_the_session_artifact_history():
     assert len(artifacts) == 1
     assert artifacts[0]["tool_name"] == "upload"
     assert artifacts[0]["modality"] == "image"
+
+
+def test_uploading_an_audio_records_it_as_an_audio_artifact():
+    """
+    BUG REAL ENCONTRADO EN USO (2026-09-22): un audio subido por el
+    usuario no tenía forma de entrar al mismo mecanismo de "artefacto
+    activo" que ya usan las imágenes — speech_to_text (faster-whisper)
+    existía como herramienta, pero /uploads solo aceptaba png/jpeg/webp,
+    así que un audio propio del usuario nunca se convertía en el
+    artefacto activo de la sesión (a diferencia de una imagen subida).
+    """
+    files = {"file": ("nota_de_voz.wav", io.BytesIO(b"contenido-falso-de-audio"), "audio/wav")}
+
+    upload_response = client.post("/uploads", files=files)
+    assert upload_response.status_code == 200
+    session_id = upload_response.json()["session_id"]
+
+    artifacts = client.get(f"/chat/sessions/{session_id}/artifacts").json()["artifacts"]
+
+    assert len(artifacts) == 1
+    assert artifacts[0]["tool_name"] == "upload"
+    assert artifacts[0]["modality"] == "audio"
+
+
+def test_uploading_an_unsupported_content_type_is_rejected():
+    files = {"file": ("archivo.pdf", io.BytesIO(b"no es ni imagen ni audio"), "application/pdf")}
+
+    response = client.post("/uploads", files=files)
+
+    assert response.status_code == 400
+    assert "application/pdf" in response.json()["detail"]

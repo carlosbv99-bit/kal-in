@@ -1,8 +1,9 @@
 """
-Chat / agente: /chat, /uploads.
+Chat / agente: /chat, /uploads, /transcribe.
 """
 from __future__ import annotations
 
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from agent_core.llm.provider import ProviderError
 from agent_core.orchestrator import _artifact_url, orchestrator
 from sdk.artifacts import Artifact
 from sdk.permissions import Permission
+from tool_integration.services import KernelServiceError, STTService
 from utils.config import settings
 from utils.correlation import new_id, set_correlation_id
 from utils.logger import get_logger
@@ -193,7 +195,22 @@ def chat(req: ChatRequest):
     # ToolNeedClassifierConfig.answer_model). Sin herramientas de por
     # medio, no hay motivo para cargar/usar el modelo grande solo para
     # charlar.
-    if settings.tool_need_classifier.enabled:
+    # BUG REAL ENCONTRADO EN USO (2026-09-22): predict_needs_tool() solo ve
+    # el TEXTO del mensaje, nunca el estado de la sesión — "identifica a
+    # que cancion pertenecen estas letras" (con una imagen recién subida)
+    # se clasificó como needs_tool=False con alta confianza, razonable
+    # para ese texto AISLADO, pero ignora que hay un artefacto de imagen
+    # activo que la pregunta casi seguro necesita mirar. answer_directly()
+    # no tiene NINGUNA herramienta disponible (estructural, ver el
+    # comentario de arriba) — aun así recibía la instrucción de
+    # context_service.py de "llamá a analyze_image", que no puede cumplir
+    # de ninguna forma real, así que el modelo chico terminaba repitiendo
+    # la instrucción como si fuera su respuesta. Con un artefacto de
+    # imagen activo, el fast-path nunca es seguro: siempre sigue al
+    # Conversation Engine + agente completo, que sí tiene analyze_image
+    # disponible.
+    has_active_image = session.active_artifact is not None and session.active_artifact.modality == "image"
+    if settings.tool_need_classifier.enabled and not has_active_image:
         needs_tool, tool_confidence = predict_needs_tool(req.goal)
         if not needs_tool and tool_confidence >= settings.tool_need_classifier.confidence_threshold:
             final_answer = orchestrator.agent.answer_directly(
@@ -458,17 +475,28 @@ def chat_session_artifacts(session_id: str):
     }
 
 
-# --- Subida de imágenes propias ---
+# --- Subida de imágenes/audio propios ---
 
-_ALLOWED_UPLOAD_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
+_ALLOWED_IMAGE_UPLOAD_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
+# BUG REAL ENCONTRADO EN USO (2026-09-22): un audio subido por el usuario
+# no tenía forma de entrar al mismo mecanismo de "artefacto activo" que
+# ya usan las imágenes (ver _ALLOWED_IMAGE_UPLOAD_CONTENT_TYPES arriba) —
+# speech_to_text (faster-whisper) ya existe como herramienta, pero nunca
+# se conectaba con nada subido directamente por el usuario, solo con
+# audio generado por el propio agente. Mismos tipos que MediaRecorder de
+# un navegador (grabación de voz) o un selector de archivo típico
+# producen en la práctica.
+_ALLOWED_AUDIO_UPLOAD_CONTENT_TYPES = {"audio/wav", "audio/mpeg", "audio/webm", "audio/ogg", "audio/mp4"}
+_ALLOWED_UPLOAD_CONTENT_TYPES = _ALLOWED_IMAGE_UPLOAD_CONTENT_TYPES | _ALLOWED_AUDIO_UPLOAD_CONTENT_TYPES
 
 
-@router.post("/uploads", summary="Subir una imagen propia")
+@router.post("/uploads", summary="Subir una imagen o un audio propio")
 async def upload_image(file: UploadFile = File(...), session_id: str | None = Form(None)):
     """
-    Sube una imagen propia del usuario (no generada por kal) y la
-    convierte en el artefacto activo de la sesión — así el siguiente
-    mensaje ("quitale el fondo") no necesita repetir ninguna ruta.
+    Sube una imagen o un audio propio del usuario (no generado por
+    kal-in) y lo convierte en el artefacto activo de la sesión — así el
+    siguiente mensaje ("quitale el fondo" / "transcribí esto") no
+    necesita repetir ninguna ruta.
 
     Acción DIRECTA del usuario (como escribir un mensaje de chat), no
     una decisión autónoma del agente — no pasa por el pipeline de
@@ -476,17 +504,24 @@ async def upload_image(file: UploadFile = File(...), session_id: str | None = Fo
     (ver audit/audit_log.py: solo se registran ahí acciones SIN
     intervención humana directa).
     """
-    if file.content_type not in _ALLOWED_UPLOAD_CONTENT_TYPES:
+    if file.content_type in _ALLOWED_IMAGE_UPLOAD_CONTENT_TYPES:
+        modality = "image"
+    elif file.content_type in _ALLOWED_AUDIO_UPLOAD_CONTENT_TYPES:
+        modality = "audio"
+    else:
         raise HTTPException(
             status_code=400,
-            detail=f"Tipo de archivo no soportado: '{file.content_type}' (solo imágenes: png/jpeg/webp)",
+            detail=(
+                f"Tipo de archivo no soportado: '{file.content_type}' "
+                "(imágenes: png/jpeg/webp — audio: wav/mpeg/webm/ogg/mp4)"
+            ),
         )
 
     cfg = settings.multimodal.uploads
     upload_dir = Path(cfg.artifact_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    suffix = Path(file.filename or "").suffix or ".png"
+    suffix = Path(file.filename or "").suffix or (".png" if modality == "image" else ".wav")
     dest_path = upload_dir / f"{uuid.uuid4()}{suffix}"
     max_bytes = cfg.max_size_mb * 1024 * 1024
 
@@ -502,7 +537,7 @@ async def upload_image(file: UploadFile = File(...), session_id: str | None = Fo
 
     session = orchestrator.sessions.get_or_create(session_id)
     artifact = Artifact(
-        modality="image", uri=str(dest_path),
+        modality=modality, uri=str(dest_path),
         metadata={"uploaded_by_user": True, "original_filename": file.filename},
     )
     orchestrator.sessions.update_active_artifact(session, artifact)
@@ -513,3 +548,79 @@ async def upload_image(file: UploadFile = File(...), session_id: str | None = Fo
         "path": str(dest_path),
         "url": _artifact_url(str(dest_path)),
     }
+
+
+# --- Transcripción en vivo (micrófono) ---
+
+# Instancia PROPIA, separada de shared_stt_service (agent_core/
+# default_tools.py) — ese vive como variable local del registro de
+# herramientas, sin ningún accessor público para reusarla desde otro
+# router. Duplicar la carga del modelo "tiny" de whisper (~75MB) es un
+# costo real pero chico, a propósito para no acoplar este endpoint
+# efímero al Kernel Service Bus. Carga perezosa (recién al primer uso),
+# mismo patrón que el resto de los adaptadores multimodales.
+_transcription_service = STTService()
+
+
+@router.post("/transcribe", summary="Transcribir un audio sin pasar por el agente (transcripción en vivo)")
+async def transcribe_audio(file: UploadFile = File(...)):
+    """
+    Transcripción DIRECTA (faster-whisper, sin LLM, sin sesión, sin
+    persistir el archivo) — pensada para la transcripción en vivo
+    mientras el usuario graba con el micrófono (ver frontend/app.js),
+    llamada muchas veces por grabación. A diferencia de /uploads + /chat
+    (que sí crea un artefacto persistente, pasa por el Conversation
+    Engine y el agente completo con tool-calling), este endpoint es
+    DELIBERADAMENTE efímero y liviano: nunca toca Session.artifacts ni
+    el historial de la conversación, el archivo temporal se borra apenas
+    termina la transcripción.
+
+    DECISIÓN DE DISEÑO: no usa la Web Speech API nativa del navegador
+    (SpeechRecognition) pese a que daría transcripción en vivo "gratis"
+    sin este endpoint — esa API manda el audio crudo a un servicio en la
+    nube del proveedor del navegador (Google en Chrome/Opera), violando
+    el principio "local-first, sin red inesperada" del resto de kal-in
+    (ver README: "kal-in es local-first ... todo funciona primero en
+    CPU"). Este endpoint es más lento y más código, pero mantiene la voz
+    del usuario 100% local, igual que el resto del pipeline de audio.
+    """
+    if file.content_type not in _ALLOWED_AUDIO_UPLOAD_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tipo de archivo no soportado: '{file.content_type}' (audio: wav/mpeg/webm/ogg/mp4)",
+        )
+
+    cfg = settings.multimodal.uploads
+    max_bytes = cfg.max_size_mb * 1024 * 1024
+    suffix = Path(file.filename or "").suffix or ".webm"
+
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+        size = 0
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > max_bytes:
+                tmp.close()
+                tmp_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=400, detail=f"Archivo demasiado grande (máx {cfg.max_size_mb}MB)")
+            tmp.write(chunk)
+
+    try:
+        result = _transcription_service.transcribe(str(tmp_path))
+    except KernelServiceError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        # BUG REAL ENCONTRADO EN USO: un chunk de webm todavía incompleto
+        # (típico de la transcripción parcial en vivo, llamada mientras
+        # el usuario sigue grabando — ver frontend/app.js) puede no ser
+        # un contenedor válido todavía y faster-whisper/PyAV lo rechaza
+        # con un error de decodificación (av.error.InvalidDataError, no
+        # KernelServiceError) — 400, no 500: es un dato de entrada
+        # inválido puntual, nunca un fallo real del servicio de
+        # transcripción en sí.
+        logger.warning(f"No se pudo decodificar el audio para transcripción en vivo: {e}")
+        raise HTTPException(status_code=400, detail="No se pudo decodificar el audio (chunk incompleto).") from e
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    return {"text": result["metadata"]["summary"]}

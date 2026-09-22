@@ -107,9 +107,14 @@ class ContextService:
             parts.append(addendum)
         if active_artifact is not None:
             parts.append(
-                f"El último artefacto activo (generado por vos o subido por el usuario) es "
-                f"{active_artifact.modality} en '{active_artifact.uri}'. Si el usuario se refiere a "
-                '"la imagen"/"el audio"/"el video" sin dar más detalle, probablemente hable de este.'
+                f"El último artefacto activo (generado por ti o subido por el usuario) es "
+                f"{active_artifact.modality} en '{active_artifact.uri}'. Si el usuario se refiere a él "
+                "sin dar más detalle — \"la imagen\"/\"el audio\"/\"el video\", pero también \"el "
+                'documento"/"el archivo"/"esto"/"eso"/"lo que subí"/"lo que te pasé" o cualquier otra '
+                "referencia genérica sin nombrar explícitamente otra cosa — probablemente hable de "
+                "este artefacto, aunque la palabra que use no coincida literalmente con su modalidad "
+                '("documento" para una imagen subida es un caso real y válido, no un motivo para '
+                "decir que no tenés ningún archivo disponible)."
             )
             if active_artifact.modality == "image":
                 # BUG REAL ENCONTRADO EN USO: pedido "describe esta imagen"
@@ -123,10 +128,38 @@ class ContextService:
                 # herramienta disponible no alcanza sin una instrucción
                 # explícita que la conecte con la intención del usuario.
                 parts.append(
-                    "Si el usuario pide describir, analizar, o identificar qué hay en esta imagen "
-                    "(o hace una pregunta sobre su contenido), NUNCA respondas que no podés ver "
-                    "imágenes — llamá a la herramienta analyze_image con "
-                    f"image_path='{active_artifact.uri}' y question igual al pedido del usuario."
+                    "Si el usuario pide describir, analizar o identificar qué hay en esta imagen (o "
+                    "hace una pregunta sobre su contenido visual), NUNCA respondas que no puedes ver "
+                    "imágenes, y NUNCA respondas desde el tema de turnos anteriores de la conversación "
+                    "como si fuera el contenido de esta imagen: llama a la herramienta analyze_image "
+                    f"con image_path='{active_artifact.uri}' y question igual al pedido del usuario.\n"
+                    "Si en cambio el pedido es sobre TEXTO ESCRITO que aparece dentro de la imagen — "
+                    "transcribirlo/leerlo, o identificar algo (una canción, un libro, una cita) A "
+                    "PARTIR de ese texto — usa extract_text_from_image en su lugar, NUNCA "
+                    "analyze_image: un modelo de visión-lenguaje como el de analyze_image puede "
+                    "ALUCINAR contenido que no está en la imagen (confirmado en uso: inventó una "
+                    "sección de RAM completa con números de parte falsos frente a una foto de CPU-Z "
+                    "que no la tenía), mientras que extract_text_from_image es un pipeline de OCR "
+                    "clasificatorio que no puede inventar texto que no esté ahí.\n"
+                    "En ambos casos, tu respuesta final tiene que basarse en lo que la herramienta "
+                    "realmente devuelva sobre ESTA imagen, nunca en una suposición ni en lo que se "
+                    "venía hablando antes."
+                )
+            elif active_artifact.modality == "audio":
+                # Mismo patrón que el bloque de imagen de arriba, para el
+                # gap equivalente con audio: un audio SUBIDO POR EL
+                # USUARIO (no generado por kal-in) ahora también se
+                # convierte en artefacto activo (ver agent_core/routers/
+                # chat.py::upload_image) — sin esta instrucción, nada le
+                # avisa al modelo que puede transcribirlo con
+                # speech_to_text en vez de decir que no puede escuchar
+                # audio.
+                parts.append(
+                    "Si el usuario pide transcribir, escuchar o saber qué dice este audio (o hace una "
+                    "pregunta sobre su contenido), NUNCA respondas que no puedes escuchar audio: llama "
+                    f"a la herramienta speech_to_text con audio_path='{active_artifact.uri}'. Tu "
+                    "respuesta final tiene que basarse en lo que la herramienta realmente transcriba de "
+                    "ESTE audio, nunca en una suposición ni en lo que se venía hablando antes."
                 )
         if editor_context is not None:
             if editor_context.text:
@@ -153,8 +186,8 @@ class ContextService:
                 # trabajando el usuario.
                 parts.append(
                     f"El usuario tiene actualmente abierto '{editor_context.relative_path}' en su "
-                    "editor (no se incluyó su contenido acá). Si el pedido es agregar o modificar "
-                    "algo de ESE archivo o del proyecto al que pertenece, usá esa ruta real como "
+                    "editor (no se incluyó su contenido aquí). Si el pedido es agregar o modificar "
+                    "algo de ESE archivo o del proyecto al que pertenece, usa esa ruta real como "
                     "referencia en vez de adivinar o inventar una ruta nueva."
                 )
             if editor_context.workspace_tree:

@@ -85,10 +85,10 @@ class SelfCheckTracker:
             return (
                 f"Generé el resultado con '{name}', pero no logré confirmar que coincida "
                 "exactamente con lo pedido (los modelos de generación no siempre son exactos) — "
-                "intenté corregirlo pero seguí insistiendo de más, así que corté acá. Podés ver el "
+                "intenté corregirlo pero seguí insistiendo de más, así que corté aquí. Puedes ver el "
                 "resultado arriba."
             )
         return (
             f"No logré completar el pedido con '{name}' — insistí de más sin éxito, "
-            "así que corté acá en vez de seguir gastando tiempo."
+            "así que corté aquí en vez de seguir gastando tiempo."
         )

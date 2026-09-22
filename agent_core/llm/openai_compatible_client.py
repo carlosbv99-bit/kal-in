@@ -168,6 +168,10 @@ class OpenAICompatibleClient:
             # forma documentada (no estándar de OpenAI, pero soportada acá)
             # de pedirle al backend que no piense antes de responder.
             "chat_template_kwargs": {"enable_thinking": False},
+            # Mismo motivo que OllamaClient.chat() (ver settings.llm.
+            # max_response_tokens): sin tope, un bucle de repetición del
+            # modelo puede correr indefinidamente en vez de fallar rápido.
+            "max_tokens": settings.llm.max_response_tokens,
         }
         if tools:
             payload["tools"] = tools

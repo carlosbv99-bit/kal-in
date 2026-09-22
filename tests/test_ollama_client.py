@@ -110,10 +110,15 @@ def test_chat_sends_temperature_in_payload_options_when_given():
     client = _client(post_fn=post_fn)
     client.chat([{"role": "user", "content": "hola"}], temperature=0.1)
 
-    assert captured["payload"]["options"] == {"temperature": 0.1}
+    assert captured["payload"]["options"] == {"num_predict": settings.llm.max_response_tokens, "temperature": 0.1}
 
 
-def test_chat_omits_options_from_payload_by_default():
+def test_chat_sends_only_the_token_cap_in_options_by_default():
+    # BUG REAL ENCONTRADO EN USO (2026-09-22): sin num_predict, un modelo
+    # que entra en un bucle de repetición nunca para solo — ver
+    # settings.llm.max_response_tokens. temperature sigue siendo opcional
+    # (solo se agrega si el llamador lo pasa), pero el tope de tokens va
+    # SIEMPRE, incluso sin ningún otro override.
     captured = {}
 
     def post_fn(url, json=None, **kw):
@@ -123,7 +128,7 @@ def test_chat_omits_options_from_payload_by_default():
     client = _client(post_fn=post_fn)
     client.chat([{"role": "user", "content": "hola"}])
 
-    assert "options" not in captured["payload"]
+    assert captured["payload"]["options"] == {"num_predict": settings.llm.max_response_tokens}
 
 
 def test_chat_parses_tool_call_id_when_present():

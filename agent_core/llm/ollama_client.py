@@ -159,8 +159,17 @@ class OllamaClient:
             payload["tools"] = tools
         if response_format:
             payload["format"] = response_format
+        # BUG REAL ENCONTRADO EN USO (2026-09-22): sin esto, un modelo que
+        # entra en un bucle de repetición nunca para solo — sigue generando
+        # hasta agotar la ventana de contexto completa (miles de tokens,
+        # varios minutos de cómputo real en CPU) antes de que timeout_seconds
+        # corte la espera. num_predict acota el PEOR caso a un tiempo finito
+        # sin depender de que el modelo encuentre un stop token por su cuenta
+        # (ver settings.llm.max_response_tokens para el porqué del valor).
+        options = {"num_predict": settings.llm.max_response_tokens}
         if temperature is not None:
-            payload["options"] = {"temperature": temperature}
+            options["temperature"] = temperature
+        payload["options"] = options
 
         response = self._post_with_retry(payload)
         data = response.json()

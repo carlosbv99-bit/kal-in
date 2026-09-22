@@ -1495,7 +1495,7 @@ def test_system_prompt_tells_the_model_to_check_its_tools_before_denying_a_capab
     pero nunca se había agregado al SYSTEM_PROMPT general que usa
     también la interfaz web — este test confirma que ahora sí.
     """
-    assert "FIJATE primero en tu lista real de herramientas disponibles" in SYSTEM_PROMPT
+    assert "FÍJATE primero en tu lista real de herramientas disponibles" in SYSTEM_PROMPT
     assert "en vez de inventar una incapacidad" in SYSTEM_PROMPT
     assert "audio_generation" in SYSTEM_PROMPT
 
@@ -1540,5 +1540,5 @@ def test_system_prompt_tells_the_model_to_locate_an_existing_defect_with_vision_
     terminó siendo una composición completamente distinta a la
     original, sin ninguna orca borrada de verdad.
     """
-    assert "llamá primero a analyze_image" in SYSTEM_PROMPT
+    assert "llama primero a analyze_image" in SYSTEM_PROMPT
     assert "imagen YA EXISTENTE" in SYSTEM_PROMPT

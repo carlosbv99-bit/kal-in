@@ -1,5 +1,5 @@
 /* =========================================================
-   kal — sala de control
+   kal-in — sala de control
    Paleta: grafito (no negro puro) + acento cian apagado (estado) +
    ámbar (aviso) + rojo ladrillo (solo para escalado/breach real).
    Tipografía: Space Grotesk (encabezados) + IBM Plex Mono (datos,
@@ -405,7 +405,47 @@ button, input, textarea, select {
 }
 .upload-btn:hover { filter: brightness(1.15); }
 
+.mic-btn {
+  height: 40px; /* mismo motivo que .upload-btn/.send-btn/.model-select */
+  width: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: filter 0.15s, background 0.15s, border-color 0.15s;
+  box-sizing: border-box;
+}
+.mic-btn:hover { filter: brightness(1.15); }
+.mic-btn:disabled { opacity: 0.5; cursor: default; }
+.mic-btn.recording {
+  background: var(--critical);
+  border-color: var(--critical);
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.voice-preview {
+  font-size: 0.9em;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 2px 2px 4px;
+}
+
 /* ---------- Imágenes como mensaje del chat ---------- */
+
+.chat-image-link {
+  display: block;
+  width: fit-content;
+  cursor: pointer;
+}
+.chat-image-link:hover .chat-image-message { filter: brightness(1.08); }
 
 .chat-image-message {
   display: block;
@@ -417,6 +457,19 @@ button, input, textarea, select {
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+}
+
+/* ---------- Audio como mensaje del chat ---------- */
+
+.msg-audio-label {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.chat-audio-message {
+  display: block;
+  width: min(100%, 360px);
 }
 
 /* ---------- Documentos de texto como mensaje del chat ---------- */

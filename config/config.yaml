@@ -190,8 +190,19 @@ multimodal:
 
   stt:
     backend: local                       # solo local por ahora (faster-whisper, CPU)
-    model_size: "tiny"                    # ~75MB; base/small/medium/large: más precisos, más pesados
-    language: null                        # null = auto-detección de idioma
+    # BUG REAL ENCONTRADO EN USO (2026-09-22): "tiny" no reconocía nada
+    # con ruido ambiental real de fondo (micrófono en vivo) — evaluado
+    # en vivo contra tiny/base/small con la misma señal ruidosa, solo
+    # "small" recuperó la transcripción correcta. Ver utils/config.py::
+    # STTConfig para la comparación completa.
+    model_size: "small"                   # 464MB, ~1.2s por transcripción (modelo ya cargado) — evaluado, no a ciegas
+    # BUG REAL ENCONTRADO EN USO (2026-09-22): con auto-detección
+    # (null), un "hola" corto se detectó como POLACO (36% de confianza)
+    # y transcribió basura — un audio corto no le da a whisper señal
+    # suficiente para adivinar el idioma de forma confiable. Forzado a
+    # español, igual que el resto del proyecto (ver stt.model_size de
+    # arriba y audio.voice_model más abajo).
+    language: "es"
 
   vision:
     backend: local                       # solo local por ahora, vía Ollama
@@ -203,7 +214,45 @@ multimodal:
     # dejó de cargar en Ollama >=0.30.0 — regresión conocida y sin
     # arreglo todavía (ver github.com/ollama/ollama/issues/16547).
     # llava usa una arquitectura de visión distinta (CLIP), sí soportada.
-    model: "llava:13b"                    # necesita `ollama pull llava:13b` (no se auto-descarga)
+    #
+    # BUG REAL ENCONTRADO EN USO (2026-09-22): llava:13b se negaba a dos
+    # pedidos completamente legítimos y sin nada de sensible — transcribir
+    # el texto de una imagen subida por el usuario ("no puedo ayudarte...
+    # no en la transcripción directa de textos específicos") e identificar
+    # un logo/marca en una imagen ("no puedo ayudar a identificar
+    # logotipos o marcas comerciales"). Guardrails demasiado amplios para
+    # el caso de uso real de analyze_image acá. Evaluado en vivo contra
+    # 4 candidatos con la MISMA imagen real (letras de canción subidas
+    # por un usuario, "Toy Soldiers" de Martika mal identificada antes
+    # como canción de The Cure): moondream devolvió basura ilegible
+    # ("ids/0"); qwen2.5vl:7b negó tener acceso a la imagen en absoluto
+    # (alucinó ser un modelo solo de texto); llava-llama3:8b sí lo
+    # intentó pero con resultados incorrectos en la prueba de logo
+    # (identificó Google como "Amazon"). minicpm-v fue el único que leyó
+    # el texto real de la imagen correctamente (encabezado "Letras" +
+    # la mayoría de las líneas reales, con algo de desorden pero sin
+    # inventar ni negarse) — reemplaza a llava:13b acá.
+    #
+    # SEGUIMIENTO (mismo día): minicpm-v tampoco es confiable para texto
+    # DENSO — probado contra una foto real de CPU-Z (texto técnico
+    # pequeño), inventó una sección de RAM completa (marca, capacidad,
+    # números de parte) que no existe en absoluto en la imagen. Para
+    # pedidos de TRANSCRIBIR/LEER texto (no descripción visual general),
+    # usar extract_text_from_image (ver `ocr:` más abajo) en vez de
+    # analyze_image — un pipeline de OCR clasificatorio no puede
+    # "inventar" una sección entera, como mucho lee mal un carácter.
+    model: "minicpm-v"                    # necesita `ollama pull minicpm-v` (no se auto-descarga)
+
+  # Extracción de texto de una imagen (herramienta extract_text_from_image)
+  # — DELIBERADAMENTE separado de `vision:` de arriba: un pipeline de OCR
+  # (detección + reconocimiento de caracteres, rapidocr/ONNXRuntime) no es
+  # un modelo de Ollama ni comparte nada con analyze_image. Ver el
+  # docstring de OCRConfig (utils/config.py) para la comparación completa
+  # en vivo que motivó agregar esto (2026-09-22).
+  ocr:
+    lang_type: "latin"                    # rapidocr.LangRec — cubre el alfabeto usado en español/inglés
+    ocr_version: "PP-OCRv5"               # rapidocr.OCRVersion
+    model_type: "mobile"                  # rapidocr.ModelType — liviano, evaluado en vivo, suficiente para texto impreso/pantalla
 
   image_editing:
     artifact_dir: "data/artifacts/images_edited"
