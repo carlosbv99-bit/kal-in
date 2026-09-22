@@ -72,9 +72,9 @@ export async function maybeHandleProjectFiles(
     postToChat({
       type: "no-workspace-notice",
       text:
-        `⚠️ Kal propuso ${artifact.files.length} archivo(s), pero no hay ninguna carpeta abierta en VS Code ` +
+        `⚠️ Kal-in propuso ${artifact.files.length} archivo(s), pero no hay ninguna carpeta abierta en VS Code ` +
         "— no se guardó nada. Abrir o crear una carpeta reinicia la ventana, así que esta propuesta se " +
-        "pierde: una vez que tengas la carpeta abierta, pedíselo a kal de nuevo.",
+        "pierde: una vez que tengas la carpeta abierta, pídeselo a kal-in de nuevo.",
     });
     await client.reportFilesystemAccessOutcome(artifact.request_id, "discarded", []);
     return;
@@ -84,7 +84,7 @@ export async function maybeHandleProjectFiles(
   if (invalidPathError !== null) {
     postToChat({
       type: "project-files-notice",
-      text: `⚠️ Kal propuso un archivo inválido, se descartó la propuesta entera: ${invalidPathError}`,
+      text: `⚠️ Kal-in propuso un archivo inválido, se descartó la propuesta entera: ${invalidPathError}`,
     });
     await client.reportFilesystemAccessOutcome(artifact.request_id, "discarded", []);
     return;

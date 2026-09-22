@@ -20,7 +20,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("kal.askAboutSelection", () => {
       const snapshot = captureEditorSnapshot();
       if (!snapshot) {
-        vscode.window.showWarningMessage("Kal: no hay ningún editor activo para tomar contexto.");
+        vscode.window.showWarningMessage("Kal-in: no hay ningún editor activo para tomar contexto.");
         return;
       }
       ChatPanel.createOrShow(context.extensionUri, getClient(), context, snapshot);
@@ -51,8 +51,8 @@ export function activate(context: vscode.ExtensionContext): void {
   // Ítem en la barra de estado: acceso de un clic a "Kal: Abrir chat"
   // sin tener que recordar el comando en la paleta.
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.text = "$(comment-discussion) Kal";
-  statusBarItem.tooltip = "Abrir chat con Kal";
+  statusBarItem.text = "$(comment-discussion) Kal-in";
+  statusBarItem.tooltip = "Abrir chat con Kal-in";
   statusBarItem.command = "kal.openChat";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);

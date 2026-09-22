@@ -113,7 +113,7 @@ export class ChatPanel {
     } else {
       const panel = vscode.window.createWebviewPanel(
         "kalChat",
-        "Kal",
+        "Kal-in",
         vscode.ViewColumn.Beside,
         {
           enableScripts: true,

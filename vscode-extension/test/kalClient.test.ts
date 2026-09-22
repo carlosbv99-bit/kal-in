@@ -118,7 +118,7 @@ test("chat() lanza un error claro si la respuesta no es ok", async () => {
   const fakeFetch = (async () => jsonResponse({ detail: "boom" }, 503)) as typeof fetch;
   const client = new KalClient("http://localhost:8000", fakeFetch);
 
-  await assert.rejects(() => client.chat("hola"), /Kal respondió 503/);
+  await assert.rejects(() => client.chat("hola"), /Kal-in respondió 503/);
 });
 
 test("chat() lanza un error claro si el servidor no responde", async () => {

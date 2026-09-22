@@ -115,13 +115,13 @@ export class KalClient {
       });
     } catch (e) {
       throw new Error(
-        `No se pudo conectar con kal en ${this.baseUrl} — ¿está corriendo ./scripts/run_kal.sh? (${e})`
+        `No se pudo conectar con kal-in en ${this.baseUrl} — ¿está corriendo ./scripts/run_kal.sh? (${e})`
       );
     }
 
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
-      throw new Error(`Kal respondió ${response.status}: ${detail}`);
+      throw new Error(`Kal-in respondió ${response.status}: ${detail}`);
     }
 
     return (await response.json()) as ChatResult;

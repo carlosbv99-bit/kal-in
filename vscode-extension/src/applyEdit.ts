@@ -19,7 +19,7 @@ export async function runApplySuggestedEdit(client: KalClient): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   const snapshot = captureEditorSnapshot();
   if (!editor || !snapshot) {
-    vscode.window.showWarningMessage("Kal: no hay ningún editor activo para tomar contexto.");
+    vscode.window.showWarningMessage("Kal-in: no hay ningún editor activo para tomar contexto.");
     return;
   }
 
@@ -33,7 +33,7 @@ export async function runApplySuggestedEdit(client: KalClient): Promise<void> {
     const balance = checkBraceBalance(snapshot.text);
     if (!balance.isBalanced) {
       const proceed = await vscode.window.showWarningMessage(
-        `La selección no parece autocontenida (${balance.detail}) — kal podría agregar llaves/paréntesis de cierre que choquen con el resto del archivo. ¿Seleccionaste un bloque completo (que se abre y cierra a sí mismo)?`,
+        `La selección no parece autocontenida (${balance.detail}) — kal-in podría agregar llaves/paréntesis de cierre que choquen con el resto del archivo. ¿Seleccionaste un bloque completo (que se abre y cierra a sí mismo)?`,
         { modal: true },
         "Continuar de todos modos",
         "Cancelar"
@@ -45,8 +45,8 @@ export async function runApplySuggestedEdit(client: KalClient): Promise<void> {
   }
 
   const instruction = await vscode.window.showInputBox({
-    prompt: "¿Qué cambio querés aplicar?",
-    placeHolder: "ej: agregá manejo de errores",
+    prompt: "¿Qué cambio quieres aplicar?",
+    placeHolder: "ej: agrega manejo de errores",
   });
   if (!instruction) {
     return;
@@ -57,7 +57,7 @@ export async function runApplySuggestedEdit(client: KalClient): Promise<void> {
 
   const model = vscode.workspace.getConfiguration("kal").get<string>("model") || undefined;
   const finalAnswer = await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: "Kal está pensando el cambio..." },
+    { location: vscode.ProgressLocation.Notification, title: "Kal-in está pensando el cambio..." },
     async () => {
       try {
         const result = await client.chat(goal, model);
@@ -75,7 +75,7 @@ export async function runApplySuggestedEdit(client: KalClient): Promise<void> {
   const proposedCode = extractCodeBlock(finalAnswer);
   if (proposedCode === null) {
     const action = await vscode.window.showErrorMessage(
-      "Kal no devolvió un bloque de código reconocible.",
+      "Kal-in no devolvió un bloque de código reconocible.",
       "Ver respuesta completa"
     );
     if (action === "Ver respuesta completa") {
@@ -97,7 +97,7 @@ export async function runApplySuggestedEdit(client: KalClient): Promise<void> {
     "vscode.diff",
     originalDoc.uri,
     proposedDoc.uri,
-    `Kal: cambio propuesto (${snapshot.relativePath})`
+    `Kal-in: cambio propuesto (${snapshot.relativePath})`
   );
 
   // modal: true a propósito — el mensaje sin modal (probado en uso real)
@@ -108,7 +108,7 @@ export async function runApplySuggestedEdit(client: KalClient): Promise<void> {
   // fijo hasta una elección explícita (o Escape, que cuenta como
   // "Descartar" vía el chequeo de abajo).
   const choice = await vscode.window.showInformationMessage(
-    `Kal propone un cambio para ${snapshot.relativePath}. ¿Aplicarlo?`,
+    `Kal-in propone un cambio para ${snapshot.relativePath}. ¿Aplicarlo?`,
     { modal: true },
     "Aplicar",
     "Descartar"

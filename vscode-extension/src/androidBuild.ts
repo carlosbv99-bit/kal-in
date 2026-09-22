@@ -119,9 +119,9 @@ async function ensureSecurityNoticeShownOnce(context: vscode.ExtensionContext): 
   // cada vez (ver docs/HISTORY.md para la discusión completa de por
   // qué esto NO es un bloqueo estricto).
   vscode.window.showWarningMessage(
-    "Kal va a compilar tu proyecto Android e instalarlo en el dispositivo conectado. Compilar con Gradle " +
-      "ejecuta código real (mismo riesgo que cualquier build de Gradle, con o sin kal) — si preferís " +
-      "minimizarlo, podés desconectar el dispositivo hasta que termine de compilar. Este aviso no se repite."
+    "Kal-in va a compilar tu proyecto Android e instalarlo en el dispositivo conectado. Compilar con Gradle " +
+      "ejecuta código real (mismo riesgo que cualquier build de Gradle, con o sin kal-in) — si prefieres " +
+      "minimizarlo, puedes desconectar el dispositivo hasta que termine de compilar. Este aviso no se repite."
   );
   await context.globalState.update(_SECURITY_NOTICE_SHOWN_KEY, true);
 }
@@ -162,8 +162,8 @@ export async function maybeHandleAndroidBuild(
     postToChat({
       type: "project-files-notice",
       text:
-        "⚠️ No hay ningún dispositivo Android conectado — conectá el teléfono por USB (y aceptá el diálogo " +
-        "de depuración USB que aparece en la pantalla), o emparejalo por WiFi desde Opciones de " +
+        "⚠️ No hay ningún dispositivo Android conectado — conecta el teléfono por USB (y acepta el diálogo " +
+        "de depuración USB que aparece en la pantalla), o emparéjalo por WiFi desde Opciones de " +
         "desarrollador → Depuración inalámbrica. No se compiló nada.",
     });
     await client.reportAndroidBuildOutcome(artifact.request_id, "no_device");
@@ -172,7 +172,7 @@ export async function maybeHandleAndroidBuild(
   if (devices.length > 1) {
     postToChat({
       type: "project-files-notice",
-      text: `⚠️ Hay ${devices.length} dispositivos conectados a la vez — desconectá todos menos uno e intentá de nuevo.`,
+      text: `⚠️ Hay ${devices.length} dispositivos conectados a la vez — desconecta todos menos uno e intenta de nuevo.`,
     });
     await client.reportAndroidBuildOutcome(artifact.request_id, "no_device", `${devices.length} dispositivos conectados`);
     return;
@@ -198,7 +198,7 @@ export async function maybeHandleAndroidBuild(
   if (!apkPath) {
     postToChat({
       type: "project-files-notice",
-      text: "❌ La compilación terminó bien pero no encontré el APK generado — revisá el proyecto manualmente.",
+      text: "❌ La compilación terminó bien pero no encontré el APK generado — revisa el proyecto manualmente.",
     });
     await client.reportAndroidBuildOutcome(artifact.request_id, "build_failed", "compilación exitosa pero APK no encontrado");
     return;
