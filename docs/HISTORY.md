@@ -8373,3 +8373,39 @@ responde con `status: "no_tool_needed"`, `model_used: "qwen3:1.7b"`; en
 `ollama ps` solo aparece `qwen3:1.7b` cargado (el modelo grande nunca
 se tocó) tras una sesión puramente conversacional. Suite completa:
 1171/1171.
+
+## Dos candidatos más evaluados y descartados: qwen3:0.6b, smollm2:1.7b-instruct (2026-09-22)
+
+Pedido: ver si alguno podía cubrir LOS DOS roles chicos de kal-in a la
+vez (`classify()` + `answer_directly()`), volviendo a 2 modelos
+totales en vez de 3. Evaluados en vivo con la misma batería —
+descartados ambos, con evidencia concreta, no por intuición:
+
+- **`qwen3:0.6b`**: respondió que la capital de Francia es Berlín
+  (falso — es la de Alemania), inventó un intent sin taxonomía
+  ("suma_2_2") para "cuánto es 2+2", y alucinó contenido no
+  relacionado ("ya arranco con la página") al pedirle ejecutar código.
+- **`smollm2:1.7b-instruct-q4_K_M`**: `user_reply` vacío para un saludo
+  simple; interpretó "che, todo bien por ahí?" como un pedido de
+  desarrollo web; fabricó un dato histórico falso (atribuyó a John von
+  Neumann un libro inventado) al opinar sobre IA; para un simple
+  "gracias" devolvió una lista en markdown con nombres de herramientas
+  internas inventadas/filtradas (`recall()`, `remember_artefact()`,
+  `system_info`, etc.); se colgó 600s sin responder a un pedido de
+  chiste corto (timeout completo).
+
+Ninguno mejora a `qwen3:1.7b` (que sigue siendo el elegido, sin
+cambios, para `answer_directly()`) ni sirve para unificar los dos
+roles en un solo modelo — kal-in sigue necesitando 2 modelos chicos
+propios (`qwen2.5:3b` + `qwen3:1.7b`), no 1.
+
+**Aclaración importante del usuario, para no sobreestimar el
+footprint real de kal-in**: `llm.default_model` (hoy `qwen3.5:4b` en
+`config.yaml`) es solo el default de conveniencia de esta ETAPA DE
+DESARROLLO — kal-in ya es agnóstico al modelo principal
+(`LLMConfig.provider`/`default_model`, soporta Ollama local o
+cualquier endpoint compatible con OpenAI) y en producción es el
+usuario final quien elige ese modelo. Solo los 2 modelos chicos de
+arriba son intrínsecos a kal-in — el modelo principal NUNCA debería
+asumirse como una dependencia fija a hornear/empaquetar junto con
+kal-in.
