@@ -8409,3 +8409,84 @@ usuario final quien elige ese modelo. Solo los 2 modelos chicos de
 arriba son intrínsecos a kal-in — el modelo principal NUNCA debería
 asumirse como una dependencia fija a hornear/empaquetar junto con
 kal-in.
+
+## Reportado en uso: miniatura de imagen no siempre aparece en el kiosko (2026-09-22)
+
+Reportado como "no siempre muestra la miniatura" — el texto de la
+respuesta SÍ confirma la ubicación del archivo (porque
+`_artifact_to_observation()` en `agent_core/llm/agent_loop.py`
+imprime `artifact.uri` crudo, sin pasar por resolución alguna), pero
+la miniatura estructurada (`steps[].artifact`, la que realmente usa
+el frontend para el `<img>`) depende de `_artifact_url()`
+(`agent_core/orchestrator.py`) — que hasta ahora fallaba en silencio
+si el uri no resolvía bajo `data/artifacts/`.
+
+**No se pudo reproducir en pruebas en vivo**: la herramienta directa
+(`image_generation`) y la skill vía kernel (`image_via_kernel`)
+devolvieron el artifact correctamente en varias corridas, tanto
+llamando la tool directo como contra el servidor real corriendo. Sin
+una reproducción confirmada, no se inventó una causa — se agregó
+instrumentación en los dos puntos reales donde esto puede fallar en
+silencio hoy:
+
+- `agent_core/orchestrator.py::_artifact_url()` — `logger.warning()`
+  con el uri exacto que no resolvió, si esto pasa.
+- `agent_core/routers/chat.py::_step_artifact()` — distingue con
+  logging "se ocultó a propósito por autochequeo/regeneración"
+  (`logger.info()`) de "no tiene ningún artifact en absoluto"
+  (`logger.warning()`) — antes ambos casos eran silencio total.
+
+Próxima vez que se reproduzca, `logs/agent.log` va a tener el motivo
+exacto en vez de tener que adivinar de nuevo.
+
+## Reportado en uso, no confirmado: respuesta repetida ante preguntas distintas (2026-09-22)
+
+Reportado en el kiosko: "¿podés programar en C?" y "¿podés programar
+en java?", en la MISMA sesión (después de un "¿quién eres?" que
+disparó `get_trivial_reply()`), devolvieron literalmente el mismo
+texto ("Soy kal, un agente de IA que ejecuta tareas usando
+herramientas reales..." — el canned reply de `get_trivial_reply()`)
+en vez de responder cada pregunta.
+
+Dos intentos de reproducir la secuencia exacta en vivo dieron
+respuestas DISTINTAS entre sí — ninguna igual al bug reportado,
+aunque ambas con problemas propios (una negó falsamente poder
+ejecutar código, mismo patrón que
+`technical_web_client_false_audio_capability_denial.md`). El usuario
+reportó que en un tercer intento "ahora funciona mucho mejor" —
+tampoco se capturó nada anómalo en los logs en ese momento.
+
+**Sin confirmar, no se implementó ningún fix**: hipótesis sin probar
+— el texto enlatado de `get_trivial_reply()` queda grabado en el
+historial de la sesión (`record_turn()`) y podría estar "anclando"
+al modelo grande a repetir su propia respuesta anterior en turnos
+siguientes, en vez de responder la pregunta nueva. Queda como
+sospecha documentada, no como causa raíz confirmada — no se cambió
+código para esto, para no arreglar algo que no se pudo probar que
+esté roto.
+
+## Fix real: markdown del modelo se mostraba como asteriscos literales (2026-09-22)
+
+Reportado en uso: el modelo genera markdown real (`**negrita**`,
+listas numeradas con títulos en negrita — un caso de uso legítimo,
+como una lista de slogans agrupados por categoría), pero
+`frontend/app.js::appendAgentResult()` insertaba `result.final_answer`
+con `textContent`, así que el usuario veía los asteriscos literales
+en vez de negrita.
+
+**Fix acotado a propósito, no una librería de markdown completa**:
+nueva `renderMarkdownLite()` — escapa TODO el texto primero
+(`&`/`<`/`>` a entidades, neutraliza cualquier intento de inyección,
+verificado con un `<script>alert(1)</script>` de prueba) y RECIÉN
+DESPUÉS traduce `**negrita**`/`*cursiva*` a `<strong>`/`<em>` — nunca
+se interpreta HTML que vino del modelo, solo la sintaxis de markdown
+que la función misma traduce a etiquetas conocidas y seguras. Alcance
+angosto (negrita/cursiva) — no tablas, código, ni links, que no hacen
+falta para lo que el modelo genera hoy. `white-space: pre-wrap` en
+`.msg` (ya existente) preserva los saltos de línea sin cambios.
+
+Verificado con Node (sintaxis + salida exacta contra el ejemplo real
+reportado + el intento de XSS) y contra el servidor real corriendo —
+sin poder confirmarlo en un navegador real dentro de esta sesión (sin
+herramienta de navegador disponible), documentado con honestidad en
+vez de asumir que "se ve bien".

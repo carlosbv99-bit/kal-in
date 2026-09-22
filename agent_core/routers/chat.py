@@ -329,8 +329,23 @@ def chat(req: ChatRequest):
 
     def _step_artifact(step, index: int) -> dict | None:
         if index in superseded_step_indices:
+            # BUG REPORTADO EN USO (2026-09-22): "no siempre muestra la
+            # miniatura" — este log distingue "se ocultó A PROPÓSITO
+            # por autochequeo/regeneración" (ver superseded_step_indices
+            # arriba) de un caso realmente perdido, sin instrumentar
+            # antes. Si este log NUNCA aparece cuando se reproduce el
+            # bug, descarta esta rama por completo.
+            if step.artifact is not None and step.artifact.modality == "image":
+                logger.info(
+                    f"_step_artifact(): paso {index} ('{step.tool_name}') oculto por "
+                    "autochequeo/regeneración — no es un bug, es intencional"
+                )
             return None
         if step.artifact is None:
+            # BUG REPORTADO EN USO (2026-09-22): mismo motivo que el log
+            # de arriba — sin poder reproducirlo, se instrumenta para
+            # atrapar el caso real la próxima vez.
+            logger.warning(f"_step_artifact(): paso {index} ('{step.tool_name}') no tiene ningún artifact")
             return None
         if step.artifact.modality == "project_files":
             # A diferencia de image/audio/video, esto no es un archivo YA

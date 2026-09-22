@@ -374,6 +374,17 @@ def _artifact_url(uri: str) -> str | None:
     try:
         return f"/artifacts/{Path(uri).resolve().relative_to(_ARTIFACTS_DIR)}"
     except ValueError:
+        # BUG REPORTADO EN USO (2026-09-22): "no siempre muestra la
+        # miniatura" en el kiosko — el texto de la respuesta SÍ confirma
+        # ubicación (_artifact_to_observation() imprime artifact.uri
+        # crudo, sin pasar por acá), pero la miniatura estructurada
+        # depende de ESTA función, que hasta ahora fallaba en silencio.
+        # Sin poder reproducirlo en pruebas en vivo (tool directa y
+        # skill vía kernel funcionaron bien en varias corridas), este
+        # log es la instrumentación para atrapar el caso real la
+        # próxima vez, con el uri exacto que no resolvió, en vez de
+        # seguir adivinando a ciegas.
+        logger.warning(f"_artifact_url(): uri no resuelve bajo {_ARTIFACTS_DIR}, miniatura no se mostrará: {uri!r}")
         return None
 
 

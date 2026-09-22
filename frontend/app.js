@@ -77,6 +77,30 @@ function el(tag, className, text) {
   return node;
 }
 
+// BUG REAL ENCONTRADO EN USO (2026-09-22): el modelo devuelve markdown
+// real (**negrita**, listas numeradas con títulos en negrita) — hasta
+// ahora la respuesta se insertaba con textContent, así que el usuario
+// veía los asteriscos literales en vez de texto en negrita. Acá se
+// arma el HTML a mano, NUNCA con una librería que interprete markdown
+// arbitrario sobre texto sin escapar primero: se escapa TODO el texto
+// (neutraliza cualquier <, >, & que el modelo haya escrito, literal o
+// como parte de un intento de inyección) ANTES de agregar las ÚNICAS
+// etiquetas reales que insertamos nosotros (<strong>/<em>) — nunca se
+// interpreta HTML que vino del modelo, solo la sintaxis de markdown
+// que nosotros mismos traducimos a etiquetas seguras y conocidas.
+// Alcance deliberadamente angosto (negrita/cursiva) — no un parser de
+// markdown completo (tablas, código, links), que no hace falta para
+// lo que el modelo realmente genera hoy.
+function renderMarkdownLite(text) {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return escaped
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, "<em>$1</em>");
+}
+
 function formatTime(ts) {
   if (!ts) return "";
   return new Date(ts * 1000).toLocaleTimeString();
@@ -422,7 +446,8 @@ function appendAgentResult(result) {
   if (result.status === "llm_error") {
     chatScroll.appendChild(el("div", "msg-error", `No pude contactar a Ollama: ${result.final_answer}`));
   } else {
-    const msg = el("div", "msg msg-agent", result.final_answer);
+    const msg = el("div", "msg msg-agent");
+    msg.innerHTML = renderMarkdownLite(result.final_answer);
     if (result.status === "max_steps_exceeded") {
       msg.appendChild(el("div", "dash-item-meta", "(se agotó el límite de pasos antes de una respuesta final)"));
     }
