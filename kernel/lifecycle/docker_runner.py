@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
+import stat
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -263,11 +264,43 @@ class DockerSandboxRunner:
 
             result = self._wait_and_collect(container, start, target_timeout_seconds)
             if output_path is not None and output_path.exists():
-                result.output_files = {
-                    str(p.relative_to(output_path)): p.read_bytes()
-                    for p in output_path.rglob("*") if p.is_file()
-                }
+                result.output_files = self._collect_output_files(output_path)
             return result
+
+    @staticmethod
+    def _collect_output_files(output_path: Path) -> dict[str, bytes]:
+        """
+        VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+        2026-09-26), K-2: la versión anterior usaba `p.is_file()`
+        (sigue symlinks) + `p.read_bytes()` sobre TODO lo que devolviera
+        `rglob("*")` en el bind mount de salida (rw, escribible por el
+        código NO CONFIABLE que corre dentro del contenedor). Ese
+        código podía crear un symlink apuntando a cualquier archivo del
+        HOST (p.ej. /proc/self/environ, una clave de firma, un token) —
+        el proceso HOST (este, no el contenedor) lo seguía sin darse
+        cuenta y cargaba ese contenido arbitrario en memoria: lectura
+        arbitraria de archivos del host por un agente hostil.
+
+        Fix en dos capas: `os.lstat` (nunca sigue symlinks) para
+        descartar cualquier entrada que no sea un archivo REGULAR —
+        cubre el symlink de archivo, el caso concreto de la
+        vulnerabilidad — y además se descarta cualquier archivo cuya
+        ruta REAL resuelva fuera de `output_path`, por si un directorio
+        INTERMEDIO (no el archivo hoja) fuera el symlink.
+        """
+        collected: dict[str, bytes] = {}
+        resolved_root = output_path.resolve()
+        for p in output_path.rglob("*"):
+            try:
+                st = os.lstat(p)
+            except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            if not p.resolve().is_relative_to(resolved_root):
+                continue
+            collected[str(p.relative_to(output_path))] = p.read_bytes()
+        return collected
 
     def _wait_and_collect(self, container, start: float, timeout_seconds: int) -> SandboxResult:
         status = "error"

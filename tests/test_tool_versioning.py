@@ -67,6 +67,34 @@ def test_list_versions_empty_for_unknown_tool(tmp_path):
     assert store.list_versions("no_existe") == []
 
 
+# --- K-6 (auditoría externa Likay-OS, 2026-09-26): path traversal en el
+# name de una herramienta dinámica ---
+
+
+def test_save_version_rejects_path_traversal_in_name(tmp_path):
+    """
+    `name` (elegido por el LLM vía propose_dynamic_tool, ver
+    test_registry_rejects_path_traversal_in_dynamic_tool_name de abajo
+    para la primera capa) se usaba sin sanitizar para armar
+    self.base_dir / name, seguido de mkdir(parents=True,
+    exist_ok=True) — mismo patrón que K-1. Esta es la segunda capa,
+    directo sobre ToolVersionStore, para cualquier llamador que no
+    pase por propose_dynamic_tool().
+    """
+    store = ToolVersionStore(base_dir=tmp_path / "versions")
+
+    with pytest.raises(ValueError, match="inválido"):
+        store.save_version("../../../../tmp/pwned", 1, "print(1)", {}, "sig")
+
+    assert not (tmp_path / "tmp" / "pwned").exists()
+
+
+def test_list_versions_rejects_path_traversal_in_name(tmp_path):
+    store = ToolVersionStore(base_dir=tmp_path / "versions")
+    with pytest.raises(ValueError, match="inválido"):
+        store.list_versions("../../../../etc")
+
+
 # --- Integración con ToolRegistry (firma real, versionado real) ---
 
 
@@ -149,6 +177,22 @@ def test_verify_tool_integrity_detects_tampering_of_active_version(registry, ver
     active_path.write_text("print('alguien lo edito a mano')", encoding="utf-8")
 
     assert registry.verify_tool_integrity("herramienta_de_prueba") is False
+
+
+def test_registry_rejects_path_traversal_in_dynamic_tool_name(registry, version_store):
+    """
+    K-6 (auditoría externa Likay-OS, 2026-09-26): primera capa de
+    defensa — rechazado ACÁ, antes de validar código o correr el
+    sandbox de prueba, nunca llega a tocar disco vía
+    ToolVersionStore (ver test_save_version_rejects_path_traversal_in_name
+    para la segunda capa).
+    """
+    pending = registry.propose_dynamic_tool(_manifest(name="../../../../tmp/pwned"), "print(1)")
+
+    assert pending.status == "rejected"
+    assert registry.get("../../../../tmp/pwned") is None
+    # Nunca llegó a tocar disco: ni siquiera se creó version_store.base_dir.
+    assert not version_store.base_dir.exists()
 
 
 def test_verify_tool_integrity_is_true_for_static_tools(registry):

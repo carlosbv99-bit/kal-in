@@ -44,6 +44,8 @@ from kernel.api.bus import KernelServiceBus, kernel_service_bus as default_kerne
 from kernel.api.socket_server import KernelBusSocketServer
 from kernel.lifecycle.docker_runner import SandboxResult
 from kernel.lifecycle.executor import SandboxExecutor
+from kernel.permissions.permission_cascade import permission_cascade
+from kernel.registry.skill_signing import verify_skill_signature
 from sdk.skill import Tool, ToolManifest
 from sdk.artifacts import Artifact
 from tool_integration.malware_scan import MalwareScanError, scan_bytes
@@ -116,7 +118,26 @@ class SandboxedSkillTool(Tool):
         self.entry_point = entry_point
         self.image = image
         self.sandbox = sandbox or SandboxExecutor()
-        self.artifact_dir = (artifacts_root or _DEFAULT_ARTIFACTS_ROOT) / manifest.name
+        # DEFENSA EN PROFUNDIDAD (K-1, auditoría externa Likay-OS
+        # 2026-09-26): kernel/registry/skills.py::load_skills() ya
+        # rechaza un manifest.name inválido ANTES de instanciar este
+        # Tool (_validate_skill_name) — este chequeo es la segunda capa,
+        # para cualquier otro llamador que construya SandboxedSkillTool
+        # directamente (tests, un futuro path de carga distinto) sin
+        # pasar por esa validación. containment_root.mkdir() va ANTES
+        # del .resolve() de abajo a propósito: Path.resolve() en una
+        # ruta que todavía no existe puede no normalizar symlinks
+        # intermedios de la misma forma que una que sí existe — crear
+        # la raíz primero garantiza que ambos .resolve() de la
+        # comparación ven el mismo filesystem real.
+        containment_root = artifacts_root or _DEFAULT_ARTIFACTS_ROOT
+        containment_root.mkdir(parents=True, exist_ok=True)
+        self.artifact_dir = containment_root / manifest.name
+        if not self.artifact_dir.resolve().is_relative_to(containment_root.resolve()):
+            raise ValueError(
+                f"manifest.name '{manifest.name}' resuelve fuera de la raíz de artefactos "
+                f"permitida ({containment_root}) — rechazado (posible path traversal)."
+            )
         self.artifact_dir.mkdir(parents=True, exist_ok=True)
         # Métodos del Kernel Service Bus que esta skill puede llamar
         # (p.ej. ["image.generate"]) — ver kernel/__init__.py.
@@ -126,6 +147,56 @@ class SandboxedSkillTool(Tool):
         self.kernel_bus = kernel_bus_instance or default_kernel_service_bus
 
     def execute(self, **kwargs) -> Artifact:
+        # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+        # 2026-09-26), K-4: la cascada de permisos (PermissionCascade,
+        # "más restrictivo gana" entre denegados globales + techo por
+        # tier) solo se invocaba en el LLAMADOR (agent_core/llm/
+        # agent_loop.py), nunca acá dentro del kernel — network_mode
+        # más abajo se derivaba de manifest.permissions SOLO, un dato
+        # AUTODECLARADO por la propia skill, sin ningún techo real
+        # aplicado por el kernel mismo. Cualquier otro consumidor de
+        # este Tool (no agent_loop.py) heredaba cero cascada. Tier
+        # hardcodeado a "skill" (nunca trust_tier_for(self), que
+        # importaría este módulo desde permission_cascade.py y
+        # reintroduciría el ciclo que ese módulo ya evita a propósito
+        # con imports diferidos) — un SandboxedSkillTool ES,
+        # estructuralmente, siempre tier "skill", no hace falta
+        # preguntarle a trust_tier_for() lo que ya se sabe por
+        # construcción.
+        missing = permission_cascade.missing_permissions(self.manifest.permissions, "skill")
+        if missing:
+            detail = (
+                f"Permisos {sorted(p.value for p in missing)} rechazados por la cascada del "
+                f"kernel (tier 'skill') — el manifiesto de la skill los pide, pero ningún nivel "
+                f"se los otorga a este tier de confianza."
+            )
+            self._audit_permission_denied(detail)
+            return self._error(detail)
+
+        # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+        # 2026-09-26), K-5: la firma solo se verificaba UNA VEZ, al
+        # cargar (kernel/registry/skills.py::load_skills(), tiempo de
+        # arranque) — pero _collect_skill_files() de abajo relee el
+        # contenido de skill_dir DEL DISCO en CADA execute() posterior.
+        # Quien pueda escribir en skills/<x>/ entre la carga y una
+        # ejecución posterior (horas o días después, el proceso no
+        # tiene por qué reiniciarse) corría código nunca verificado, y
+        # la auditoría seguía reportando "signature_status: verified"
+        # (auditado al cargar, no al ejecutar). Re-verifica ACÁ, fresco,
+        # contra el contenido REAL de disco en este momento — mismo
+        # criterio fail-closed que load_skills(): "unsigned" sigue
+        # permitido (compatibilidad, nunca hubo firma que romper),
+        # "tampered" rechaza SIEMPRE, sea la primera ejecución o la
+        # numero mil.
+        signature_status = verify_skill_signature(self.skill_dir)
+        if signature_status == "tampered":
+            detail = (
+                "skill.sig ya no verifica contra el contenido ACTUAL de la carpeta — algo "
+                "cambió en skills/ desde que se cargó (o desde la última ejecución)."
+            )
+            self._audit_signature_invalid(detail)
+            return self._error(detail)
+
         logger.info(f"Ejecutando skill de terceros: '{self.manifest.name}'")
         workspace_files = _kal_runtime_files()
         workspace_files.update(self._collect_skill_files())
@@ -266,6 +337,26 @@ class SandboxedSkillTool(Tool):
         audit_log.record(
             AuditEvent(
                 event_type="artifact_scan_blocked",
+                summary=detail,
+                context={"skill": self.manifest.name},
+                outcome="failure",
+            )
+        )
+
+    def _audit_permission_denied(self, detail: str) -> None:
+        audit_log.record(
+            AuditEvent(
+                event_type="skill_permission_denied",
+                summary=detail,
+                context={"skill": self.manifest.name},
+                outcome="failure",
+            )
+        )
+
+    def _audit_signature_invalid(self, detail: str) -> None:
+        audit_log.record(
+            AuditEvent(
+                event_type="skill_execution_signature_invalid",
                 summary=detail,
                 context={"skill": self.manifest.name},
                 outcome="failure",

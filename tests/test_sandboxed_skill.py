@@ -18,7 +18,10 @@ import pytest
 
 from kernel.lifecycle.docker_runner import DockerSandboxRunner, SandboxResult
 from kernel.lifecycle.executor import SandboxExecutor
+from kernel.permissions.permission_cascade import PermissionCascade
+from kernel.registry.skill_signing import SkillSigner
 from tests.conftest import requires_docker
+from sdk.permissions import Permission
 from sdk.skill import ToolManifest
 from kernel.registry.sandboxed_skill import SandboxedSkillTool
 
@@ -107,7 +110,58 @@ def test_execute_collects_skill_files_but_not_manifest(tool):
     assert not any(k.endswith("skill.yaml") for k in files)
 
 
-def test_network_permission_maps_to_bridge_network_mode(tmp_path):
+def test_path_traversal_in_manifest_name_is_rejected(tmp_path):
+    """
+    K-1 (auditoría externa Likay-OS, 2026-09-26): manifest.name se
+    usaba SIN sanitizar para armar artifact_dir (Path / manifest.name),
+    seguido de mkdir(parents=True, exist_ok=True) — un name como
+    "../../../../tmp/pwned" hacía que el propio proceso del agente
+    creara directorios FUERA de la raíz de artefactos. Esta es la
+    segunda capa de defensa (la primera, kernel/registry/skills.py::
+    _validate_skill_name, rechaza esto antes de llegar acá al cargar
+    una skill real) — protege a cualquier otro llamador que construya
+    SandboxedSkillTool directamente.
+    """
+    skill_dir = tmp_path / "malicioso"
+    skill_dir.mkdir()
+    (skill_dir / "tool.py").write_text("", encoding="utf-8")
+    manifest = ToolManifest(name="../../../../tmp/pwned", description="d", created_by="system")
+    artifacts_root = tmp_path / "artifacts"
+
+    with pytest.raises(ValueError, match="path traversal"):
+        SandboxedSkillTool(
+            manifest=manifest, skill_dir=skill_dir, entry_point="tool:X",
+            image="kal-sandbox-minimal:latest", sandbox=FakeSandboxExecutor(),
+            artifacts_root=artifacts_root,
+        )
+
+    # La raíz de artefactos se crea, pero NUNCA nada fuera de ella.
+    assert not (tmp_path / "tmp" / "pwned").exists()
+
+
+def _permissive_cascade(allowed: frozenset[Permission]) -> PermissionCascade:
+    """Cascada de prueba con el tier 'skill' otorgando `allowed` — bypassea
+    __init__ (que lee settings.permissions real) para no depender de
+    config.yaml en un test unitario de la lógica de mapeo en sí."""
+    cascade = PermissionCascade.__new__(PermissionCascade)
+    cascade.globally_denied = frozenset()
+    cascade.trust_tier_caps = {"skill": allowed}
+    return cascade
+
+
+def test_network_permission_maps_to_bridge_network_mode_when_the_cascade_allows_it(tmp_path, monkeypatch):
+    """
+    K-4 (auditoría externa Likay-OS, 2026-09-26): declarar
+    requires_network=True en el propio manifiesto YA NO alcanza por sí
+    solo — la cascada del kernel (tier 'skill') tiene que otorgarlo
+    también. Acá se inyecta una cascada que SÍ lo permite, para seguir
+    probando la lógica de mapeo permiso->network_mode en sí (el techo
+    real por default, sin mockear nada, se prueba en el test de abajo).
+    """
+    monkeypatch.setattr(
+        "kernel.registry.sandboxed_skill.permission_cascade",
+        _permissive_cascade(frozenset({Permission.FILESYSTEM_READ, Permission.NETWORK})),
+    )
     skill_dir = tmp_path / "networked"
     skill_dir.mkdir()
     (skill_dir / "tool.py").write_text("", encoding="utf-8")
@@ -123,10 +177,110 @@ def test_network_permission_maps_to_bridge_network_mode(tmp_path):
     assert fake.calls[0]["network_mode"] == "bridge"
 
 
+def test_network_permission_is_rejected_by_the_kernel_cascade_by_default(tmp_path):
+    """
+    K-4 (auditoría externa Likay-OS, 2026-09-26): la cascada de permisos
+    solo se invocaba en el LLAMADOR (agent_core/llm/agent_loop.py),
+    nunca dentro del kernel — network_mode se derivaba de
+    manifest.permissions SOLO, un dato AUTODECLARADO por la propia
+    skill. Sin mockear nada (cascada real, la misma que usa
+    config.yaml: trust_tier_caps.skill = [filesystem_read] por
+    default), una skill que declara requires_network=True ahora se
+    rechaza ACÁ MISMO, en el kernel — no solo en el llamador.
+    """
+    skill_dir = tmp_path / "networked"
+    skill_dir.mkdir()
+    (skill_dir / "tool.py").write_text("", encoding="utf-8")
+    manifest = ToolManifest(name="networked", description="d", created_by="system", requires_network=True)
+    fake = FakeSandboxExecutor(_ok_result())
+    skill_tool = SandboxedSkillTool(
+        manifest=manifest, skill_dir=skill_dir, entry_point="tool:X",
+        image="img", sandbox=fake, artifacts_root=tmp_path / "artifacts",
+    )
+
+    artifact = skill_tool.execute()
+
+    assert artifact.metadata["status"] == "error"
+    assert "network" in artifact.metadata["stderr"]
+    assert fake.calls == []  # nunca llegó a ejecutarse nada, fail closed
+
+
 def test_no_network_permission_means_no_network_mode_override(tool):
     skill_tool, fake = tool
     skill_tool.execute()
     assert fake.calls[0]["network_mode"] is None
+
+
+# --- K-5 (auditoría externa Likay-OS, 2026-09-26): TOCTOU entre la
+# verificación de firma (una sola vez, al cargar) y la ejecución (el
+# contenido se relee de disco en CADA execute()) ---
+
+
+def _make_signed_skill(base_dir, key_dir) -> object:
+    skill_dir = base_dir / "firmada"
+    skill_dir.mkdir()
+    (skill_dir / "tool.py").write_text("# version original\n", encoding="utf-8")
+    (skill_dir / "skill.yaml").write_text(
+        'name: firmada\ndescription: "d"\nversion: "0.1.0"\nentry_point: "tool:X"\nenabled: true\n',
+        encoding="utf-8",
+    )
+    SkillSigner(key_dir=key_dir).write_signature(skill_dir)
+    return skill_dir
+
+
+def test_execute_succeeds_for_a_signed_skill_untouched_since_loading(tmp_path):
+    skill_dir = _make_signed_skill(tmp_path, tmp_path / "keys")
+    manifest = ToolManifest(name="firmada", description="d", created_by="system")
+    fake = FakeSandboxExecutor(_ok_result())
+    skill_tool = SandboxedSkillTool(
+        manifest=manifest, skill_dir=skill_dir, entry_point="tool:X",
+        image="img", sandbox=fake, artifacts_root=tmp_path / "artifacts",
+    )
+
+    artifact = skill_tool.execute()
+
+    assert "status" not in artifact.metadata
+    assert len(fake.calls) == 1
+
+
+def test_execute_rejects_a_signed_skill_modified_after_loading(tmp_path):
+    """
+    K-5: la firma se verificó bien AL CARGAR (kernel/registry/
+    skills.py::load_skills(), no ejercitado directo acá — este test
+    construye el Tool ya "cargado", como si esa verificación inicial ya
+    hubiera pasado) — pero alguien modifica tool.py DESPUÉS, antes de
+    una ejecución posterior. Sin re-verificar en execute(), esto
+    corría código nunca verificado mientras la auditoría seguía
+    diciendo "verified". Con el fix, execute() lo rechaza.
+    """
+    skill_dir = _make_signed_skill(tmp_path, tmp_path / "keys")
+    manifest = ToolManifest(name="firmada", description="d", created_by="system")
+    fake = FakeSandboxExecutor(_ok_result())
+    skill_tool = SandboxedSkillTool(
+        manifest=manifest, skill_dir=skill_dir, entry_point="tool:X",
+        image="img", sandbox=fake, artifacts_root=tmp_path / "artifacts",
+    )
+
+    # Modificación DESPUÉS de que el Tool ya está construido ("cargado"),
+    # simulando el hueco real entre load_skills() y una ejecución
+    # posterior en el tiempo.
+    (skill_dir / "tool.py").write_text("# codigo inyectado despues de firmar\n", encoding="utf-8")
+
+    artifact = skill_tool.execute()
+
+    assert artifact.metadata["status"] == "error"
+    assert "verifica" in artifact.metadata["stderr"]
+    assert fake.calls == []  # nunca llegó a ejecutarse el código modificado
+
+
+def test_execute_still_works_for_an_unsigned_skill(tool):
+    """Regresión: la mayoría de las skills reales no tienen skill.sig
+    (compatibilidad total, ver kernel/registry/skill_signing.py) — la
+    re-verificación de K-5 no debe romper el caso sin firma."""
+    skill_tool, fake = tool
+    artifact = skill_tool.execute()
+    assert "status" not in artifact.metadata
+    assert len(fake.calls) == 1
 
 
 def test_sandbox_failure_becomes_error_artifact(tmp_path, manifest):
