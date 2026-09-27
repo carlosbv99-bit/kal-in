@@ -8707,11 +8707,20 @@ LÓGICA del chequeo vive en 7 tests con repos sintéticos en
 `tmp_path`, deterministas; el chequeo contra el mundo real vive
 únicamente en el workflow de CI, informativo.
 
-**Hallazgo aparte, sin resolver — decisión pendiente, no un bug**: el
-chequeo reporta que `kernel/security/malware_scan.py` (la ubicación en
-kal, la correcta arquitectónicamente) no tiene equivalente en kal-in,
-que todavía lo tiene en `tool_integration/malware_scan.py` — herencia
-de antes del split, nunca reorganizado acá. Migrar ese módulo a
-`kernel/` en este repo es un cambio real (mover el archivo, actualizar
-sus imports en `sandboxed_skill.py` y los tests que lo usan) que
-queda pendiente de una decisión explícita, no hecho en esta sesión.
+**Hallazgo aparte, resuelto en la misma sesión**: el chequeo reportó
+que `kernel/security/malware_scan.py` (la ubicación en kal, la
+correcta arquitectónicamente — es un mecanismo de seguridad del
+kernel, no una capacidad de agente) no tenía equivalente acá, que
+todavía lo tenía en `tool_integration/malware_scan.py` — herencia de
+antes del split, nunca reorganizado. Con confirmación del usuario, se
+migró: `git mv tool_integration/malware_scan.py
+kernel/security/malware_scan.py` + `kernel/security/__init__.py`
+nuevo, imports actualizados en `kernel/registry/sandboxed_skill.py`,
+`tool_integration/download_manager.py`,
+`tests/test_sandboxed_skill.py`, `tests/test_download_manager.py`,
+`tests/test_malware_scan.py`. `ruff check .` (regla completa) limpio
+tras el `--fix` de reordenamiento de imports; suite completa corrida
+después — ver el commit para el resultado exacto. Esto cierra la
+única divergencia estructural real que quedaba entre kal y kal-in
+además de la diferencia de config ya documentada y aceptada
+(`utils/config.py`).

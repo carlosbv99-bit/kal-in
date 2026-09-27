@@ -47,10 +47,10 @@ from kernel.lifecycle.docker_runner import SandboxResult
 from kernel.lifecycle.executor import SandboxExecutor
 from kernel.permissions.permission_cascade import permission_cascade
 from kernel.registry.skill_signing import verify_skill_signature
+from kernel.security.malware_scan import MalwareScanError, scan_bytes
 from sdk.artifacts import Artifact
 from sdk.permissions import Permission
 from sdk.skill import Tool, ToolManifest
-from tool_integration.malware_scan import MalwareScanError, scan_bytes
 from utils.correlation import get_correlation_id
 from utils.logger import get_logger
 
@@ -302,7 +302,7 @@ class SandboxedSkillTool(Tool):
         # (una skill de un tercero) que llegan sin re-codificar al
         # disco real, listos para que el usuario los abra después con
         # cualquier aplicación — se escanean con ClamAV
-        # (tool_integration/malware_scan.py) primero. Fail-closed: si
+        # (kernel/security/malware_scan.py) primero. Fail-closed: si
         # no se puede escanear (ClamAV no instalado) o se detecta algo,
         # el artefacto nunca se escribe.
         if modality != "text" and uri and uri in output_files:
