@@ -8659,3 +8659,59 @@ re-firmar como parte del mismo cambio, no como un paso separado que se
 pueda olvidar. Candidato a automatizar (hook de pre-commit o chequeo
 en CI que detecte `skill.sig` desactualizado), no implementado en esta
 sesión.
+
+## Chequeo de drift kal-in ↔ kal (`scripts/check_kernel_drift.py`) (2026-09-27)
+
+Pregunta del usuario tras la reconciliación de arriba: ¿es posible que
+una modificación en kal se propague sola a kal-in, sobre todo en
+producción? Respuesta corta: no, hoy no — kal-in todavía embebe su
+propia copia del kernel en vez de depender del paquete kal (ver
+`CONTRIBUTING.md`), y "automático" tampoco sería deseable para código
+que llega a producción sin revisión humana. Recomendado en vez de la
+migración completa (invasiva, prematura mientras la API de kal puede
+seguir moviéndose): un chequeo de drift que detecte divergencia rápido,
+sin tocar la relación de dependencia todavía.
+
+**Confirmó su propio valor de inmediato**: al construirlo y correrlo
+por primera vez contra el `kal` real, encontró que 4 de las "5
+vulnerabilidades reales de kernel/sandbox" de la auditoría externa de
+Likay-OS (2026-09-26) — K-1, K-4, K-5, K-6 — nunca se habían portado a
+kal, pese a que la sesión anterior de limpieza de kal había afirmado
+"kal está al día" tras portar solo el fix de `docker_runner.py` (K-2 +
+el hang sin timeout de kal-in issue #4). Esos 4 fixes se portaron a kal
+en esa misma sesión (ver `docs/HISTORY.md` de kal, "4 vulnerabilidades
+reales más").
+
+**Diseño**: compara byte a byte `kernel/`, `sdk/`, `audit/`,
+`code_analysis/` (los directorios que ambos `CONTRIBUTING.md` ya
+documentan como "mecanismo puro, sin extensión de agente") más las
+skills que existen en AMBOS repos por nombre — nunca exige que las
+listas completas de skills coincidan, kal-in tiene su propio Skill
+Market más grande. Dos exclusiones deliberadas, no descuidos:
+- `utils/config.py`: kal-in tiene a propósito MÁS campos que kal
+  (LLM/memoria/multimodal, ver limpieza de kal del mismo día) — no es
+  drift, es diseño.
+- `*.sig`: un blob de firma criptográfica siempre difiere entre repos
+  que re-firmaron con claves distintas (como pasó hoy mismo, ver
+  sección de arriba) aunque el código real sea idéntico — comparar la
+  firma en sí sería puro ruido permanente.
+
+**Reporta, no corrige ni bloquea**: mismo criterio que `pip-audit` en
+CI — nueva, sin historial de uso real todavía, corre por schedule
+diario + manual (`workflow_dispatch`), nunca en cada push (el estado de
+kal no cambia porque kal-in tenga un commit nuevo). El test que
+comparaba contra el kal real se sacó de la suite de pytest committeada
+(quedaba "rojo" cada vez que hubiera drift real y no resuelto, como el
+hallazgo de `malware_scan.py` de abajo) — la cobertura real de la
+LÓGICA del chequeo vive en 7 tests con repos sintéticos en
+`tmp_path`, deterministas; el chequeo contra el mundo real vive
+únicamente en el workflow de CI, informativo.
+
+**Hallazgo aparte, sin resolver — decisión pendiente, no un bug**: el
+chequeo reporta que `kernel/security/malware_scan.py` (la ubicación en
+kal, la correcta arquitectónicamente) no tiene equivalente en kal-in,
+que todavía lo tiene en `tool_integration/malware_scan.py` — herencia
+de antes del split, nunca reorganizado acá. Migrar ese módulo a
+`kernel/` en este repo es un cambio real (mover el archivo, actualizar
+sus imports en `sandboxed_skill.py` y los tests que lo usan) que
+queda pendiente de una decisión explícita, no hecho en esta sesión.
