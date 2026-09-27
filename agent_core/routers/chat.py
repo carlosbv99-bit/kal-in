@@ -568,7 +568,7 @@ _transcription_service = STTService()
 
 
 @router.post("/transcribe", summary="Transcribir un audio sin pasar por el agente (transcripción en vivo)")
-async def transcribe_audio(file: UploadFile = File(...)):
+async def transcribe_audio(file: UploadFile = File(...)):  # noqa: B008 — patrón estándar de inyección de dependencias de FastAPI, no una llamada real en cada request
     """
     Transcripción DIRECTA (faster-whisper, sin LLM, sin sesión, sin
     persistir el archivo) — pensada para la transcripción en vivo
@@ -614,7 +614,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         result = _transcription_service.transcribe(str(tmp_path))
     except KernelServiceError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         # BUG REAL ENCONTRADO EN USO: un chunk de webm todavía incompleto
         # (típico de la transcripción parcial en vivo, llamada mientras
         # el usuario sigue grabando — ver frontend/app.js) puede no ser

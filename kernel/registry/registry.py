@@ -25,7 +25,11 @@ from audit.audit_log import AuditEvent, audit_log
 from code_analysis.ast_validator import validate_code
 from kernel.lifecycle.executor import SandboxExecutor
 from kernel.registry.signing import ToolSigner, tool_signer
-from kernel.registry.versioning import ToolVersionStore, is_valid_tool_name, tool_version_store
+from kernel.registry.versioning import (
+    ToolVersionStore,
+    is_valid_tool_name,
+    tool_version_store,
+)
 from sdk.artifacts import Artifact
 from sdk.permissions import Permission
 from sdk.skill import Tool, ToolManifest
