@@ -53,9 +53,9 @@ async function api(path, options = {}, _isRetry = false) {
     // repetidas veces. Le pedimos el token acá mismo, lo guardamos, y
     // reintentamos la MISMA acción una sola vez (nunca en loop).
     const pasted = window.prompt(
-      "Esta acción necesita el token administrativo de kal.\n" +
-      "Se imprime en la terminal donde corre ./scripts/run_kal.sh (buscá 'Token administrativo').\n" +
-      "Pegalo acá:"
+      "Esta acción necesita el token administrativo de kal-in.\n" +
+      "Se imprime en la terminal donde corre ./scripts/run_kal.sh (busca 'Token administrativo').\n" +
+      "Pégalo aquí:"
     );
     if (pasted) {
       localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, pasted.trim());
@@ -385,11 +385,37 @@ function stopProgressPolling() {
 function appendImageMessage(url, altText) {
   chatEmpty.style.display = "none";
   const wrapper = el("div", "msg msg-agent");
+  const link = document.createElement("a");
+  link.className = "chat-image-link";
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.title = "Abrir imagen";
   const img = document.createElement("img");
   img.className = "chat-image-message";
   img.src = url;
   img.alt = altText || "Imagen";
-  wrapper.appendChild(img);
+  link.appendChild(img);
+  wrapper.appendChild(link);
+  chatScroll.appendChild(wrapper);
+  chatScroll.scrollTop = chatScroll.scrollHeight;
+}
+
+// ---------- Audio (generado por audio_generation, o subido por el usuario) en el chat ----------
+// BUG REAL ENCONTRADO EN USO (2026-09-22): un artefacto con
+// modality === "audio" nunca tenía ninguna rama de renderizado acá —
+// el agente podía generar audio de verdad y el usuario nunca lo veía
+// (ni podía escucharlo) en el chat.
+
+function appendAudioMessage(url, label) {
+  chatEmpty.style.display = "none";
+  const wrapper = el("div", "msg msg-agent");
+  if (label) wrapper.appendChild(el("div", "msg-audio-label", label));
+  const audio = document.createElement("audio");
+  audio.className = "chat-audio-message";
+  audio.controls = true;
+  audio.src = url;
+  wrapper.appendChild(audio);
   chatScroll.appendChild(wrapper);
   chatScroll.scrollTop = chatScroll.scrollHeight;
 }
@@ -434,7 +460,10 @@ function appendAgentResult(result) {
       // Toda imagen generada/editada/compuesta aparece como un
       // mensaje más del chat, sin que el usuario tenga que hacer nada.
       if (step.artifact && step.artifact.modality === "image") {
-        appendImageMessage(step.artifact.url, "Imagen generada por kal");
+        appendImageMessage(step.artifact.url, "Imagen generada por kal-in");
+      }
+      if (step.artifact && step.artifact.modality === "audio") {
+        appendAudioMessage(step.artifact.url, "Audio generado por kal-in");
       }
       if (step.artifact && step.artifact.modality === "document") {
         appendDocumentMessage(step.artifact.url, step.artifact.filename);
@@ -509,7 +538,11 @@ chatForm.addEventListener("submit", async (ev) => {
     if (fileToUpload) {
       const uploaded = await uploadImage(fileToUpload, sessionId, controller);
       sessionId = uploaded.session_id;
-      appendImageMessage(uploaded.url, "Imagen subida");
+      if (fileToUpload.type.startsWith("audio/")) {
+        appendAudioMessage(uploaded.url, "Audio subido");
+      } else {
+        appendImageMessage(uploaded.url, "Imagen subida");
+      }
       setPendingUploadFile(null);
     }
 
@@ -531,7 +564,7 @@ chatForm.addEventListener("submit", async (ev) => {
   } catch (e) {
     hidePending();
     if (e.name === "AbortError") {
-      chatScroll.appendChild(el("div", "msg-error", "Cancelado. Kal puede seguir trabajando en el fondo un rato más, pero ya no esperamos esa respuesta."));
+      chatScroll.appendChild(el("div", "msg-error", "Cancelado. Kal-in puede seguir trabajando en el fondo un rato más, pero ya no esperamos esa respuesta."));
     } else {
       chatScroll.appendChild(el("div", "msg-error", `Error: ${e.message}`));
     }
@@ -576,6 +609,233 @@ imageUploadInput.addEventListener("change", () => {
 });
 
 pendingAttachmentRemove.addEventListener("click", () => setPendingUploadFile(null));
+
+// ---------- Hablarle a kal-in por micrófono ----------
+//
+// Graba con MediaRecorder. A diferencia de un archivo de audio elegido
+// a mano (que sí queda como adjunto para que el AGENTE lo transcriba
+// con speech_to_text), acá la transcripción pasa ACÁ MISMO, en vivo,
+// vía POST /transcribe (faster-whisper directo, sin LLM, sin sesión) —
+// el texto transcripto se pone directo en el textarea, como si el
+// usuario lo hubiera tecleado, y se envía solo al cortar. Dos partes:
+// - VAD por volumen (Web Audio API, 100% local): corta la grabación
+//   sola cuando detecta silencio sostenido después de haber escuchado
+//   algo de voz, sin que el usuario tenga que hacer un segundo clic.
+// - Transcripción PARCIAL cada ~2.5s mientras se graba, mostrada en
+//   #voice-preview — "en vivo" en el sentido de "se actualiza mientras
+//   hablás", no transcripción incremental real (cada parcial vuelve a
+//   transcribir el audio acumulado hasta ese momento entero, faster-
+//   whisper no soporta streaming incremental) — igual da la sensación
+//   de fluidez que se pidió, con costo de CPU acotado (audio corto).
+//
+// DECISIÓN DE DISEÑO: no usa la Web Speech API nativa del navegador
+// (SpeechRecognition) — manda el audio a un servicio en la nube del
+// proveedor del navegador (Google en Chrome/Opera), rompiendo el
+// principio "local-first, sin red inesperada" del resto de kal-in. Ver
+// el mismo comentario en agent_core/routers/chat.py::transcribe_audio.
+//
+// LIMITACIÓN REAL, no un bug: getUserMedia exige un contexto seguro
+// (HTTPS), con la excepción de "localhost"/"127.0.0.1" que los
+// navegadores tratan como seguro para desarrollo local. Si kal-in corre
+// en otra máquina de la LAN y se accede por su IP en HTTP plano (mismo
+// caso ya documentado arriba para el token admin), el micrófono queda
+// bloqueado por el navegador — no hay forma de evitar esto desde acá,
+// haría falta HTTPS real.
+
+const micBtn = document.getElementById("mic-btn");
+const voicePreview = document.getElementById("voice-preview");
+
+const VAD_SAMPLE_INTERVAL_MS = 200;
+const VAD_SILENCE_RMS_THRESHOLD = 0.02; // amplitud RMS normalizada (0-1), ajustado a mano contra ruido de micrófono típico
+const VAD_SILENCE_TIMEOUT_MS = 1800; // silencio sostenido antes de cortar sola
+const VAD_MAX_RECORDING_MS = 30000; // tope de seguridad si el VAD nunca detecta silencio (ambiente ruidoso)
+const PARTIAL_TRANSCRIBE_INTERVAL_MS = 2500;
+
+let mediaRecorder = null;
+let recordingStream = null;
+let recordedChunks = [];
+let audioContext = null;
+let analyserNode = null;
+let vadIntervalId = null;
+let partialIntervalId = null;
+let recordingStartedAt = 0;
+let lastSpeechAt = 0;
+let hasSpokenAtLeastOnce = false;
+
+function micSupported() {
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+}
+
+function recordingMimeType() {
+  // audio/webm es lo que soportan Chrome/Firefox de forma nativa; si no
+  // está disponible (p.ej. Safari), se deja que MediaRecorder elija su
+  // propio default en vez de forzar un tipo no soportado.
+  return MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+}
+
+async function transcribeBlob(blob, mimeType) {
+  const extension = mimeType.includes("ogg") ? "ogg" : "webm";
+  const formData = new FormData();
+  formData.append("file", new File([blob], `voz.${extension}`, { type: mimeType }));
+  const res = await fetch(API + "/transcribe", { method: "POST", body: formData });
+  if (!res.ok) return null; // chunk parcial todavía no decodificable — normal, se reintenta en el próximo intervalo
+  const data = await res.json();
+  return data.text || "";
+}
+
+function startVAD() {
+  audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioContext.createMediaStreamSource(recordingStream);
+  analyserNode = audioContext.createAnalyser();
+  analyserNode.fftSize = 512;
+  source.connect(analyserNode);
+  const data = new Uint8Array(analyserNode.fftSize);
+
+  recordingStartedAt = Date.now();
+  lastSpeechAt = Date.now();
+  hasSpokenAtLeastOnce = false;
+
+  vadIntervalId = setInterval(() => {
+    analyserNode.getByteTimeDomainData(data);
+    let sumSquares = 0;
+    for (let i = 0; i < data.length; i++) {
+      const normalized = (data[i] - 128) / 128;
+      sumSquares += normalized * normalized;
+    }
+    const rms = Math.sqrt(sumSquares / data.length);
+    const now = Date.now();
+
+    if (rms > VAD_SILENCE_RMS_THRESHOLD) {
+      lastSpeechAt = now;
+      hasSpokenAtLeastOnce = true;
+    }
+
+    const totalDuration = now - recordingStartedAt;
+    const silenceDuration = now - lastSpeechAt;
+
+    if (totalDuration > VAD_MAX_RECORDING_MS) {
+      stopRecording();
+    } else if (hasSpokenAtLeastOnce && silenceDuration > VAD_SILENCE_TIMEOUT_MS) {
+      stopRecording();
+    }
+  }, VAD_SAMPLE_INTERVAL_MS);
+}
+
+function stopVAD() {
+  if (vadIntervalId) clearInterval(vadIntervalId);
+  vadIntervalId = null;
+  if (audioContext) audioContext.close().catch(() => {});
+  audioContext = null;
+  analyserNode = null;
+}
+
+function startPartialTranscription(mimeType) {
+  partialIntervalId = setInterval(() => {
+    if (!mediaRecorder || mediaRecorder.state !== "recording") return;
+    // requestData() fuerza un dataavailable con lo grabado hasta ACÁ,
+    // sin cortar la grabación — el handler de abajo empuja ese chunk a
+    // recordedChunks antes de que este setTimeout corto lo lea.
+    mediaRecorder.requestData();
+    setTimeout(async () => {
+      if (recordedChunks.length === 0) return;
+      const blob = new Blob(recordedChunks, { type: mimeType });
+      const text = await transcribeBlob(blob, mimeType);
+      if (text) {
+        voicePreview.hidden = false;
+        voicePreview.textContent = text;
+      }
+    }, 200);
+  }, PARTIAL_TRANSCRIBE_INTERVAL_MS);
+}
+
+function stopPartialTranscription() {
+  if (partialIntervalId) clearInterval(partialIntervalId);
+  partialIntervalId = null;
+}
+
+async function startRecording() {
+  if (!micSupported()) {
+    window.alert("Este navegador no soporta grabar audio (falta MediaRecorder/getUserMedia).");
+    return;
+  }
+  try {
+    // BUG REAL ENCONTRADO EN USO: `{ audio: true }` (sin más) deja que
+    // el navegador elija sus propios defaults de procesamiento de
+    // audio, que en la práctica no siempre activan reducción de ruido
+    // real — pedir estas tres constraints explícitas SÍ mejora la señal
+    // real capturada (confirmado: el audio grabado tenía mucho ruido
+    // ambiental de fondo y whisper no reconocía nada).
+    recordingStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+  } catch (e) {
+    window.alert("No se pudo acceder al micrófono — revisá los permisos del navegador para este sitio.");
+    return;
+  }
+
+  const mimeType = recordingMimeType();
+  mediaRecorder = mimeType ? new MediaRecorder(recordingStream, { mimeType }) : new MediaRecorder(recordingStream);
+  recordedChunks = [];
+  voicePreview.hidden = true;
+  voicePreview.textContent = "";
+
+  mediaRecorder.addEventListener("dataavailable", (ev) => {
+    if (ev.data.size > 0) recordedChunks.push(ev.data);
+  });
+
+  mediaRecorder.addEventListener("stop", async () => {
+    stopVAD();
+    stopPartialTranscription();
+    recordingStream.getTracks().forEach((track) => track.stop());
+    recordingStream = null;
+    // Deshabilitado hasta terminar de transcribir — sin esto, el botón
+    // ya se ve "listo" (stopRecording() ya sacó .recording) mientras la
+    // transcripción final todavía corre en segundo plano, dejando
+    // arrancar una segunda grabación que pisa mediaRecorder/chunks de
+    // la que se está por mandar.
+    micBtn.disabled = true;
+
+    const type = mediaRecorder.mimeType || mimeType || "audio/webm";
+    voicePreview.hidden = false;
+    voicePreview.textContent = "Transcribiendo…";
+
+    const blob = new Blob(recordedChunks, { type });
+    const text = await transcribeBlob(blob, type);
+
+    voicePreview.hidden = true;
+    voicePreview.textContent = "";
+    micBtn.disabled = false;
+
+    if (!text || !text.trim()) {
+      window.alert("No se detectó nada en la grabación — probá de nuevo.");
+      chatInput.focus();
+      return;
+    }
+
+    chatInput.value = text.trim();
+    chatForm.requestSubmit();
+  });
+
+  mediaRecorder.start();
+  startVAD();
+  startPartialTranscription(mimeType || mediaRecorder.mimeType);
+  micBtn.classList.add("recording");
+  micBtn.title = "Detener grabación";
+}
+
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+  micBtn.classList.remove("recording");
+  micBtn.title = "Hablarle a kal-in por micrófono";
+}
+
+micBtn.addEventListener("click", () => {
+  if (micBtn.classList.contains("recording")) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+});
 
 async function uploadImage(file, sessionIdForUpload, controller) {
   const formData = new FormData();

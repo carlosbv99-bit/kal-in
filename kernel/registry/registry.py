@@ -25,7 +25,7 @@ from audit.audit_log import AuditEvent, audit_log
 from code_analysis.ast_validator import validate_code
 from kernel.lifecycle.executor import SandboxExecutor
 from kernel.registry.signing import ToolSigner, tool_signer
-from kernel.registry.versioning import ToolVersionStore, tool_version_store
+from kernel.registry.versioning import ToolVersionStore, is_valid_tool_name, tool_version_store
 from sdk.artifacts import Artifact
 from sdk.permissions import Permission
 from sdk.skill import Tool, ToolManifest
@@ -181,6 +181,25 @@ class ToolRegistry:
         Nunca activa la herramienta directamente — siempre pasa por el
         pipeline de validación completo.
         """
+        # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+        # 2026-09-26), K-6: manifest.name (elegido por el LLM acá) se
+        # usaba sin sanitizar más adelante en ToolVersionStore
+        # (kernel/registry/versioning.py::_tool_dir(), llamado desde
+        # _activate() -> save_version()) para armar una ruta de disco
+        # — mismo patrón que K-1 en sandboxed_skill.py. Se rechaza acá,
+        # PRIMERO, antes de gastar cómputo en validate_code()/una
+        # corrida de sandbox de prueba que de todos modos terminaría
+        # descartada al persistir.
+        if not is_valid_tool_name(manifest.name):
+            reason = (
+                f"name '{manifest.name}' inválido — solo minúsculas, dígitos, '_' y '-', debe "
+                "empezar con minúscula o dígito, máximo 64 caracteres."
+            )
+            pending = PendingTool(manifest, source_code, status="rejected", reason=reason)
+            self._audit_tool_event("tool_created", manifest, "failure", reason)
+            logger.warning(f"Herramienta '{manifest.name}' rechazada: {reason}")
+            return pending
+
         validation = validate_code(source_code)
         if not validation.is_safe:
             reason = validation.syntax_error or "; ".join(validation.violations)

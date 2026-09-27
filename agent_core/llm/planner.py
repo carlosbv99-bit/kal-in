@@ -154,7 +154,7 @@ class PlanningAgentLoop:
             {
                 "role": "system",
                 "content": (
-                    "Eres kal. Te doy un objetivo original y los resultados de cada subtarea ya "
+                    "Eres kal-in. Te doy un objetivo original y los resultados de cada subtarea ya "
                     "ejecutada para cumplirlo. Da la respuesta final al usuario, directa y concisa, "
                     "integrando esos resultados — no vuelvas a ejecutar nada."
                 ),

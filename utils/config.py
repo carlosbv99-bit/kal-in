@@ -95,6 +95,21 @@ class LLMConfig(BaseModel):
     # al loop principal de razonamiento/herramientas, no solo al
     # clasificador chico.
     temperature: float = 0.3
+    # BUG REAL ENCONTRADO EN USO (2026-09-22): sin ningún tope de tokens
+    # de salida, un pedido de transcribir el texto de una imagen subida
+    # entró en un bucle de repetición y generó más de 14.000 tokens en
+    # una sola respuesta sin llegar nunca a un stop token — 8+ minutos
+    # de cómputo real en CPU sin ninguna señal al usuario, acotado solo
+    # por timeout_seconds (600s) o por agotar la ventana de contexto
+    # completa (32768 tokens en la config actual), lo que llegue primero.
+    # Este tope (num_predict en Ollama, max_tokens en el formato OpenAI,
+    # ver ollama_client.py/openai_compatible_client.py) no evita que el
+    # modelo se repita, pero acota el peor caso a un tiempo finito y
+    # razonable en vez de dejarlo correr hasta el límite de contexto.
+    # 8192 es generoso a propósito: ya hay un caso real documentado
+    # arriba (proyecto Android multi-archivo) que necesita respuestas
+    # largas — bajarlo de más truncaría trabajo legítimo, no solo bucles.
+    max_response_tokens: int = 8192
 
 
 class RuntimeSlotConfig(BaseModel):
@@ -207,10 +222,33 @@ class VideoGenConfig(BaseModel):
 
 class STTConfig(BaseModel):
     backend: Literal["local"] = "local"
-    # "tiny" por defecto: ~75MB, corre rápido en CPU. Modelos más grandes
-    # (base/small/medium/large) son más precisos pero más pesados/lentos.
-    model_size: str = "tiny"
-    language: str | None = None  # None = auto-detección
+    # BUG REAL ENCONTRADO EN USO (2026-09-22): con "tiny" (~75MB, el
+    # default anterior), el micrófono en vivo (ver agent_core/routers/
+    # chat.py::transcribe_audio) no reconocía nada dicho por el usuario
+    # con ruido ambiental real de fondo. Evaluado en vivo, no a ciegas:
+    # mismo audio real con ruido sintético mezclado (voz + pink noise),
+    # comparado tiny/base/small — "tiny" y "base" perdieron la primera
+    # palabra ("Hola") por igual, SOLO "small" la recuperó
+    # correctamente. Costo real medido (modelo ya cargado, sin contar
+    # la descarga): 0.35s (tiny) vs 1.19s (small) por transcripción —
+    # aceptable para un audio de pocos segundos, incluso llamado cada
+    # ~2.5s durante la transcripción en vivo. Costo en disco: 464MB vs
+    # 75MB — la razón real por la que no se sube directo a "medium"/
+    # "large" sin evidencia de que también haga falta.
+    model_size: str = "small"
+    # BUG REAL ENCONTRADO EN USO (2026-09-22): con language=None
+    # (auto-detección), un audio CORTO (una sola palabra, "hola") le da
+    # a Whisper muy poca señal para adivinar el idioma de forma
+    # confiable — confirmado en vivo: detectó "pl" (polaco) con apenas
+    # 36% de confianza y transcribió basura ("Do ja."), en vez de
+    # "Hola.". Forzando language="es" (igual que el resto del proyecto,
+    # ver AudioGenConfig.voice_model = "es_ES-davefx-medium" más abajo)
+    # el mismo audio transcribe correcto. Auto-detección solo tiene
+    # sentido con audio largo (varios segundos) donde hay señal real
+    # para adivinar — acá el caso de uso típico (transcripción en vivo
+    # por micrófono, frases cortas) es justamente el peor escenario
+    # para esa función.
+    language: str | None = "es"
 
 
 class VisionConfig(BaseModel):
@@ -223,14 +261,49 @@ class VisionConfig(BaseModel):
     # modelo de lenguaje del agente (llm.provider).
     base_url: str = "http://localhost:11434"
     # Modelo de Ollama con soporte de visión (necesita `ollama pull
-    # llava:13b` u otro modelo de visión — no se descarga solo, a
+    # minicpm-v` u otro modelo de visión — no se descarga solo, a
     # diferencia de los demás modelos multimodales de este archivo que
     # sí se auto-bajan la primera vez que se usan). BUG REAL ENCONTRADO
     # EN USO: llama3.2-vision (arquitectura "mllama") no carga en
     # Ollama >=0.30.0 — regresión conocida, sin arreglo todavía (ver
-    # github.com/ollama/ollama/issues/16547). llava usa arquitectura
-    # CLIP, sí soportada.
-    model: str = "llava:13b"
+    # github.com/ollama/ollama/issues/16547). llava:13b sí cargaba, pero
+    # se negaba a tareas legítimas (transcribir texto de una imagen,
+    # identificar un logo) — ver config.yaml para la comparación en vivo
+    # contra 4 candidatos que motivó el cambio a minicpm-v (2026-09-22).
+    model: str = "minicpm-v"
+
+
+class OCRConfig(BaseModel):
+    """
+    Extracción de texto de una imagen vía un pipeline de OCR DEDICADO
+    (detección + reconocimiento de caracteres, `rapidocr` sobre
+    ONNXRuntime) en vez de pedirle a un modelo de visión-lenguaje que
+    "describa" el texto. BUG REAL ENCONTRADO EN USO (2026-09-22):
+    llava:13b (multimodal.vision.model de ese momento) se negaba a
+    transcribir texto de una imagen subida por el usuario ("no puedo
+    ayudarte... no en la transcripción directa de textos específicos");
+    minicpm-v (el reemplazo elegido para multimodal.vision) sí lo
+    intentaba, pero en una foto de una pantalla con texto técnico denso
+    (CPU-Z) inventó una sección de RAM COMPLETA con números de parte
+    falsos que no aparecen en ningún lado de la imagen — un modelo
+    generativo puede alucinar contenido nuevo, un pipeline de OCR
+    clasificatorio no: como mucho lee mal un carácter (p.ej. "i3" como
+    "13"), nunca inventa una sección entera. Evaluado en vivo contra la
+    MISMA imagen real (letras de "Toy Soldiers" de Martika, mal
+    identificada antes como canción de The Cure): resultado exacto,
+    línea por línea. También contra la foto de CPU-Z: todos los números
+    reales correctos (socket 1356, no el 1366 inventado; L1/L2 cache
+    reales, no los inventados), sin la sección de RAM fabricada.
+
+    rapidocr (no paddleocr/paddlepaddle directo) porque paddlepaddle no
+    tiene build para Python 3.14 (el que usa este proyecto) — ni
+    siquiera hay wheel publicado en PyPI para cp314 todavía. rapidocr
+    reimplementa los MISMOS modelos PP-OCR (pesos y arquitectura
+    idénticos) sobre ONNXRuntime, que sí soporta 3.14.
+    """
+    lang_type: str = "latin"          # ver rapidocr.LangRec — "latin" cubre el alfabeto usado en español/inglés
+    ocr_version: str = "PP-OCRv5"     # ver rapidocr.OCRVersion
+    model_type: str = "mobile"        # ver rapidocr.ModelType — liviano, evaluado en vivo, suficiente para texto impreso/pantalla
 
 
 class ImageEditingConfig(BaseModel):
@@ -259,6 +332,7 @@ class MultimodalConfig(BaseModel):
     video: VideoGenConfig = VideoGenConfig()
     stt: STTConfig = STTConfig()
     vision: VisionConfig = VisionConfig()
+    ocr: OCRConfig = OCRConfig()
     image_editing: ImageEditingConfig = ImageEditingConfig()
     composition: ImageCompositionConfig = ImageCompositionConfig()
     uploads: UploadsConfig = UploadsConfig()

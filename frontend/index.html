@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>kal — sala de control</title>
+<title>kal-in — sala de control</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
@@ -13,7 +13,7 @@
 
 <header class="topbar">
   <div class="wordmark">
-    <span class="wordmark-mark">k</span><span class="wordmark-rest">al</span>
+    <span class="wordmark-mark">k</span><span class="wordmark-rest">al-in</span>
   </div>
   <div class="status-strip" id="status-strip" aria-live="polite">
     <div class="status-lamp" data-key="audit_chain_verified">
@@ -39,12 +39,12 @@
   <section class="chat-panel">
     <div class="chat-scroll" id="chat-scroll">
       <div class="chat-empty" id="chat-empty">
-        <p>Dile a kal qué necesitas. Cada acción real (código, memoria, generación de contenido) queda auditada — mira el panel de la derecha mientras trabaja.</p>
+        <p>Dile a kal-in qué necesitas. Cada acción real (código, memoria, generación de contenido) queda auditada — mira el panel de la derecha mientras trabaja.</p>
       </div>
     </div>
 
     <div class="pending-indicator" id="pending-indicator" hidden>
-      <span>kal está trabajando</span>
+      <span>kal-in está trabajando</span>
       <span class="msg-pending-dot"></span>
       <button type="button" class="msg-cancel-btn" id="pending-cancel-btn">Cancelar</button>
     </div>
@@ -59,9 +59,10 @@
         <span class="model-select-label">Último modelo utilizado</span>
         <select id="model-select" class="model-select" title="Modelo"></select>
       </div>
-      <label class="upload-btn" title="Adjuntar una imagen propia">
-        📎<input type="file" id="image-upload-input" accept="image/png,image/jpeg,image/webp" hidden />
+      <label class="upload-btn" title="Adjuntar una imagen o un audio propio">
+        📎<input type="file" id="image-upload-input" accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/webm,audio/ogg,audio/mp4" hidden />
       </label>
+      <button type="button" class="mic-btn" id="mic-btn" title="Hablarle a kal-in por micrófono">🎤</button>
       <div class="chat-input-wrap">
         <!-- Imagen elegida pero TODAVÍA no subida — recién se sube al
              apretar Enter, junto con la instrucción de abajo (ver
@@ -70,7 +71,11 @@
           📎 <span id="pending-attachment-name"></span>
           <button type="button" id="pending-attachment-remove" title="Quitar imagen adjunta">✕</button>
         </div>
-        <textarea id="chat-input" class="chat-input" placeholder="Escribí un objetivo para kal…" rows="1"></textarea>
+        <!-- Transcripción en vivo mientras se graba por micrófono (ver
+             frontend/app.js::startPartialTranscription) — se oculta en
+             cuanto la grabación corta. -->
+        <div class="voice-preview" id="voice-preview" hidden></div>
+        <textarea id="chat-input" class="chat-input" placeholder="Escribe un objetivo para kal-in…" rows="1"></textarea>
       </div>
       <button type="submit" class="send-btn" id="send-btn">Enviar</button>
     </form>

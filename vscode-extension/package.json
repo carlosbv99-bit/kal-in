@@ -1,7 +1,7 @@
 {
   "name": "kal-vscode",
-  "displayName": "Kal — Agente de IA",
-  "description": "Chat con kal (agente de IA local) desde VS Code, con contexto del editor.",
+  "displayName": "Kal-in — Agente de IA",
+  "description": "Chat con kal-in (agente de IA local) desde VS Code, con contexto del editor.",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -14,7 +14,7 @@
       "activitybar": [
         {
           "id": "kal",
-          "title": "Kal",
+          "title": "Kal-in",
           "icon": "media/activity-icon.svg"
         }
       ]
@@ -31,24 +31,24 @@
     "commands": [
       {
         "command": "kal.openChat",
-        "title": "Kal: Abrir chat"
+        "title": "Kal-in: Abrir chat"
       },
       {
         "command": "kal.askAboutSelection",
-        "title": "Kal: Preguntar sobre la selección"
+        "title": "Kal-in: Preguntar sobre la selección"
       },
       {
         "command": "kal.applySuggestedEdit",
-        "title": "Kal: Aplicar cambios a la selección"
+        "title": "Kal-in: Aplicar cambios a la selección"
       }
     ],
     "configuration": {
-      "title": "Kal",
+      "title": "Kal-in",
       "properties": {
         "kal.serverUrl": {
           "type": "string",
           "default": "http://localhost:8000",
-          "description": "URL del backend de kal (agent_core/orchestrator.py, ver ./scripts/run_kal.sh)."
+          "description": "URL del backend de kal-in (agent_core/orchestrator.py, ver ./scripts/run_kal.sh)."
         },
         "kal.model": {
           "type": "string",

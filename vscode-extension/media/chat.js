@@ -40,7 +40,7 @@
     appendMessage(text, "msg-user");
     inputEl.value = "";
     contextIndicatorEl.style.display = "none"; // adjunto de un solo uso, ver chatPanel.ts
-    const pending = appendMessage("kal está pensando...", "msg-pending");
+    const pending = appendMessage("kal-in está pensando...", "msg-pending");
     pending.dataset.pending = "true";
     // Se deshabilita mientras el pedido está en curso, y se vuelve a
     // habilitar con "ready" (el extension host lo manda cuando el
@@ -100,7 +100,7 @@
       // perder. Ver src/projectFiles.ts::handleProjectFilesDecision.
       const fileList = message.files.map((f) => f.path).join("\n");
       const div = appendMessage(
-        `📋 Kal propone crear ${message.files.length} archivo(s) — todavía NO se guardaron:\n${fileList}`,
+        `📋 Kal-in propone crear ${message.files.length} archivo(s) — todavía NO se guardaron:\n${fileList}`,
         "msg-notice"
       );
 

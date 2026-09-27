@@ -150,6 +150,33 @@ def parse_manifest(manifest_path: Path) -> SkillManifest:
     )
 
 
+_VALID_SKILL_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def _validate_skill_name(name: str) -> str | None:
+    """
+    VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    2026-09-26), K-1: `manifest.name` (el `name` crudo de skill.yaml)
+    se usaba SIN NINGUNA sanitización para armar
+    `SandboxedSkillTool.artifact_dir` (kernel/registry/sandboxed_skill.py)
+    vía un simple `Path / manifest.name`, seguido de
+    `mkdir(parents=True, exist_ok=True)`. Un `name` como
+    "../../../../.venv/lib/pythonX.Y/site-packages" hace que el propio
+    proceso del agente cree directorios FUERA de data/artifacts/skills/
+    — path traversal que, combinado con cualquier escritura posterior
+    ahí (un .pth, un paquete que se autoimporta), es RCE diferido en el
+    próximo arranque del intérprete. Devuelve el mensaje de error, o
+    None si el nombre es válido — mismo patrón que
+    `_validate_entry_point_reference` de abajo.
+    """
+    if not _VALID_SKILL_NAME.match(name):
+        return (
+            f"name '{name}' inválido — solo minúsculas, dígitos, '_' y '-', debe empezar con "
+            "minúscula o dígito, máximo 64 caracteres (^[a-z0-9][a-z0-9_-]{0,63}$)"
+        )
+    return None
+
+
 def _validate_entry_point_reference(skill_dir: Path, entry_point: str) -> str | None:
     """
     Valida el `entry_point` SIN importar ni ejecutar nada: solo formato
@@ -200,6 +227,13 @@ def load_skills(
             logger.warning(f"Skill en {skill_dir}: {detail}")
             results.append(SkillStatus(skill_dir=skill_dir.name, manifest=None, status="invalid_manifest", detail=detail))
             _audit(skill_dir.name, "invalid_manifest", detail)
+            continue
+
+        name_error = _validate_skill_name(manifest.name)
+        if name_error is not None:
+            logger.warning(f"Skill en {skill_dir}: {name_error}")
+            results.append(SkillStatus(skill_dir=skill_dir.name, manifest=manifest, status="invalid_manifest", detail=name_error))
+            _audit(skill_dir.name, "invalid_manifest", name_error)
             continue
 
         if not manifest.enabled:

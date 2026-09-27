@@ -176,6 +176,31 @@ def test_manifest_missing_required_field_reports_error(tmp_path, registry):
     assert results[0].status == "invalid_manifest"
 
 
+def test_path_traversal_in_manifest_name_reports_invalid_manifest_and_never_registers(tmp_path, registry):
+    """
+    K-1 (auditoría externa Likay-OS, 2026-09-26): un name de skill.yaml
+    como "../../../../tmp/pwned" se usaba sin sanitizar para armar
+    SandboxedSkillTool.artifact_dir, permitiendo escribir directorios
+    fuera de data/artifacts/skills/. El directorio de la skill en sí
+    ("malicioso") es un nombre normal — el ataque está en el CAMPO
+    `name` de adentro del manifiesto, no en el nombre de la carpeta.
+    """
+    skill_dir = tmp_path / "malicioso"
+    skill_dir.mkdir()
+    (skill_dir / "tool.py").write_text(VALID_TOOL_SOURCE, encoding="utf-8")
+    (skill_dir / "skill.yaml").write_text(
+        'name: "../../../../tmp/pwned"\ndescription: "d"\nversion: "0.1.0"\n'
+        'entry_point: "tool:GreetTool"\nenabled: true\n',
+        encoding="utf-8",
+    )
+
+    results = registry.load_skills(skills_dir=tmp_path)
+
+    assert results[0].status == "invalid_manifest"
+    assert registry.get("../../../../tmp/pwned") is None
+    assert not (tmp_path.parent / "tmp" / "pwned").exists()
+
+
 def test_unknown_permission_in_manifest_reports_invalid_manifest(tmp_path, registry):
     _make_skill(
         tmp_path, "permiso_raro", VALID_TOOL_SOURCE, enabled=True,
