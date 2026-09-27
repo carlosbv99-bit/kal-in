@@ -21,8 +21,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from kernel.registry.skill_signing import verify_skill_signature  # noqa: E402
-from kernel.registry.skills import DEFAULT_SKILLS_DIR, MANIFEST_FILENAME, parse_manifest  # noqa: E402
+from kernel.registry.skill_signing import verify_skill_signature
+from kernel.registry.skills import (
+    DEFAULT_SKILLS_DIR,
+    MANIFEST_FILENAME,
+    parse_manifest,
+)
 
 
 def validate_all_skills(skills_dir: Path = DEFAULT_SKILLS_DIR) -> list[str]:
@@ -35,7 +39,7 @@ def validate_all_skills(skills_dir: Path = DEFAULT_SKILLS_DIR) -> list[str]:
         skill_dir = manifest_path.parent
         try:
             manifest = parse_manifest(manifest_path)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — el objetivo de este script es justamente reportar manifiestos rotos
             errors.append(f"{skill_dir.name}: manifiesto inválido ({e})")
             continue
 

@@ -10,7 +10,10 @@ from __future__ import annotations
 import pytest
 
 from audit.audit_log import audit_log
-from kernel.permissions.filesystem_access_manager import FilesystemAccessError, FilesystemAccessManager
+from kernel.permissions.filesystem_access_manager import (
+    FilesystemAccessError,
+    FilesystemAccessManager,
+)
 from kernel.permissions.filesystem_permissions import FilesystemAction, FilesystemScope
 
 

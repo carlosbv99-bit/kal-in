@@ -16,7 +16,11 @@ from pathlib import Path
 import pytest
 
 from kernel.api.bus import KernelServiceBus
-from kernel.api.socket_server import _MAX_LINE_BYTES, KernelBusSocketServer, LineTooLongError
+from kernel.api.socket_server import (
+    _MAX_LINE_BYTES,
+    KernelBusSocketServer,
+    LineTooLongError,
+)
 from utils.correlation import set_correlation_id
 
 

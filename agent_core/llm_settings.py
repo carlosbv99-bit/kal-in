@@ -374,7 +374,7 @@ def _first_chat_capable_model(base_url: str, api_key: str) -> str | None:
     try:
         client = OpenAICompatibleClient(base_url=base_url, api_key=api_key)
         models = [m for m in client.list_models() if _is_chat_capable_model_name(m)]
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — fail-open documentado arriba, nunca peor que no cambiar nada
         logger.warning(f"No se pudo elegir un modelo automático para {base_url}: {e}")
         return None
     return models[0] if models else None
@@ -421,7 +421,7 @@ def list_model_sources() -> list[dict]:
         try:
             client = OpenAICompatibleClient(base_url=profile["base_url"], api_key=api_key)
             models = [m for m in client.list_models() if _is_chat_capable_model_name(m)]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — a propósito, ver el comentario de abajo
             # BUG REAL ENCONTRADO EN USO: esto solo atrapaba ProviderError
             # — cualquier otro tipo de excepción real (JSON inesperado,
             # timeout de red puntual) hacía desaparecer el perfil del

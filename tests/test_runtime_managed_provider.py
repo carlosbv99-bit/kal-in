@@ -9,8 +9,8 @@ enterarse de que este mecanismo existe.
 from __future__ import annotations
 
 from agent_core.llm.provider import ChatResponse, LLMProvider
-from agent_core.runtime.manager import RuntimeManager
 from agent_core.runtime.managed_provider import RuntimeManagedLLMProvider
+from agent_core.runtime.manager import RuntimeManager
 from agent_core.runtime.protocol import RuntimeCapabilities, RuntimeStatus
 
 

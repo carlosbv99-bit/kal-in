@@ -7,7 +7,12 @@ from __future__ import annotations
 
 import pytest
 
-from kernel.api.bus import ActionNotFoundError, ArtifactNotFoundError, KernelServiceBus, ServiceNotFoundError
+from kernel.api.bus import (
+    ActionNotFoundError,
+    ArtifactNotFoundError,
+    KernelServiceBus,
+    ServiceNotFoundError,
+)
 
 
 class FakeEchoService:

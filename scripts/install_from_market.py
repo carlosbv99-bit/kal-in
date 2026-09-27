@@ -32,9 +32,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from kernel.registry.skill_market import DEFAULT_REF, MarketError, fetch_skill_from_market, list_market_skills  # noqa: E402
-from kernel.registry.skill_signing import verify_skill_signature  # noqa: E402
-from kernel.registry.skills import (  # noqa: E402
+from kernel.registry.skill_market import (
+    DEFAULT_REF,
+    MarketError,
+    fetch_skill_from_market,
+    list_market_skills,
+)
+from kernel.registry.skill_signing import verify_skill_signature
+from kernel.registry.skills import (
     DEFAULT_SKILLS_DIR,
     audit_skill_enable_change,
     parse_manifest,

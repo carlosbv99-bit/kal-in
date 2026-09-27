@@ -15,7 +15,6 @@ from audit.audit_log import audit_log
 from tool_integration.adapters.browser import BrowserTool
 from utils.config import settings
 
-
 _DEFAULT_FAKE_PUBLIC_IP = "93.184.216.34"  # IP pública real (example.com) — nunca privada/reservada
 
 

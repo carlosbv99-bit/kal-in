@@ -63,9 +63,10 @@ DENTRO del programa eBPF en el momento de la syscall
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from audit.audit_log import AuditEvent, audit_log
 from utils.logger import get_logger

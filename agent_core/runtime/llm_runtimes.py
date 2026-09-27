@@ -15,7 +15,11 @@ from typing import Any
 
 from agent_core.llm.ollama_client import OllamaClient
 from agent_core.llm.openai_compatible_client import OpenAICompatibleClient
-from agent_core.runtime.protocol import ExecutionRequest, RuntimeCapabilities, RuntimeStatus
+from agent_core.runtime.protocol import (
+    ExecutionRequest,
+    RuntimeCapabilities,
+    RuntimeStatus,
+)
 
 _CHAT_CAPABILITIES = frozenset({"chat"})
 

@@ -11,7 +11,10 @@ from __future__ import annotations
 import pytest
 
 from audit.audit_log import audit_log
-from kernel.permissions.network_access_manager import NetworkAccessError, NetworkAccessManager
+from kernel.permissions.network_access_manager import (
+    NetworkAccessError,
+    NetworkAccessManager,
+)
 from kernel.permissions.network_permissions import NetworkAction, NetworkScope
 from utils.config import settings
 

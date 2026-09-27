@@ -43,13 +43,14 @@ from __future__ import annotations
 
 import hashlib
 import socket
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 import requests
 
-from tool_integration.malware_scan import MalwareScanError, scan_bytes
 from kernel.permissions.network_safety import is_unsafe_ip
+from tool_integration.malware_scan import MalwareScanError, scan_bytes
 from utils.config import settings
 from utils.logger import get_logger
 

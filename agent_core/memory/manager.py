@@ -98,7 +98,7 @@ class MemoryManager:
         for observer in self._observers:
             try:
                 observer.on_memory_event(event)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — un observer nunca debe romper el ciclo real (ver arriba)
                 logger.warning(f"Observer de memoria falló, se ignora: {e}")
 
     def consolidate_short_to_mid(self, summarizer=None) -> int:

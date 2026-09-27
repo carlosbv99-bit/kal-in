@@ -13,14 +13,14 @@ completo e independiente, compartiendo la misma memoria entre pasos.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from agent_core.llm.agent_loop import AgentLoop, AgentRunResult, AgentStep
 from agent_core.llm.json_extraction import extract_json_object
 from agent_core.llm.ollama_client import OllamaClient
-from sdk.permissions import Permission
 from agent_core.llm.provider import LLMProvider, ProviderError
+from sdk.permissions import Permission
 from utils.logger import get_logger
 
 logger = get_logger(__name__)

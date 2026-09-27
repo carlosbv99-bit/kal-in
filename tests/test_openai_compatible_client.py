@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import pytest
 
-from agent_core.llm.openai_compatible_client import OpenAICompatibleClient, OpenAICompatibleError
+from agent_core.llm.openai_compatible_client import (
+    OpenAICompatibleClient,
+    OpenAICompatibleError,
+)
 from agent_core.llm.provider import ProviderError
 
 

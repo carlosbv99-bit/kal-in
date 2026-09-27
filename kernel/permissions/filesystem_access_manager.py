@@ -33,7 +33,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from kernel.permissions.access_manager import AccessManager, AccessManagerError, PendingAccessRequest
+from kernel.permissions.access_manager import (
+    AccessManager,
+    AccessManagerError,
+    PendingAccessRequest,
+)
 from kernel.permissions.filesystem_permissions import FilesystemAction, FilesystemScope
 from utils.config import settings
 
@@ -59,7 +63,7 @@ class PendingFilesystemAccess:
     status: str = "pending_approval"
 
     @classmethod
-    def _from_generic(cls, request: PendingAccessRequest) -> "PendingFilesystemAccess":
+    def _from_generic(cls, request: PendingAccessRequest) -> PendingFilesystemAccess:
         return cls(
             id=request.id, skill_name=request.skill_name, scope=FilesystemScope(request.scope),
             action=FilesystemAction(request.action), resource_key=request.resource_key, status=request.status,

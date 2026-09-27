@@ -13,13 +13,12 @@ se envía a un contenedor.
 """
 from __future__ import annotations
 
-from sdk.skill import Tool, ToolManifest
-from sdk.artifacts import Artifact
 from kernel.permissions.permission_cascade import PermissionCascade, trust_tier_for
-from sdk.permissions import Permission
 from kernel.registry.registry import DynamicSandboxedTool
 from kernel.registry.sandboxed_skill import SandboxedSkillTool
-
+from sdk.artifacts import Artifact
+from sdk.permissions import Permission
+from sdk.skill import Tool, ToolManifest
 
 # --- trust_tier_for() — la señal de confianza viene del TIPO del wrapper,
 # nunca de manifest.created_by (que la propia herramienta/skill autodeclara) ---

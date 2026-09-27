@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tool_integration.adapters.audio_gen import AudioGenerationTool  # noqa: E402
+from tool_integration.adapters.audio_gen import AudioGenerationTool
 
 tool = AudioGenerationTool()
 artifact = tool.execute(text="Esto es una prueba de diagnóstico de audio para revisar el archivo generado.")

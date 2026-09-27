@@ -11,10 +11,10 @@ from __future__ import annotations
 import pytest
 
 from kernel.lifecycle.docker_runner import SandboxResult
-from sdk.skill import ToolManifest
 from kernel.registry.registry import ToolRegistry
 from kernel.registry.signing import ToolSigner
 from kernel.registry.versioning import ToolVersionStore
+from sdk.skill import ToolManifest
 
 
 class FakeSandboxExecutor:
@@ -28,7 +28,7 @@ class FakeSandboxExecutor:
 
 
 def _manifest(**overrides) -> ToolManifest:
-    defaults = dict(name="herramienta_de_prueba", description="una herramienta de prueba", created_by="agent")
+    defaults = {"name": "herramienta_de_prueba", "description": "una herramienta de prueba", "created_by": "agent"}
     defaults.update(overrides)
     return ToolManifest(**defaults)
 
@@ -152,8 +152,8 @@ def test_verify_tool_integrity_detects_tampering_of_active_version(registry, ver
 
 
 def test_verify_tool_integrity_is_true_for_static_tools(registry):
-    from sdk.skill import Tool
     from sdk.artifacts import Artifact
+    from sdk.skill import Tool
 
     class DummyStaticTool(Tool):
         manifest = _manifest(name="estatica", created_by="system")

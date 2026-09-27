@@ -15,8 +15,8 @@ from __future__ import annotations
 from typing import Any
 
 from agent_core.memory.security_policy import is_cloud_provider
-from sdk.skill import Tool, ToolManifest
 from sdk.artifacts import Artifact
+from sdk.skill import Tool, ToolManifest
 from utils.config import settings
 
 
@@ -44,7 +44,9 @@ class CodeExecutionTool(Tool):
         self.task_executor = task_executor
 
     def execute(self, code: str, **kwargs: Any) -> Artifact:
-        from task_execution.task import TaskStatus  # evita import circular a nivel de módulo
+        from task_execution.task import (
+            TaskStatus,  # evita import circular a nivel de módulo
+        )
 
         task = self.task_executor.submit("run_code vía agente")
         result = self.task_executor.run_sandboxed(task, code)

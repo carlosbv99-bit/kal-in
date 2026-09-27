@@ -13,8 +13,8 @@ import pytest
 
 pytest.importorskip("PIL")
 
-from tool_integration.adapters.image_editing import ImageEditingTool  # noqa: E402
-from utils.config import settings  # noqa: E402
+from tool_integration.adapters.image_editing import ImageEditingTool
+from utils.config import settings
 
 
 @pytest.fixture
@@ -171,11 +171,11 @@ def rembg_tool(tool):
     try:
         # Fuerza la carga real ahora (no en medio de un test) para poder
         # saltar con un mensaje claro si el modelo no se puede descargar.
-        from rembg import remove
         from PIL import Image
+        from rembg import remove
 
         remove(Image.new("RGB", (8, 8)))
-    except Exception as e:
+    except Exception as e: # noqa: BLE001 — cualquier falla al cargar un modelo real (red, caché corrupta) debe saltear el test, no romperlo
         pytest.skip(f"No se pudo cargar/descargar el modelo de rembg: {e}")
     return tool
 
@@ -216,7 +216,7 @@ def inpaint_tool(tool, monkeypatch):
     monkeypatch.setattr(settings.multimodal.image_editing, "inpaint_num_inference_steps", 4)
     try:
         tool._get_inpaint_pipeline()  # fuerza la carga/descarga ahora
-    except Exception as e:
+    except Exception as e: # noqa: BLE001 — cualquier falla al cargar un modelo real (red, caché corrupta) debe saltear el test, no romperlo
         pytest.skip(f"No se pudo cargar/descargar el modelo de inpainting: {e}")
     return tool
 

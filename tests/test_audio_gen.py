@@ -15,8 +15,8 @@ import pytest
 
 pytest.importorskip("piper")
 
-from tool_integration.adapters.audio_gen import AudioGenerationTool  # noqa: E402
-from utils.config import settings  # noqa: E402
+from tool_integration.adapters.audio_gen import AudioGenerationTool
+from utils.config import settings
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def tool(tmp_path, monkeypatch):
     instance = AudioGenerationTool()
     try:
         instance._get_voice()  # fuerza la carga/descarga ahora, no en el primer test
-    except Exception as e:
+    except Exception as e: # noqa: BLE001 — cualquier falla al cargar un modelo real (red, caché corrupta) debe saltear el test, no romperlo
         pytest.skip(f"No se pudo cargar el modelo de voz de piper: {e}")
     return instance
 

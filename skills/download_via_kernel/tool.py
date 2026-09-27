@@ -11,9 +11,9 @@ parameters_schema/kernel_services viven en skill.yaml.
 """
 from __future__ import annotations
 
-from sdk.skill import Tool
 from sdk.artifacts import Artifact
 from sdk.context import call as kernel_call
+from sdk.skill import Tool
 
 
 class DownloadViaKernelTool(Tool):

@@ -65,9 +65,9 @@ def test_purge_expired_never_removes_permanente_items(mid_term):
 pytest.importorskip("chromadb")
 pytest.importorskip("sentence_transformers")
 
-from agent_core.memory.manager import MemoryManager  # noqa: E402
-from agent_core.memory.short_term import ShortTermMemory  # noqa: E402
-from utils.config import settings  # noqa: E402
+from agent_core.memory.manager import MemoryManager
+from agent_core.memory.short_term import ShortTermMemory
+from utils.config import settings
 
 
 @pytest.fixture
@@ -81,7 +81,7 @@ def manager(tmp_path, monkeypatch):
     )
     try:
         mgr.long_term._get_embedder()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001 — cualquier falla al cargar un modelo real (red, caché corrupta) debe saltear el test, no romperlo
         pytest.skip(f"No se pudo inicializar el modelo de embeddings: {e}")
     return mgr
 

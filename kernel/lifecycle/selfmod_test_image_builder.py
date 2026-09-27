@@ -49,7 +49,7 @@ class SelfModTestImageBuildError(Exception):
 
 
 class SelfModTestImageBuilder:
-    def __init__(self, client: "docker.DockerClient | None" = None, project_root: Path | None = None):
+    def __init__(self, client: docker.DockerClient | None = None, project_root: Path | None = None):
         try:
             self.client = client or docker.from_env()
         except DockerException as e:

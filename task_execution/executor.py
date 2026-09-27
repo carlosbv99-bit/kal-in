@@ -16,7 +16,11 @@ from __future__ import annotations
 from agent_core.memory.base import MemoryItem
 from agent_core.memory.mid_term import MidTermMemory
 from error_handling.detector import ErrorDetector, classify_sandbox_error
-from error_handling.strategies import ImportErrorStrategy, RepairContext, RuntimeErrorStrategy
+from error_handling.strategies import (
+    ImportErrorStrategy,
+    RepairContext,
+    RuntimeErrorStrategy,
+)
 from kernel.lifecycle.executor import SandboxExecutor
 from task_execution.task import Task, TaskStatus
 from utils.logger import get_logger
@@ -70,7 +74,7 @@ class TaskExecutor:
         try:
             task.result = fn(*args, **kwargs)
             task.status = TaskStatus.SUCCESS
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — fn() es código arbitrario, puede lanzar cualquier cosa; ver RepairContext abajo
             logger.warning(f"Tarea {task.id} falló: {e}")
             ctx = RepairContext(
                 error_type=type(e).__name__,

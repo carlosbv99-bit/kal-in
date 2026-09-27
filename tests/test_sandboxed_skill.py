@@ -18,9 +18,9 @@ import pytest
 
 from kernel.lifecycle.docker_runner import DockerSandboxRunner, SandboxResult
 from kernel.lifecycle.executor import SandboxExecutor
-from tests.conftest import requires_docker
-from sdk.skill import ToolManifest
 from kernel.registry.sandboxed_skill import SandboxedSkillTool
+from sdk.skill import ToolManifest
+from tests.conftest import requires_docker
 
 
 class FakeSandboxExecutor:

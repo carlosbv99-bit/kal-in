@@ -43,9 +43,9 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from tool_integration.services import ImageService
-from sdk.skill import Tool, ToolManifest
 from sdk.artifacts import Artifact
+from sdk.skill import Tool, ToolManifest
+from tool_integration.services import ImageService
 from utils.config import settings
 from utils.logger import get_logger
 

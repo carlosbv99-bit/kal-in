@@ -21,8 +21,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from kernel.registry.skill_signing import verify_skill_signature  # noqa: E402
-from kernel.registry.skills import DEFAULT_SKILLS_DIR, MANIFEST_FILENAME, SkillManifest, parse_manifest  # noqa: E402
+from kernel.registry.skill_signing import verify_skill_signature
+from kernel.registry.skills import (
+    DEFAULT_SKILLS_DIR,
+    MANIFEST_FILENAME,
+    SkillManifest,
+    parse_manifest,
+)
 
 _PAGE_TEMPLATE = """<!doctype html>
 <html lang="en">
@@ -118,8 +123,9 @@ def render_market_html(skills_dir: Path = DEFAULT_SKILLS_DIR) -> str:
         for manifest_path in sorted(skills_dir.glob(f"*/{MANIFEST_FILENAME}")):
             try:
                 manifest = parse_manifest(manifest_path)
-            except Exception:
-                continue  # manifiesto roto: se ignora al listar, no rompe la página entera
+            except Exception as e:  # noqa: BLE001 — un manifiesto roto no debe romper la página entera
+                print(f"Advertencia: manifiesto roto en {manifest_path}, se ignora al listar: {e}", file=sys.stderr)
+                continue
             signature_status = verify_skill_signature(manifest_path.parent)
             entries.append((manifest, signature_status))
 

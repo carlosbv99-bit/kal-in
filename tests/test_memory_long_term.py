@@ -17,9 +17,9 @@ import pytest
 pytest.importorskip("chromadb")
 pytest.importorskip("sentence_transformers")
 
-from agent_core.memory.base import MemoryItem  # noqa: E402
-from agent_core.memory.long_term import LongTermMemory  # noqa: E402
-from utils.config import settings  # noqa: E402
+from agent_core.memory.base import MemoryItem
+from agent_core.memory.long_term import LongTermMemory
+from utils.config import settings
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def mem(tmp_path, monkeypatch):
     try:
         instance = LongTermMemory()
         instance._get_embedder()  # fuerza la carga/descarga ahora, no en el primer test
-    except Exception as e:
+    except Exception as e: # noqa: BLE001 — cualquier falla al cargar un modelo real (red, caché corrupta) debe saltear el test, no romperlo
         pytest.skip(f"No se pudo inicializar el modelo de embeddings (¿sin red la primera vez?): {e}")
     return instance
 

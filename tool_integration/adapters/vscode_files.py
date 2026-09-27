@@ -20,18 +20,17 @@ from __future__ import annotations
 
 import base64
 from pathlib import PurePosixPath
+from urllib.parse import urlparse
 from uuid import uuid4
 
-from urllib.parse import urlparse
-
 from audit.audit_log import AuditEvent, audit_log
-from sdk.skill import Tool, ToolManifest
-from sdk.artifacts import Artifact
-from tool_integration.download_manager import DownloadValidationError, download_manager
 from kernel.permissions.filesystem_access_manager import filesystem_access_manager
 from kernel.permissions.filesystem_permissions import FilesystemAction, FilesystemScope
 from kernel.permissions.network_access_manager import network_access_manager
 from kernel.permissions.network_permissions import NetworkAction, NetworkScope
+from sdk.artifacts import Artifact
+from sdk.skill import Tool, ToolManifest
+from tool_integration.download_manager import DownloadValidationError, download_manager
 
 # Nombre estable usado como skill_name ante el Permission Manager y
 # como filtro de exclusión del toolset para clientes que no son VS Code
@@ -219,7 +218,7 @@ class ImportResourceTool(Tool):
         },
     )
 
-    def execute(self, type: str, url: str, destination_path: str, **kwargs) -> Artifact:  # noqa: A002
+    def execute(self, type: str, url: str, destination_path: str, **kwargs) -> Artifact:
         _validate_relative_path(destination_path)
 
         hostname = urlparse(url).hostname or url

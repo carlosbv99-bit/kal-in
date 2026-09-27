@@ -17,9 +17,9 @@ import pytest
 
 from kernel.lifecycle.docker_runner import DockerSandboxRunner
 from kernel.lifecycle.executor import SandboxExecutor
-from tests.conftest import requires_docker
-from sdk.skill import ToolManifest
 from kernel.registry.sandboxed_skill import SandboxedSkillTool
+from sdk.skill import ToolManifest
+from tests.conftest import requires_docker
 
 pytestmark = requires_docker
 
@@ -45,7 +45,7 @@ def test_audio_via_kernel_skill_generates_real_audio(tmp_path):
 
     try:
         AudioService()._get_voice()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001 — cualquier falla al cargar un modelo real (red, caché corrupta) debe saltear el test, no romperlo
         pytest.skip(f"No se pudo cargar/descargar la voz de piper: {e}")
 
     skill_tool = _make_skill_tool(
@@ -68,11 +68,11 @@ def test_voice_roundtrip_via_kernel_skill_transcribes_its_own_synthesis(tmp_path
 
     try:
         AudioService()._get_voice()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001 — cualquier falla al cargar un modelo real (red, caché corrupta) debe saltear el test, no romperlo
         pytest.skip(f"No se pudo cargar/descargar la voz de piper: {e}")
     try:
         STTService()._get_model()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001 — cualquier falla al cargar un modelo real (red, caché corrupta) debe saltear el test, no romperlo
         pytest.skip(f"No se pudo cargar el modelo de whisper: {e}")
 
     skill_tool = _make_skill_tool(
@@ -99,7 +99,7 @@ def test_image_inpaint_via_kernel_skill_edits_a_real_generated_image(tmp_path):
     try:
         service._get_pipeline()
         service._get_inpaint_pipeline()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001 — cualquier falla al cargar un modelo real (red, caché corrupta) debe saltear el test, no romperlo
         pytest.skip(f"No se pudo cargar/descargar un modelo de imagen: {e}")
 
     skill_tool = _make_skill_tool(

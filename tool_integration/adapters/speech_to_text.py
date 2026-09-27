@@ -12,10 +12,10 @@ Hub (requiere red esa vez), luego queda cacheado en disco.
 """
 from __future__ import annotations
 
+from sdk.artifacts import Artifact
+from sdk.skill import Tool, ToolManifest
 from tool_integration.provider import STTProvider
 from tool_integration.services import KernelServiceError, STTService
-from sdk.skill import Tool, ToolManifest
-from sdk.artifacts import Artifact
 from utils.config import settings
 from utils.logger import get_logger
 

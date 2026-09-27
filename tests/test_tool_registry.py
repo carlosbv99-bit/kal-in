@@ -11,8 +11,8 @@ from __future__ import annotations
 import pytest
 
 from kernel.lifecycle.docker_runner import SandboxResult
-from sdk.skill import ToolManifest
 from kernel.registry.registry import ToolRegistry
+from sdk.skill import ToolManifest
 from utils.config import settings
 
 
@@ -46,7 +46,7 @@ def registry(fake_sandbox):
 
 
 def _manifest(**overrides) -> ToolManifest:
-    defaults = dict(name="herramienta_de_prueba", description="una herramienta de prueba", created_by="agent")
+    defaults = {"name": "herramienta_de_prueba", "description": "una herramienta de prueba", "created_by": "agent"}
     defaults.update(overrides)
     return ToolManifest(**defaults)
 
@@ -171,8 +171,8 @@ def test_filesystem_write_permission_also_gates_approval(registry, monkeypatch):
 
 
 def test_static_tool_registration_bypasses_pipeline_entirely(registry):
-    from sdk.skill import Tool
     from sdk.artifacts import Artifact
+    from sdk.skill import Tool
 
     class DummyStaticTool(Tool):
         manifest = _manifest(name="estatica", created_by="system")

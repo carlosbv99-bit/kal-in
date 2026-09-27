@@ -11,9 +11,9 @@ from pydantic import BaseModel, Field
 
 from agent_core.context_service import EditorContextSignals
 from agent_core.conversation_engine import get_trivial_reply
-from agent_core.tool_need_classifier import predict_needs_tool
 from agent_core.llm.provider import ProviderError
 from agent_core.orchestrator import _artifact_url, orchestrator
+from agent_core.tool_need_classifier import predict_needs_tool
 from sdk.artifacts import Artifact
 from sdk.permissions import Permission
 from utils.config import settings
@@ -464,7 +464,7 @@ _ALLOWED_UPLOAD_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
 
 
 @router.post("/uploads", summary="Subir una imagen propia")
-async def upload_image(file: UploadFile = File(...), session_id: str | None = Form(None)):
+async def upload_image(file: UploadFile = File(...), session_id: str | None = Form(None)):  # noqa: B008 — patrón estándar de inyección de dependencias de FastAPI, no una llamada real en cada request
     """
     Sube una imagen propia del usuario (no generada por kal) y la
     convierte en el artefacto activo de la sesión — así el siguiente
@@ -491,7 +491,12 @@ async def upload_image(file: UploadFile = File(...), session_id: str | None = Fo
     max_bytes = cfg.max_size_mb * 1024 * 1024
 
     size = 0
-    with open(dest_path, "wb") as f:
+    # ASYNC230: open() bloqueante dentro de una función async — aceptado
+    # a propósito. kal-in sirve un usuario local a la vez (ver /chat,
+    # también sincrónico por diseño), no un servicio multi-tenant de alta
+    # concurrencia — el costo real de bloquear el loop unos milisegundos
+    # por chunk de 1MB es despreciable acá. Revisar si eso cambia.
+    with open(dest_path, "wb") as f:  # noqa: ASYNC230
         while chunk := await file.read(1024 * 1024):
             size += len(chunk)
             if size > max_bytes:

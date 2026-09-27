@@ -65,11 +65,11 @@ class DockerSandboxRunner:
         # atrapa DockerException/APIError y devuelve un SandboxResult de
         # error en vez de propagar — la ausencia de Docker degrada ESA
         # llamada puntual, nunca el arranque de la aplicación.
-        self._client: "docker.DockerClient | None" = None
+        self._client: docker.DockerClient | None = None
         self.cfg = settings.sandbox
 
     @property
-    def client(self) -> "docker.DockerClient":
+    def client(self) -> docker.DockerClient:
         if self._client is None:
             self._client = docker.from_env()
         return self._client
@@ -205,29 +205,29 @@ class DockerSandboxRunner:
 
             start = time.time()
             container = None
-            run_kwargs = dict(
-                image=target_image,
-                command=["python", "/workspace/main.py"],
-                volumes=volumes,
-                environment=environment,
-                tmpfs={"/tmp": "rw,noexec,nosuid,size=64m"},
-                working_dir="/workspace",
-                network_mode=target_network_mode,          # "none" por defecto
-                mem_limit=f"{target_memory_limit_mb}m",
-                memswap_limit=f"{target_memory_limit_mb}m",  # sin swap extra
-                nano_cpus=int(target_cpu_limit * 1e9),
-                pids_limit=target_pids_limit,
-                read_only=True,
+            run_kwargs = {
+                "image": target_image,
+                "command": ["python", "/workspace/main.py"],
+                "volumes": volumes,
+                "environment": environment,
+                "tmpfs": {"/tmp": "rw,noexec,nosuid,size=64m"},
+                "working_dir": "/workspace",
+                "network_mode": target_network_mode,          # "none" por defecto
+                "mem_limit": f"{target_memory_limit_mb}m",
+                "memswap_limit": f"{target_memory_limit_mb}m",  # sin swap extra
+                "nano_cpus": int(target_cpu_limit * 1e9),
+                "pids_limit": target_pids_limit,
+                "read_only": True,
                 # Mismo UID/GID que este proceso, no un valor
                 # hardcodeado — ver _prepare_workdir() para el motivo
                 # (evita el mismatch que antes se compensaba abriendo
                 # el bind mount a cualquier usuario del host).
-                user=f"{os.getuid()}:{os.getgid()}",
-                cap_drop=["ALL"],
-                security_opt=["no-new-privileges"],
-                detach=True,
-                remove=False,  # False para poder leer logs tras terminar; se limpia abajo
-            )
+                "user": f"{os.getuid()}:{os.getgid()}",
+                "cap_drop": ["ALL"],
+                "security_opt": ["no-new-privileges"],
+                "detach": True,
+                "remove": False,  # False para poder leer logs tras terminar; se limpia abajo
+            }
             try:
                 # BUG REAL ENCONTRADO EN USO (kal-in issue #4, 2026-09-21):
                 # containers.run() dispara un pull IMPLÍCITO de la imagen
@@ -251,6 +251,40 @@ class DockerSandboxRunner:
                         f"docker run/pull de '{target_image}' no respondió en "
                         f"{target_timeout_seconds}s (probable red caída o pull colgado)"
                     )
+
+                    # BUG REAL ENCONTRADO EN REVISIÓN (2026-09-27, preparando
+                    # una auditoría externa): el thread de containers.run()
+                    # sigue vivo de fondo tras este timeout (ver el comentario
+                    # de arriba — no se puede cancelar una llamada bloqueante
+                    # de docker-py ya en curso). Si esa llamada eventualmente
+                    # TERMINA con éxito (el pull era lento, no estaba
+                    # realmente colgado), el contenedor resultante quedaba
+                    # huérfano — nadie tenía su handle para matarlo/
+                    # removerlo, a diferencia del camino normal
+                    # (_wait_and_collect -> _safe_kill/_safe_remove). Este
+                    # callback corre cuando el future eventualmente completa
+                    # (inmediatamente en este mismo thread si ya completó
+                    # entre el TimeoutError de arriba y esta línea): si NO
+                    # hubo excepción, hubo un contenedor real creado después
+                    # de que ya le dijimos "timeout" al llamador — matarlo y
+                    # removerlo acá, y liberar el thread del pool.
+                    def _cleanup_orphaned_container(fut: concurrent.futures.Future) -> None:
+                        try:
+                            orphaned_container = fut.result()
+                        except Exception:  # noqa: BLE001 — cualquier excepción acá significa que
+                            # containers.run() nunca llegó a crear un contenedor real (ImageNotFound,
+                            # APIError, DockerException, o cualquier otra) — nada que limpiar.
+                            pool.shutdown(wait=False)
+                            return
+                        logger.warning(
+                            f"docker run/pull de '{target_image}' completó DESPUÉS del timeout ya "
+                            f"devuelto — matando el contenedor huérfano {orphaned_container.id}"
+                        )
+                        self._safe_kill(orphaned_container)
+                        self._safe_remove(orphaned_container)
+                        pool.shutdown(wait=False)
+
+                    future.add_done_callback(_cleanup_orphaned_container)
                     return SandboxResult(
                         "timeout", "", f"docker run/pull excedió {target_timeout_seconds}s sin responder", None
                     )

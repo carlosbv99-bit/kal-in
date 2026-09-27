@@ -12,9 +12,12 @@ from __future__ import annotations
 import docker
 import pytest
 
-from kernel.lifecycle.skill_image_builder import MINIMAL_IMAGE, SkillImageBuilder, SkillImageBuildError
+from kernel.lifecycle.skill_image_builder import (
+    MINIMAL_IMAGE,
+    SkillImageBuilder,
+    SkillImageBuildError,
+)
 from tests.conftest import requires_docker
-
 
 # --- Tag determinístico (lógica pura, sin Docker) ---
 

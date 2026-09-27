@@ -12,7 +12,11 @@ import subprocess
 
 import pytest
 
-from kernel.registry.skill_market import MarketError, fetch_skill_from_market, list_market_skills
+from kernel.registry.skill_market import (
+    MarketError,
+    fetch_skill_from_market,
+    list_market_skills,
+)
 from kernel.registry.skill_signing import SkillSigner, verify_skill_signature
 
 _SKILL_YAML_TEMPLATE = """name: {name}

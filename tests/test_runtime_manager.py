@@ -17,7 +17,11 @@ import time
 import pytest
 
 from agent_core.runtime.manager import RuntimeManager, RuntimeNotFoundError
-from agent_core.runtime.protocol import ExecutionRequest, RuntimeCapabilities, RuntimeStatus
+from agent_core.runtime.protocol import (
+    ExecutionRequest,
+    RuntimeCapabilities,
+    RuntimeStatus,
+)
 
 
 class _FakeRuntime:

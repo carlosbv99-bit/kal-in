@@ -21,8 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from kernel.registry.skill_signing import verify_skill_signature  # noqa: E402
-from kernel.registry.skills import (  # noqa: E402
+from kernel.registry.skill_signing import verify_skill_signature
+from kernel.registry.skills import (
     MANIFEST_FILENAME,
     audit_skill_enable_change,
     parse_manifest,

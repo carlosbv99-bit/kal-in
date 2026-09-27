@@ -17,8 +17,8 @@ import pytest
 from audit.audit_log import audit_log
 from kernel.lifecycle.ebpf import event_consumer
 from kernel.lifecycle.ebpf.event_consumer import (
-    SyscallEvent,
     VIOLATION_SYSCALLS,
+    SyscallEvent,
     consume_stream,
     is_sandboxed_container_process,
     parse_event_line,

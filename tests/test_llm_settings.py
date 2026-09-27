@@ -478,7 +478,7 @@ def test_list_model_sources_includes_ollama_and_working_cloud_profiles(monkeypat
 def test_list_model_sources_never_includes_a_profile_that_fails(monkeypatch):
     """Confirmación real de "correctamente activados": un perfil guardado
     pero roto (key inválida, sin crédito) simplemente no aparece."""
-    monkeypatch.setattr(llm_settings, "list_local_ollama_models", lambda: [])
+    monkeypatch.setattr(llm_settings, "list_local_ollama_models", list)
     save_cloud_profile("grok", base_url="https://api.x.ai/v1", api_key="bad-key")
 
     class FailingClient:
@@ -496,7 +496,7 @@ def test_list_model_sources_never_includes_a_profile_that_fails(monkeypatch):
 
 
 def test_list_model_sources_skips_a_profile_with_no_key_in_the_environment(monkeypatch):
-    monkeypatch.setattr(llm_settings, "list_local_ollama_models", lambda: [])
+    monkeypatch.setattr(llm_settings, "list_local_ollama_models", list)
     # api_key="" a propósito: save_cloud_profile() solo escribe la key
     # (al .env y a os.environ) si es verdadera — así el perfil queda
     # guardado (nombre/base_url) pero genuinamente sin ninguna key en
@@ -518,7 +518,7 @@ def test_list_model_sources_skips_a_profile_with_no_key_in_the_environment(monke
 
 
 def test_list_model_sources_filters_out_known_non_chat_models(monkeypatch):
-    monkeypatch.setattr(llm_settings, "list_local_ollama_models", lambda: [])
+    monkeypatch.setattr(llm_settings, "list_local_ollama_models", list)
     save_cloud_profile("groq", base_url="https://api.groq.com/openai/v1", api_key="gsk_real")
 
     class FakeClient:

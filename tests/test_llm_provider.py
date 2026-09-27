@@ -12,8 +12,8 @@ from __future__ import annotations
 from agent_core.llm.ollama_client import OllamaClient, OllamaError
 from agent_core.llm.openai_compatible_client import OpenAICompatibleClient
 from agent_core.llm.provider import ChatResponse, LLMProvider, ProviderError, ToolCall
-from agent_core.runtime.manager import RuntimeManager
 from agent_core.runtime.managed_provider import RuntimeManagedLLMProvider
+from agent_core.runtime.manager import RuntimeManager
 
 
 def test_ollama_client_satisfies_the_llm_provider_protocol():

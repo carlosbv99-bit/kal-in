@@ -94,7 +94,7 @@ def test_pid_namespace_is_isolated(runner):
     )
     result = runner.run(code)
     assert result.status == "success"
-    count_line = [l for l in result.stdout.splitlines() if "PID_COUNT" in l][0]
+    count_line = next(l for l in result.stdout.splitlines() if "PID_COUNT" in l)
     pid_count = int(count_line.split(":")[1].strip())
     # Un contenedor aislado debería ver solo su propio proceso (y quizá
     # un puñado más). Un host real normalmente tiene decenas o cientos.

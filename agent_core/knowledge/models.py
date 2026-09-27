@@ -10,9 +10,9 @@ de agregarle un campo después si ya hay Patterns reales guardados.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import time
 import uuid
+from dataclasses import dataclass, field
 
 
 @dataclass

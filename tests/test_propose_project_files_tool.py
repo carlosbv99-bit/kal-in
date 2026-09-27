@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-from tool_integration.adapters.vscode_files import ProjectFilesRejectedError, ProposeProjectFilesTool
+from tool_integration.adapters.vscode_files import (
+    ProjectFilesRejectedError,
+    ProposeProjectFilesTool,
+)
 
 
 def test_proposes_files_when_access_is_auto_allowed(monkeypatch):

@@ -9,8 +9,8 @@ integridad del paquete, no autoridad del autor.
 """
 from __future__ import annotations
 
-from kernel.registry.skills import set_skill_enabled
 from kernel.registry.skill_signing import SkillSigner, verify_skill_signature
+from kernel.registry.skills import set_skill_enabled
 
 
 def _make_skill_dir(tmp_path, name="mi_skill", extra_files: dict[str, str] | None = None):

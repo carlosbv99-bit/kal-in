@@ -17,9 +17,9 @@ import pytest
 
 from kernel.lifecycle.docker_runner import DockerSandboxRunner
 from kernel.lifecycle.executor import SandboxExecutor
-from tests.conftest import requires_docker
 from kernel.registry.registry import ToolRegistry
 from kernel.registry.sandboxed_skill import SandboxedSkillTool
+from tests.conftest import requires_docker
 
 
 @pytest.fixture

@@ -21,11 +21,11 @@ import pytest
 pytest.importorskip("diffusers")
 pytest.importorskip("torch")
 
-from kernel.lifecycle.docker_runner import DockerSandboxRunner  # noqa: E402
-from kernel.lifecycle.executor import SandboxExecutor  # noqa: E402
-from tests.conftest import requires_docker  # noqa: E402
-from sdk.skill import ToolManifest# noqa: E402
-from kernel.registry.sandboxed_skill import SandboxedSkillTool  # noqa: E402
+from kernel.lifecycle.docker_runner import DockerSandboxRunner
+from kernel.lifecycle.executor import SandboxExecutor
+from kernel.registry.sandboxed_skill import SandboxedSkillTool
+from sdk.skill import ToolManifest
+from tests.conftest import requires_docker
 
 pytestmark = requires_docker
 

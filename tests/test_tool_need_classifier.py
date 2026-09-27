@@ -56,7 +56,7 @@ def test_fails_open_toward_needs_tool_when_the_model_is_unavailable():
 
 def test_fails_open_toward_needs_tool_if_prediction_raises():
     class _ExplodingModel:
-        classes_ = [False, True]
+        classes_ = [False, True]  # noqa: RUF012 — fixture de test, nunca se muta
 
         def predict_proba(self, *_args, **_kwargs):
             raise RuntimeError("modelo corrupto")

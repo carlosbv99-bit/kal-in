@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import base64
 
-
 from agent_core.llm.provider import ChatResponse, ProviderError
 from tool_integration.adapters.image_analysis import ImageAnalysisTool
 from utils.config import settings

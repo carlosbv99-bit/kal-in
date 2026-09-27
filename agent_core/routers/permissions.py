@@ -14,8 +14,14 @@ from pydantic import BaseModel, Field
 
 from agent_core.orchestrator import require_admin_token
 from audit.audit_log import AuditEvent, audit_log
-from kernel.permissions.filesystem_access_manager import FilesystemAccessError, filesystem_access_manager
-from kernel.permissions.network_access_manager import NetworkAccessError, network_access_manager
+from kernel.permissions.filesystem_access_manager import (
+    FilesystemAccessError,
+    filesystem_access_manager,
+)
+from kernel.permissions.network_access_manager import (
+    NetworkAccessError,
+    network_access_manager,
+)
 
 router = APIRouter(tags=["Permisos"])
 

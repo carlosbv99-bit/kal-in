@@ -8,8 +8,8 @@ import pytest
 
 from kernel.lifecycle.docker_runner import SandboxResult
 from kernel.lifecycle.executor import SandboxExecutor
+from sdk.permissions import UNSUPPORTED_RUNTIME_PERMISSIONS, Permission
 from sdk.skill import ToolManifest
-from sdk.permissions import Permission, UNSUPPORTED_RUNTIME_PERMISSIONS
 
 
 class FakeRunner:

@@ -8490,3 +8490,115 @@ reportado + el intento de XSS) y contra el servidor real corriendo —
 sin poder confirmarlo en un navegador real dentro de esta sesión (sin
 herramienta de navegador disponible), documentado con honestidad en
 vez de asumir que "se ve bien".
+
+## Revisión y limpieza para una auditoría externa (2026-09-27)
+
+Pedido: revisar y limpiar el código antes de que un auditor externo lo
+revise. El lint de CI siempre corrió angosto (`ruff check --select=E9,F`,
+solo errores de sintaxis) — nunca un pase de estilo/calidad más amplio.
+Investigado con 3 exploraciones dirigidas antes de tocar nada (lint
+amplio, seguridad, documentación).
+
+**Bug real de recursos encontrado y corregido**: en
+`kernel/lifecycle/docker_runner.py` (el timeout de `containers.run()`
+agregado hace unos días, kal-in issue #4), si el pull/creación del
+contenedor eventualmente TERMINABA después de que ya se había
+devuelto el timeout al llamador, ese contenedor quedaba huérfano —
+nadie tenía su handle para matarlo/removerlo, a diferencia del camino
+normal (`_wait_and_collect` → `_safe_kill`/`_safe_remove`). Fix:
+`future.add_done_callback()` en la rama de timeout — si el future
+eventualmente completa con un contenedor real, se mata y remueve ahí
+mismo, y se libera el thread del pool. Nuevo test
+(`tests/test_docker_runner_pull_timeout.py::test_container_created_after_the_timeout_gets_killed_and_removed`)
+simula exactamente este escenario (un `containers.run()` lento pero no
+realmente colgado).
+
+**Lint amplio (`ruff check .`, sin restricción) — de 224 hallazgos a 0**:
+168 auto-corregibles (`ruff check . --fix`, diff completo revisado a
+mano antes de aceptar — imports desordenados, `noqa` obsoletos,
+`typing.Callable` → `collections.abc.Callable`, anotaciones con
+comillas innecesarias bajo `from __future__ import annotations`). Los
+~40 restantes se triaron uno por uno, no en bloque:
+- **`BLE001` (`except Exception` genérico), ~28 casos**: los de código
+  de producción ya eran, sin excepción, fail-open deliberado y
+  documentado (un observer de memoria que no debe romper el ciclo
+  real, un servicio del Kernel Bus que debe sanear CUALQUIER excepción
+  antes de devolverla a una skill — hallazgo de la revisión de
+  seguridad 2026-07-09 —, un thread de background que debe sobrevivir
+  errores transitorios, etc.) — se les agregó `# noqa: BLE001` con el
+  motivo, sin cambiar comportamiento. Los de `tests/` son todos el
+  mismo patrón: cargar un modelo de ML real en un fixture, saltear el
+  test si falla por cualquier motivo — igual de legítimo.
+- **`PLW1510` (`subprocess.run` sin `check` explícito), 5 casos**: en
+  todos, el código YA interpreta `returncode` a mano justo después
+  (comportamiento correcto) — se agregó `check=False` explícito, sin
+  cambiar nada más.
+- Resto (imports de `typing` deprecados, anotaciones citadas, `dict()`
+  en vez de literal, variables desempaquetadas sin usar, `S112` sin
+  logging): corregidos, mecánicos, sin riesgo.
+
+**`create_package.py` revisado y corregido** (el script que empaqueta
+el proyecto en un ZIP para dárselo a un especialista — exactamente lo
+que hace falta para este tipo de entrega): estaba desactualizado desde
+el split kal/kal-in (referenciaba `setup.py`, que no existe en este
+repo — vive en el repo `kal`, el kernel puro), tenía `code_analysis/`
+duplicado, y le faltaban documentos clave (`docs/HISTORY.md`,
+`LICENSE`, las versiones en español de README/CONTRIBUTING). Agregada
+además una exclusión explícita de `.env`/`__pycache__`/
+`.pytest_cache`/`node_modules` (este último solo, sin la exclusión,
+agregaba 254 de los ~629 archivos del paquete — dependencias de npm de
+`vscode-extension/`, puro ruido para un auditor). Probado generando un
+paquete real: 375 archivos, cero ruido, todos los documentos clave
+presentes.
+
+**`CONTRIBUTING.md`/`CONTRIBUTING.es.md` actualizados** — nunca se
+habían tocado desde el split kal/kal-in, todavía decían "Contributing
+to Kal" y describían `kernel/`+`agent_core/`+`sdk/` como si fueran
+todos "el kernel en sí" (misma confusión ya corregida antes en
+README.md/README.es.md). También tenían el mismo link roto al Skill
+Market (`.../kal/` en vez de `.../kal-in/`, consecuencia del rename
+del repo) que ya se había encontrado y corregido en el README.
+
+**Dependencias — `pip-audit` agregado a CI**, gap real que no existía
+(sin Dependabot tampoco). Corrido en vivo antes de agregarlo: 1
+hallazgo real, `chromadb==1.5.9` (la ÚLTIMA versión publicada, sin fix
+disponible) — 4 CVEs (`PYSEC-2026-311/3813/3814/3815`), todos sobre el
+servidor HTTP multi-tenant de chromadb (RCE vía `trust_remote_code`,
+bypass de autorización entre tenants). **Verificado que no aplica al
+uso real de este proyecto**: `LongTermConfig.mode` default es
+`"embedded"` (`config/config.yaml:135`) — chromadb corre embebido en
+el propio proceso, sin ningún servidor HTTP escuchando, sin tenants;
+el modo `http` alternativo (vía el servicio `vector_store` de
+docker-compose) queda confinado a la red interna de Docker, nunca
+expuesto a un usuario no confiable. El step de CI queda como
+REPORTE, no bloqueante todavía — bloquear el build por una
+vulnerabilidad sin fix disponible no ayuda a nadie, pero sí corre en
+cada push/PR para que una vulnerabilidad NUEVA en cualquier otra
+dependencia no pase desapercibida.
+
+**Otros hallazgos aceptados, documentados sin cambio de código**:
+- `agent_core/tool_need_classifier.py` carga su modelo (`.joblib`,
+  deserialización basada en pickle) desde una ruta fija relativa al
+  repo, nunca influenciada por config/input de usuario — riesgo de
+  supply-chain aceptado (si ese archivo se regenerase alguna vez sin
+  revisión de código, sería un primitivo de ejecución de código al
+  importar), no explotable desde input real hoy.
+- `agent_core/knowledge/{base,models,miner}.py` (Knowledge Miner) no
+  tiene ningún caller en producción — scaffolding a propósito para una
+  feature futura, no un descuido (ver `project_knowledge_miner_infrastructure`
+  en la memoria del proyecto).
+- Las 3 listas de `requirements-*.txt` usan rangos abiertos (`>=`),
+  nunca versiones exactas — decisión ya tomada anteriormente, no una
+  regresión nueva. Pinnear versiones exactas queda fuera de esta
+  limpieza: es un cambio de política más grande, con riesgo real de
+  romper algo, no una limpieza mecánica.
+- El `.env` local (con claves reales de Groq/xAI para pruebas) nunca
+  se commiteó — confirmado revisando el historial completo del repo
+  (90 commits). Cualquier entrega a un auditor externo debe usar
+  `git archive` (respeta `.gitignore`) o el `create_package.py`
+  actualizado (excluye `.env` explícitamente), nunca un `tar`/`zip`
+  crudo del directorio de trabajo.
+
+Suite completa corrida después de todos los cambios de código
+(docker_runner.py, malware_scan.py, skill_market.py,
+generate_market_page.py) — ver el commit para el resultado exacto.

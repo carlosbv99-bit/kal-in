@@ -8,7 +8,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_core.conversation_engine import _RUNTIME_NAME, ConversationEngine, get_trivial_reply, is_trivial_message
+from agent_core.conversation_engine import (
+    _RUNTIME_NAME,
+    ConversationEngine,
+    get_trivial_reply,
+    is_trivial_message,
+)
 from agent_core.llm.ollama_client import OllamaClient
 from agent_core.llm.openai_compatible_client import OpenAICompatibleClient
 from agent_core.llm.provider import ProviderError
