@@ -8602,3 +8602,60 @@ dependencia no pase desapercibida.
 Suite completa corrida después de todos los cambios de código
 (docker_runner.py, malware_scan.py, skill_market.py,
 generate_market_page.py) — ver el commit para el resultado exacto.
+
+## Reconciliación con 3 commits remotos + bug real de firmas rotas (2026-09-27)
+
+Al terminar la limpieza de arriba pero antes de pushear, se detectó
+que este clon local estaba 3 commits detrás de `origin/main`
+(`ecaa372`, `7ddbe1f`, `74df780` — "5 vulnerabilidades reales de
+kernel/sandbox", "Fixes de fiabilidad + entrada por voz completa + OCR
+dedicado + kal-in", fix de naming de la extensión VS Code) sin haberse
+hecho `fetch`/`pull` en ningún momento de la sesión. Reconciliación en
+2 pasos, sin descartar nada de ningún lado: (1) la limpieza completa
+de arriba se commiteó primero, tal cual, como checkpoint; (2) recién
+después, `git merge origin/main` trajo los 3 commits remotos. 4
+conflictos reales (no cosméticos — ambos lados agregaban líneas
+distintas al mismo bloque de imports), todos resueltos a mano
+verificando que CADA import importado por ambos lados se usa de
+verdad en el archivo antes de conservarlo:
+- `agent_core/routers/chat.py`: el docstring de `/uploads` ("imagen
+  propia" → "imagen o audio propio", ya soporta audio) + el `# noqa:
+  B008` que esta limpieza le había agregado al mismo endpoint.
+- `kernel/registry/registry.py` y `kernel/registry/sandboxed_skill.py`:
+  imports nuevos de la auditoría remota (`is_valid_tool_name`,
+  `permission_cascade`, `verify_skill_signature`) + los ya existentes
+  — puramente aditivo, ninguno reemplazaba al otro.
+- `tests/test_sandboxed_skill.py`: mismo patrón, imports nuevos de
+  test para los mismos símbolos.
+
+**Bug real encontrado por la suite completa POST-merge, no por
+inspección**: 6 tests fallaron, los 5 tests de integración con Docker
+real (`test_kernel_bus_audio_stt_inpaint_integration.py`,
+`test_kernel_bus_download_service_integration.py`,
+`test_kernel_bus_image_service_integration.py`) más
+`test_validate_skills.py::test_real_project_skills_are_all_verified`,
+todos con el mismo error: `"firma tampered, se requiere 'verified'"`.
+Causa: el `ruff check . --fix` de la limpieza de arriba reordenó
+imports en los 7 `skills/*/tool.py` — cambiando su contenido — pero
+nunca se los volvió a firmar. Antes del merge esto no se notaba porque
+nada en la suite ejercía `verify_skill_signature()` de verdad contra
+el contenido actual; los 3 commits recién mergeados agregan
+exactamente esa verificación real a `sandboxed_skill.py` (parte de las
+"5 vulnerabilidades reales de kernel/sandbox"), así que la firma
+desactualizada pasó de ser un dato inerte a una falla real y
+reproducible. Fix: identificar qué keypair firmó cada skill
+comparando el fingerprint de clave pública embebido en cada
+`skill.sig` contra los `.pub` locales (6 de las 7 —
+audio/inpaint/image/qr_code/system_info/voice_roundtrip— firmadas con
+`data/keys/kal_project/`, `download_via_kernel` con `data/keys/` a
+secas) y re-firmar cada una con su propio `--key-dir` original (nunca
+uno nuevo, para no cambiarle el autor a una skill ya publicada). Los 6
+tests originalmente fallidos pasan tras la re-firma; suite completa
+final: 1201 passed, 0 failed.
+
+Lección para el futuro: cualquier `ruff --fix`/reformateo automático
+que toque `skills/*/tool.py` invalida su firma — hace falta
+re-firmar como parte del mismo cambio, no como un paso separado que se
+pueda olvidar. Candidato a automatizar (hook de pre-commit o chequeo
+en CI que detecte `skill.sig` desactualizado), no implementado en esta
+sesión.
