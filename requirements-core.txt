@@ -10,10 +10,17 @@
 # versión comprometida/yankeada y republicada bajo el mismo rango) sin
 # que nada lo notara. Techo al PRÓXIMO MAJOR (generoso: nunca bloquea
 # un patch/minor real dentro del mismo major) para cada paquete
-# directo. Fuera de alcance de este fix: un lockfile con hashes
-# (pip-compile/poetry) que fije también el árbol TRANSITIVO completo —
-# necesita resolver contra la red y verificarse aparte, no algo para
-# improvisar a ciegas acá.
+# directo.
+#
+# 2026-09-28: el lockfile con hashes que quedó pendiente arriba ya
+# existe — requirements-core.lock, resolución universal (multi-SO/
+# arquitectura) fijada al piso real de Python que exige CI (3.12, ver
+# .github/workflows/ci.yml), con `uv`:
+#   uv pip compile --universal --python-version 3.12 --generate-hashes \
+#     requirements-core.txt -o requirements-core.lock
+# CI instala DESDE el .lock con --require-hashes, no desde este
+# archivo — este sigue siendo la fuente de verdad EDITABLE (rangos
+# `>=,<`), el .lock se regenera con el comando de arriba, nunca a mano.
 
 # --- Core ---
 pydantic>=2.6,<3.0

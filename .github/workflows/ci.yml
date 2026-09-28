@@ -2,7 +2,9 @@ name: CI
 
 # Pipeline general (tests + lint) en cada push/PR — a diferencia de
 # validate-skills.yml (que solo corre cuando cambia skills/**), este
-# corre siempre. Instala requirements-core.txt + requirements-dev.txt a
+# corre siempre. Instala requirements-core.lock + requirements-dev.lock
+# (ver M-9 más abajo: versiones exactas + hashes, resueltos desde
+# requirements-core.txt + requirements-dev.txt) a
 # propósito, SIN requirements-multimodal.txt (diffusers/accelerate/
 # piper-tts/faster-whisper/rembg/playwright/sentence-transformers/
 # moviepy/huggingface_hub — la parte ML pesada, varios GB): los tests
@@ -46,8 +48,19 @@ jobs:
       - name: Instalar ClamAV
         run: sudo apt-get update && sudo apt-get install -y clamav
 
+      # M-9 (auditoría externa Likay-OS, 2026-09-26): requirements-*.txt
+      # nunca fijaba versiones exactas ni hashes — un paquete
+      # comprometido/republicado bajo el mismo rango se instalaba en
+      # silencio. requirements-*.lock (generado con
+      # `uv pip compile --universal --python-version 3.12
+      # --generate-hashes`, resolución universal multi-plataforma
+      # fijada al piso real de Python que exige este mismo workflow,
+      # no a la máquina donde se generó) + --require-hashes: pip
+      # rechaza cualquier paquete cuyo hash no coincida exactamente
+      # con el fijado acá. Regenerar con el mismo comando de arriba
+      # cuando haga falta actualizar una dependencia — nunca a mano.
       - name: Instalar dependencias (core + dev, sin el stack multimodal)
-        run: pip install -r requirements-core.txt -r requirements-dev.txt
+        run: pip install --require-hashes -r requirements-core.lock -r requirements-dev.lock
 
       - name: Lint (solo errores reales — sintaxis/pyflakes, no estilo)
         run: python -m ruff check --select=E9,F .
@@ -66,7 +79,7 @@ jobs:
       - name: Auditoría de dependencias (reporta, no bloquea todavía)
         run: |
           pip install -q pip-audit
-          pip-audit -r requirements-core.txt -r requirements-dev.txt || true
+          pip-audit -r requirements-core.lock -r requirements-dev.lock || true
 
       - name: Tests
         run: python -m pytest tests/ -q

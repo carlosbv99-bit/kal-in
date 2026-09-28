@@ -8850,3 +8850,58 @@ acá. Contenido no verificado ni actuado desde acá (sin checkout local
 de `carlosbv99-bit/kal` en este entorno) — mencionado para que quede
 registrado el contexto completo de por qué hubo divergencia, no como
 trabajo pendiente de este repo.
+
+## M-9 cerrado del todo: lockfiles con hashes, resolución universal (2026-09-28)
+
+M-9 (auditoría externa Likay-OS) había quedado parcial a propósito:
+techos de versión sí, lockfile con hashes del árbol transitivo
+completo no — "necesita resolver contra la red y verificarse aparte,
+no algo para improvisar a ciegas" (ver el comentario original en
+requirements-core.txt). Pedido explícito del usuario: alcance
+universal (no solo esta máquina), no el modo simple de un solo SO.
+
+**Generado con `uv`** (ya instalado en el sistema, sin nada nuevo que
+agregar) — `uv pip compile --universal --generate-hashes`. Primer
+intento resuelto contra el intérprete local (3.14) sin especificar
+versión — **error real encontrado antes de confiarlo**: CI
+(`.github/workflows/ci.yml`, `kernel_drift.yml`, `validate-skills.yml`)
+corre todo en Python 3.12, dos minors por debajo. Un lockfile resuelto
+implícitamente contra 3.14 podía fijar versiones que no tuvieran wheel
+compatible con 3.12, o que 3.12 ni siquiera pudiera instalar. Sin
+`pyproject.toml`/`requires-python` declarado en este repo (el paquete
+instalable es `kal`, el kernel extraído — ver CONTRIBUTING.md), la
+única señal real de piso mínimo es el `python-version: "3.12"` que los
+3 workflows ya usan. Regenerados los 3 con
+`--python-version 3.12` explícito:
+
+```
+uv pip compile --universal --python-version 3.12 --generate-hashes \
+  requirements-core.txt -o requirements-core.lock
+```
+(análogo para requirements-dev.lock y requirements-multimodal.lock, cambiando el archivo de entrada/salida)
+
+**Verificado, no solo generado**: instalación real (`uv pip install
+--require-hashes`) de core+dev en un venv de Python 3.12 limpio de
+verdad (`uv python` lo descargó aparte, no el 3.14 de este entorno de
+desarrollo) — instaló sin error e importó `fastapi`/`chromadb`/
+`cryptography`/`sklearn`/`pytest`/`ruff` sin problema. `multimodal.lock`
+(torch/CUDA, varios GB) verificado con `--dry-run --require-hashes` en
+vez de una instalación real completa — confirma que resuelve y que
+cada hash declarado coincide con lo que PyPI sirve hoy, sin bajar
+gigabytes solo para probarlo.
+
+**CI actualizado** para instalar DESDE el lockfile
+(`pip install --require-hashes -r requirements-core.lock -r
+requirements-dev.lock`, ya no desde los `.txt` sueltos) — `pip-audit`
+también apunta ahora a los `.lock`, coherente con lo que la corrida
+realmente instala. `requirements-multimodal.lock` existe y se verificó
+pero CI sigue sin instalarlo (mismo criterio de siempre: el stack
+pesado queda fuera del pipeline rápido).
+
+Los `.txt` siguen siendo la fuente de verdad EDITABLE (rangos
+`>=,<`) — los `.lock` se regeneran con el comando de arriba cuando
+cambie una dependencia, nunca a mano. Sin automatizar todavía: falta
+un job de CI que detecte que un `.txt` cambió sin que su `.lock`
+correspondiente se haya regenerado (mismo tipo de gap que el de
+firmas de skill desactualizadas tras un `ruff --fix`, documentado más
+arriba) — candidato real para una próxima sesión, no bloqueante hoy.

@@ -10,6 +10,10 @@
 # de lo REALMENTE instalado y validado (no del piso histórico, que en
 # varios casos ya quedó lejos de la versión real en uso) — ver el
 # mismo comentario en requirements-core.txt para el criterio completo.
+# Lockfile con hashes: requirements-multimodal.lock (mismo comando,
+# ver requirements-core.txt) — no lo instala CI (ver arriba, el stack
+# pesado queda fuera del pipeline rápido), pero existe y se verificó
+# igual (resuelve + instala en un venv limpio con --require-hashes).
 
 # --- Embeddings locales para memoria de largo plazo ---
 sentence-transformers>=3.0,<7.0    # embeddings locales, sin API externa
