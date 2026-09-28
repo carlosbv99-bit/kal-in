@@ -10,8 +10,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from generate_market_page import render_market_html  # noqa: E402
-from kernel.registry.skill_signing import SkillSigner  # noqa: E402
+from generate_market_page import render_market_html
+
+from kernel.registry.skill_signing import SkillSigner
 
 _SKILL_YAML_TEMPLATE = """name: {name}
 description: "{description}"

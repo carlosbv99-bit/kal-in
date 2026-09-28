@@ -13,9 +13,9 @@ kernel/api/bus.py::KernelServiceBus._resolve_input_artifacts()).
 """
 from __future__ import annotations
 
-from sdk.skill import Tool
 from sdk.artifacts import Artifact
 from sdk.context import call as kernel_call
+from sdk.skill import Tool
 
 
 class VoiceRoundtripViaKernelTool(Tool):

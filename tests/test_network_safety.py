@@ -6,7 +6,11 @@ privadas/reservadas) sin duplicar la lógica.
 """
 from __future__ import annotations
 
-from kernel.permissions.network_safety import is_domain_allowed, is_hostname_allowed, is_unsafe_ip
+from kernel.permissions.network_safety import (
+    is_domain_allowed,
+    is_hostname_allowed,
+    is_unsafe_ip,
+)
 
 
 def test_is_unsafe_ip_accepts_normal_public_addresses():

@@ -1,0 +1,30 @@
+name: Kernel drift check
+
+# kal-in todavía embebe su propia copia del kernel en vez de depender
+# del paquete kal (ver CONTRIBUTING.md) — un fix real hecho en un repo
+# no le llega al otro solo. Bug real encontrado en uso (2026-09-27): un
+# fix de seguridad real (K-2, lectura arbitraria de archivos del host)
+# tardó semanas en detectarse del lado de kal, sin que nadie lo notara
+# hasta una auditoría manual (ver docs/HISTORY.md). Este chequeo acorta
+# esa ventana a minutos.
+#
+# Corre en un schedule (no en cada push: el estado de kal no cambia
+# porque kal-in tenga un commit nuevo) + manualmente. Informativo por
+# ahora, no bloqueante — recién nace, tiene que probarse en la práctica
+# antes de que su veredicto bloquee algo (mismo criterio que la
+# auditoría de dependencias, ver .github/workflows/ci.yml).
+on:
+  schedule:
+    - cron: "0 6 * * *"   # todos los días a las 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Chequear divergencia contra kal
+        run: python3 scripts/check_kernel_drift.py || true

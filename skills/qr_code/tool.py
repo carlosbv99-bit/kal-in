@@ -26,8 +26,8 @@ from __future__ import annotations
 import os
 import uuid
 
-from sdk.skill import Tool
 from sdk.artifacts import Artifact
+from sdk.skill import Tool
 
 
 class QRCodeTool(Tool):

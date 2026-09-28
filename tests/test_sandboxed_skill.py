@@ -19,11 +19,11 @@ import pytest
 from kernel.lifecycle.docker_runner import DockerSandboxRunner, SandboxResult
 from kernel.lifecycle.executor import SandboxExecutor
 from kernel.permissions.permission_cascade import PermissionCascade
+from kernel.registry.sandboxed_skill import SandboxedSkillTool
 from kernel.registry.skill_signing import SkillSigner
-from tests.conftest import requires_docker
 from sdk.permissions import Permission
 from sdk.skill import ToolManifest
-from kernel.registry.sandboxed_skill import SandboxedSkillTool
+from tests.conftest import requires_docker
 
 
 class FakeSandboxExecutor:
@@ -55,7 +55,7 @@ def _ok_result(modality="text", uri="", metadata=None, output_files=None) -> San
 @pytest.fixture(autouse=True)
 def _clean_scan_by_default(monkeypatch):
     """
-    tool_integration/malware_scan.py::scan_bytes() es fail-closed de
+    kernel/security/malware_scan.py::scan_bytes() es fail-closed de
     verdad (bloquea si ClamAV no está instalado) — el resto de este
     archivo prueba la lógica de SandboxedSkillTool, no el escaneo en
     sí (eso vive en tests/test_malware_scan.py), así que por defecto
@@ -364,7 +364,7 @@ def test_file_artifact_is_persisted_to_artifacts_root(tmp_path, manifest):
 
 
 def test_file_artifact_blocked_when_scan_detects_malware(tmp_path, manifest, monkeypatch):
-    from tool_integration.malware_scan import MalwareScanError
+    from kernel.security.malware_scan import MalwareScanError
 
     def _boom(data, suffix=""):
         raise MalwareScanError("ClamAV detectó contenido malicioso: FAKE.TEST-SIGNATURE")
@@ -391,7 +391,7 @@ def test_file_artifact_blocked_when_scan_detects_malware(tmp_path, manifest, mon
 
 
 def test_file_artifact_blocked_when_clamav_unavailable(tmp_path, manifest, monkeypatch):
-    from tool_integration.malware_scan import MalwareScanError
+    from kernel.security.malware_scan import MalwareScanError
 
     def _unavailable(data, suffix=""):
         raise MalwareScanError("ClamAV no está instalado — no se puede garantizar que este archivo sea seguro")
@@ -417,7 +417,7 @@ def test_file_artifact_blocked_when_clamav_unavailable(tmp_path, manifest, monke
 
 def test_scan_blocked_artifact_is_audited(tmp_path, manifest, monkeypatch):
     from audit.audit_log import audit_log
-    from tool_integration.malware_scan import MalwareScanError
+    from kernel.security.malware_scan import MalwareScanError
 
     monkeypatch.setattr(audit_log, "path", tmp_path / "audit.log")
 

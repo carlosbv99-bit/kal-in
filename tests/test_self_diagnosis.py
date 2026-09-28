@@ -10,7 +10,6 @@ requiere Ollama real ni corre pytest en subproceso.
 """
 from __future__ import annotations
 
-
 import pytest
 
 from agent_core.llm.ollama_client import OllamaError
@@ -88,7 +87,7 @@ def test_unhealthy_invariant_calls_llm_and_proposes_fix(tmp_path, fake_proposal)
     response = ChatResponse(
         content="La causa es X.\n```python\n# contenido corregido\n```"
     )
-    agent, llm, self_mod = _agent(tmp_path, responses=[response], check=_unhealthy_check, proposal=fake_proposal)
+    agent, _llm, self_mod = _agent(tmp_path, responses=[response], check=_unhealthy_check, proposal=fake_proposal)
 
     result = agent.diagnose_and_propose_fix("algo")
 
@@ -113,7 +112,7 @@ def test_prompt_includes_diagnosis_and_current_source(tmp_path, fake_proposal):
 
 
 def test_llm_error_returns_llm_error_status_without_proposing(tmp_path):
-    agent, llm, self_mod = _agent(
+    agent, _llm, self_mod = _agent(
         tmp_path, responses=[OllamaError("ollama caído")], check=_unhealthy_check
     )
 
@@ -126,7 +125,7 @@ def test_llm_error_returns_llm_error_status_without_proposing(tmp_path):
 
 def test_response_without_code_fence_does_not_propose_anything(tmp_path):
     response = ChatResponse(content="No estoy seguro de cuál es el problema.")
-    agent, llm, self_mod = _agent(tmp_path, responses=[response], check=_unhealthy_check)
+    agent, _llm, self_mod = _agent(tmp_path, responses=[response], check=_unhealthy_check)
 
     result = agent.diagnose_and_propose_fix("algo")
 

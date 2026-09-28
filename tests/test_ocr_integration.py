@@ -14,9 +14,9 @@ import pytest
 
 pytest.importorskip("rapidocr")
 
-from PIL import Image, ImageDraw  # noqa: E402
+from PIL import Image, ImageDraw
 
-from tool_integration.adapters.ocr import TextExtractionTool  # noqa: E402
+from tool_integration.adapters.ocr import TextExtractionTool
 
 
 def test_reads_real_text_from_a_synthetic_image(tmp_path):

@@ -27,10 +27,10 @@ import uuid
 from pathlib import Path
 from typing import TypedDict
 
+from sdk.artifacts import Artifact
+from sdk.skill import Tool, ToolManifest
 from tool_integration.adapters.audio_gen import AudioGenerationTool
 from tool_integration.adapters.image_gen import ImageGenerationTool
-from sdk.skill import Tool, ToolManifest
-from sdk.artifacts import Artifact
 from utils.config import settings
 from utils.logger import get_logger
 
@@ -94,7 +94,11 @@ class VideoCompositionTool(Tool):
         try:
             from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
         except ImportError:
-            from moviepy import AudioFileClip, ImageClip, concatenate_videoclips  # moviepy >= 2.0
+            from moviepy import (  # moviepy >= 2.0
+                AudioFileClip,
+                ImageClip,
+                concatenate_videoclips,
+            )
 
         clips = []
         scene_artifacts = []

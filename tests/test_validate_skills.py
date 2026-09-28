@@ -10,8 +10,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from validate_skills import validate_all_skills  # noqa: E402
-from kernel.registry.skill_signing import SkillSigner  # noqa: E402
+from validate_skills import validate_all_skills
+
+from kernel.registry.skill_signing import SkillSigner
 
 _SKILL_YAML_TEMPLATE = """name: {name}
 description: "una skill de prueba"

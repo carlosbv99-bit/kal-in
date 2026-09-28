@@ -39,15 +39,16 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import requests
 
+from sdk.artifacts import Artifact
+from sdk.skill import Tool, ToolManifest
 from tool_integration.provider import TTSProvider
 from tool_integration.services import AudioService
-from sdk.skill import Tool, ToolManifest
-from sdk.artifacts import Artifact
 from utils.config import settings
 from utils.logger import get_logger
 
@@ -122,7 +123,7 @@ class AudioGenerationTool(Tool):
             )
             response.raise_for_status()
             audio_bytes = response.content
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — API externa, cualquier falla de red/formato debe degradar con un error legible
             logger.warning(f"Fallo generando audio vía API: {e}")
             return self._error(f"Fallo llamando a la API de audio: {e}")
 

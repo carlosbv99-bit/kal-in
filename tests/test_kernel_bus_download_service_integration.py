@@ -21,15 +21,15 @@ from pathlib import Path
 
 from PIL import Image
 
-from tests.conftest import requires_docker
 from kernel.api.bus import KernelServiceBus
 from kernel.lifecycle.docker_runner import DockerSandboxRunner
 from kernel.lifecycle.executor import SandboxExecutor
 from kernel.permissions.network_access_manager import NetworkAccessManager
 from kernel.registry.sandboxed_skill import SandboxedSkillTool
-from tool_integration.services import DownloadService
 from sdk.skill import ToolManifest
+from tests.conftest import requires_docker
 from tool_integration.download_manager import DownloadManager
+from tool_integration.services import DownloadService
 
 pytestmark = requires_docker
 

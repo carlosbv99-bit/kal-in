@@ -12,8 +12,14 @@ import base64
 
 import pytest
 
-from tool_integration.adapters.vscode_files import ImportResourceTool, ProjectFilesRejectedError
-from tool_integration.download_manager import DownloadedResource, DownloadValidationError
+from tool_integration.adapters.vscode_files import (
+    ImportResourceTool,
+    ProjectFilesRejectedError,
+)
+from tool_integration.download_manager import (
+    DownloadedResource,
+    DownloadValidationError,
+)
 
 
 def _fake_resource(content=b"fake-image-bytes"):

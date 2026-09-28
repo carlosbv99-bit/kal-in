@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from kernel.registry.skill_signing import SkillSigner  # noqa: E402
+from kernel.registry.skill_signing import SkillSigner
 
 
 def main() -> None:

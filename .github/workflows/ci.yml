@@ -52,5 +52,21 @@ jobs:
       - name: Lint (solo errores reales — sintaxis/pyflakes, no estilo)
         run: python -m ruff check --select=E9,F .
 
+      # Agregado 2026-09-27, preparando una auditoría externa — antes no
+      # había ningún scanning de vulnerabilidades de dependencias. NO
+      # bloqueante todavía a propósito: ya hay un hallazgo real conocido
+      # (chromadb 1.5.9, la última versión publicada, sin fix disponible
+      # — PYSEC-2026-311/3813/3814/3815, todos sobre el servidor HTTP
+      # multi-tenant de chromadb, ver docs/HISTORY.md para el análisis
+      # completo de por qué no aplica al modo `embedded`, el default de
+      # este proyecto) — bloquear el build por algo sin fix disponible
+      # no ayudaría a nadie. Igual corre y reporta en cada push/PR, para
+      # que una vulnerabilidad NUEVA en cualquier otra dependencia no
+      # pase desapercibida.
+      - name: Auditoría de dependencias (reporta, no bloquea todavía)
+        run: |
+          pip install -q pip-audit
+          pip-audit -r requirements-core.txt -r requirements-dev.txt || true
+
       - name: Tests
         run: python -m pytest tests/ -q

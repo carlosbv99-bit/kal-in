@@ -42,16 +42,17 @@ import uuid
 from pathlib import Path
 
 from audit.audit_log import AuditEvent, audit_log
-from kernel.api.bus import KernelServiceBus, kernel_service_bus as default_kernel_service_bus
+from kernel.api.bus import KernelServiceBus
+from kernel.api.bus import kernel_service_bus as default_kernel_service_bus
 from kernel.api.socket_server import KernelBusSocketServer
 from kernel.lifecycle.docker_runner import SandboxResult
 from kernel.lifecycle.executor import SandboxExecutor
 from kernel.permissions.permission_cascade import permission_cascade
 from kernel.registry.skill_signing import verify_skill_signature
-from sdk.skill import Tool, ToolManifest
+from kernel.security.malware_scan import MalwareScanError, scan_bytes
 from sdk.artifacts import Artifact
-from tool_integration.malware_scan import MalwareScanError, scan_bytes
 from sdk.permissions import Permission
+from sdk.skill import Tool, ToolManifest
 from utils.correlation import get_correlation_id
 from utils.logger import get_logger
 
@@ -324,7 +325,7 @@ class SandboxedSkillTool(Tool):
         # (una skill de un tercero) que llegan sin re-codificar al
         # disco real, listos para que el usuario los abra después con
         # cualquier aplicación — se escanean con ClamAV
-        # (tool_integration/malware_scan.py) primero. Fail-closed: si
+        # (kernel/security/malware_scan.py) primero. Fail-closed: si
         # no se puede escanear (ClamAV no instalado) o se detecta algo,
         # el artefacto nunca se escribe.
         if modality != "text" and uri and uri in output_files:

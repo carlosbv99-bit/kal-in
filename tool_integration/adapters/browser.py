@@ -94,12 +94,12 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from audit.audit_log import AuditEvent, audit_log
-from sdk.skill import Tool, ToolManifest
-from sdk.artifacts import Artifact
 from kernel.permissions.network_access_manager import network_access_manager
 from kernel.permissions.network_permissions import NetworkAction, NetworkScope
 from kernel.permissions.network_safety import is_unsafe_ip
+from sdk.artifacts import Artifact
 from sdk.permissions import Permission
+from sdk.skill import Tool, ToolManifest
 from utils.config import settings
 from utils.logger import get_logger
 
@@ -124,7 +124,7 @@ def _server_addr_ip(response) -> str | None:
         return None
     try:
         addr = response.server_addr()
-    except Exception:
+    except Exception:  # noqa: BLE001 — mejor esfuerzo, opcional por diseño (ver docstring arriba)
         return None
     return addr["ipAddress"] if addr else None
 

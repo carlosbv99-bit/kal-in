@@ -13,10 +13,10 @@ from starlette.concurrency import run_in_threadpool
 
 from agent_core.context_service import EditorContextSignals
 from agent_core.conversation_engine import get_trivial_reply
-from agent_core.memory import security_policy
-from agent_core.tool_need_classifier import predict_needs_tool
 from agent_core.llm.provider import ProviderError
+from agent_core.memory import security_policy
 from agent_core.orchestrator import _artifact_url, orchestrator
+from agent_core.tool_need_classifier import predict_needs_tool
 from sdk.artifacts import Artifact
 from sdk.permissions import Permission
 from tool_integration.services import KernelServiceError, STTService
@@ -537,7 +537,7 @@ _EXTENSION_FOR_CONTENT_TYPE = {
 
 
 @router.post("/uploads", summary="Subir una imagen o un audio propio")
-async def upload_image(file: UploadFile = File(...), session_id: str | None = Form(None)):
+async def upload_image(file: UploadFile = File(...), session_id: str | None = Form(None)):  # noqa: B008 — patrón estándar de inyección de dependencias de FastAPI, no una llamada real en cada request
     """
     Sube una imagen o un audio propio del usuario (no generado por
     kal-in) y lo convierte en el artefacto activo de la sesión — así el
@@ -572,7 +572,12 @@ async def upload_image(file: UploadFile = File(...), session_id: str | None = Fo
     max_bytes = cfg.max_size_mb * 1024 * 1024
 
     size = 0
-    with open(dest_path, "wb") as f:
+    # ASYNC230: open() bloqueante dentro de una función async — aceptado
+    # a propósito. kal-in sirve un usuario local a la vez (ver /chat,
+    # también sincrónico por diseño), no un servicio multi-tenant de alta
+    # concurrencia — el costo real de bloquear el loop unos milisegundos
+    # por chunk de 1MB es despreciable acá. Revisar si eso cambia.
+    with open(dest_path, "wb") as f:  # noqa: ASYNC230
         while chunk := await file.read(1024 * 1024):
             size += len(chunk)
             if size > max_bytes:
@@ -627,7 +632,7 @@ _transcription_service = STTService()
 
 
 @router.post("/transcribe", summary="Transcribir un audio sin pasar por el agente (transcripción en vivo)")
-async def transcribe_audio(file: UploadFile = File(...)):
+async def transcribe_audio(file: UploadFile = File(...)):  # noqa: B008 — patrón estándar de inyección de dependencias de FastAPI, no una llamada real en cada request
     """
     Transcripción DIRECTA (faster-whisper, sin LLM, sin sesión, sin
     persistir el archivo) — pensada para la transcripción en vivo
@@ -684,7 +689,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         result = await run_in_threadpool(_transcription_service.transcribe, str(tmp_path))
     except KernelServiceError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         # BUG REAL ENCONTRADO EN USO: un chunk de webm todavía incompleto
         # (típico de la transcripción parcial en vivo, llamada mientras
         # el usuario sigue grabando — ver frontend/app.js) puede no ser

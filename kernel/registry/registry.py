@@ -24,11 +24,15 @@ from typing import TYPE_CHECKING
 from audit.audit_log import AuditEvent, audit_log
 from code_analysis.ast_validator import validate_code
 from kernel.lifecycle.executor import SandboxExecutor
-from sdk.skill import Tool, ToolManifest
+from kernel.registry.signing import ToolSigner, tool_signer
+from kernel.registry.versioning import (
+    ToolVersionStore,
+    is_valid_tool_name,
+    tool_version_store,
+)
 from sdk.artifacts import Artifact
 from sdk.permissions import Permission
-from kernel.registry.signing import ToolSigner, tool_signer
-from kernel.registry.versioning import ToolVersionStore, is_valid_tool_name, tool_version_store
+from sdk.skill import Tool, ToolManifest
 from utils.config import settings
 from utils.logger import get_logger
 
@@ -148,7 +152,8 @@ class ToolRegistry:
         registry): solo hace falta para skills con `requirements`
         declarados, ver kernel/registry/skills.py::load_skills().
         """
-        from kernel.registry.skills import DEFAULT_SKILLS_DIR, load_skills as _load_skills
+        from kernel.registry.skills import DEFAULT_SKILLS_DIR
+        from kernel.registry.skills import load_skills as _load_skills
 
         self._skill_statuses = _load_skills(
             self, skills_dir=skills_dir or DEFAULT_SKILLS_DIR, image_builder=image_builder

@@ -27,9 +27,10 @@ auto-permite, o necesita que un humano la apruebe?".
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Literal
 from uuid import uuid4
 
 from audit.audit_log import AuditEvent, audit_log

@@ -30,10 +30,14 @@ from uuid import uuid4
 
 from audit.audit_log import AuditEvent, audit_log
 from kernel.broker.resource_broker import resource_broker
-from kernel.permissions.network_access_manager import network_access_manager as default_network_access_manager
+from kernel.permissions.network_access_manager import (
+    network_access_manager as default_network_access_manager,
+)
 from kernel.permissions.network_permissions import NetworkAction, NetworkScope
 from tool_integration.download_manager import (
     DownloadValidationError,
+)
+from tool_integration.download_manager import (
     download_manager as default_download_manager,
 )
 from utils.config import settings

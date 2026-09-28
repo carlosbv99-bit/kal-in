@@ -64,7 +64,7 @@ class _FakeTestExecutor:
             report_path = Path(report_dir) / "report.xml"
             result = subprocess.run(
                 [sys.executable, "-m", "pytest", "-q", "--tb=short", f"--junit-xml={report_path}"],
-                cwd=host_path, capture_output=True, text=True, timeout=60,
+                cwd=host_path, capture_output=True, text=True, timeout=60, check=False,
             )
             output_files = {"report.xml": report_path.read_bytes()} if report_path.exists() else {}
         return _FakeSandboxResult(

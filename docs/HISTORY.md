@@ -8491,6 +8491,240 @@ sin poder confirmarlo en un navegador real dentro de esta sesión (sin
 herramienta de navegador disponible), documentado con honestidad en
 vez de asumir que "se ve bien".
 
+## Revisión y limpieza para una auditoría externa (2026-09-27)
+
+Pedido: revisar y limpiar el código antes de que un auditor externo lo
+revise. El lint de CI siempre corrió angosto (`ruff check --select=E9,F`,
+solo errores de sintaxis) — nunca un pase de estilo/calidad más amplio.
+Investigado con 3 exploraciones dirigidas antes de tocar nada (lint
+amplio, seguridad, documentación).
+
+**Bug real de recursos encontrado y corregido**: en
+`kernel/lifecycle/docker_runner.py` (el timeout de `containers.run()`
+agregado hace unos días, kal-in issue #4), si el pull/creación del
+contenedor eventualmente TERMINABA después de que ya se había
+devuelto el timeout al llamador, ese contenedor quedaba huérfano —
+nadie tenía su handle para matarlo/removerlo, a diferencia del camino
+normal (`_wait_and_collect` → `_safe_kill`/`_safe_remove`). Fix:
+`future.add_done_callback()` en la rama de timeout — si el future
+eventualmente completa con un contenedor real, se mata y remueve ahí
+mismo, y se libera el thread del pool. Nuevo test
+(`tests/test_docker_runner_pull_timeout.py::test_container_created_after_the_timeout_gets_killed_and_removed`)
+simula exactamente este escenario (un `containers.run()` lento pero no
+realmente colgado).
+
+**Lint amplio (`ruff check .`, sin restricción) — de 224 hallazgos a 0**:
+168 auto-corregibles (`ruff check . --fix`, diff completo revisado a
+mano antes de aceptar — imports desordenados, `noqa` obsoletos,
+`typing.Callable` → `collections.abc.Callable`, anotaciones con
+comillas innecesarias bajo `from __future__ import annotations`). Los
+~40 restantes se triaron uno por uno, no en bloque:
+- **`BLE001` (`except Exception` genérico), ~28 casos**: los de código
+  de producción ya eran, sin excepción, fail-open deliberado y
+  documentado (un observer de memoria que no debe romper el ciclo
+  real, un servicio del Kernel Bus que debe sanear CUALQUIER excepción
+  antes de devolverla a una skill — hallazgo de la revisión de
+  seguridad 2026-07-09 —, un thread de background que debe sobrevivir
+  errores transitorios, etc.) — se les agregó `# noqa: BLE001` con el
+  motivo, sin cambiar comportamiento. Los de `tests/` son todos el
+  mismo patrón: cargar un modelo de ML real en un fixture, saltear el
+  test si falla por cualquier motivo — igual de legítimo.
+- **`PLW1510` (`subprocess.run` sin `check` explícito), 5 casos**: en
+  todos, el código YA interpreta `returncode` a mano justo después
+  (comportamiento correcto) — se agregó `check=False` explícito, sin
+  cambiar nada más.
+- Resto (imports de `typing` deprecados, anotaciones citadas, `dict()`
+  en vez de literal, variables desempaquetadas sin usar, `S112` sin
+  logging): corregidos, mecánicos, sin riesgo.
+
+**`create_package.py` revisado y corregido** (el script que empaqueta
+el proyecto en un ZIP para dárselo a un especialista — exactamente lo
+que hace falta para este tipo de entrega): estaba desactualizado desde
+el split kal/kal-in (referenciaba `setup.py`, que no existe en este
+repo — vive en el repo `kal`, el kernel puro), tenía `code_analysis/`
+duplicado, y le faltaban documentos clave (`docs/HISTORY.md`,
+`LICENSE`, las versiones en español de README/CONTRIBUTING). Agregada
+además una exclusión explícita de `.env`/`__pycache__`/
+`.pytest_cache`/`node_modules` (este último solo, sin la exclusión,
+agregaba 254 de los ~629 archivos del paquete — dependencias de npm de
+`vscode-extension/`, puro ruido para un auditor). Probado generando un
+paquete real: 375 archivos, cero ruido, todos los documentos clave
+presentes.
+
+**`CONTRIBUTING.md`/`CONTRIBUTING.es.md` actualizados** — nunca se
+habían tocado desde el split kal/kal-in, todavía decían "Contributing
+to Kal" y describían `kernel/`+`agent_core/`+`sdk/` como si fueran
+todos "el kernel en sí" (misma confusión ya corregida antes en
+README.md/README.es.md). También tenían el mismo link roto al Skill
+Market (`.../kal/` en vez de `.../kal-in/`, consecuencia del rename
+del repo) que ya se había encontrado y corregido en el README.
+
+**Dependencias — `pip-audit` agregado a CI**, gap real que no existía
+(sin Dependabot tampoco). Corrido en vivo antes de agregarlo: 1
+hallazgo real, `chromadb==1.5.9` (la ÚLTIMA versión publicada, sin fix
+disponible) — 4 CVEs (`PYSEC-2026-311/3813/3814/3815`), todos sobre el
+servidor HTTP multi-tenant de chromadb (RCE vía `trust_remote_code`,
+bypass de autorización entre tenants). **Verificado que no aplica al
+uso real de este proyecto**: `LongTermConfig.mode` default es
+`"embedded"` (`config/config.yaml:135`) — chromadb corre embebido en
+el propio proceso, sin ningún servidor HTTP escuchando, sin tenants;
+el modo `http` alternativo (vía el servicio `vector_store` de
+docker-compose) queda confinado a la red interna de Docker, nunca
+expuesto a un usuario no confiable. El step de CI queda como
+REPORTE, no bloqueante todavía — bloquear el build por una
+vulnerabilidad sin fix disponible no ayuda a nadie, pero sí corre en
+cada push/PR para que una vulnerabilidad NUEVA en cualquier otra
+dependencia no pase desapercibida.
+
+**Otros hallazgos aceptados, documentados sin cambio de código**:
+- `agent_core/tool_need_classifier.py` carga su modelo (`.joblib`,
+  deserialización basada en pickle) desde una ruta fija relativa al
+  repo, nunca influenciada por config/input de usuario — riesgo de
+  supply-chain aceptado (si ese archivo se regenerase alguna vez sin
+  revisión de código, sería un primitivo de ejecución de código al
+  importar), no explotable desde input real hoy.
+- `agent_core/knowledge/{base,models,miner}.py` (Knowledge Miner) no
+  tiene ningún caller en producción — scaffolding a propósito para una
+  feature futura, no un descuido (ver `project_knowledge_miner_infrastructure`
+  en la memoria del proyecto).
+- Las 3 listas de `requirements-*.txt` usan rangos abiertos (`>=`),
+  nunca versiones exactas — decisión ya tomada anteriormente, no una
+  regresión nueva. Pinnear versiones exactas queda fuera de esta
+  limpieza: es un cambio de política más grande, con riesgo real de
+  romper algo, no una limpieza mecánica.
+- El `.env` local (con claves reales de Groq/xAI para pruebas) nunca
+  se commiteó — confirmado revisando el historial completo del repo
+  (90 commits). Cualquier entrega a un auditor externo debe usar
+  `git archive` (respeta `.gitignore`) o el `create_package.py`
+  actualizado (excluye `.env` explícitamente), nunca un `tar`/`zip`
+  crudo del directorio de trabajo.
+
+Suite completa corrida después de todos los cambios de código
+(docker_runner.py, malware_scan.py, skill_market.py,
+generate_market_page.py) — ver el commit para el resultado exacto.
+
+## Reconciliación con 3 commits remotos + bug real de firmas rotas (2026-09-27)
+
+Al terminar la limpieza de arriba pero antes de pushear, se detectó
+que este clon local estaba 3 commits detrás de `origin/main`
+(`ecaa372`, `7ddbe1f`, `74df780` — "5 vulnerabilidades reales de
+kernel/sandbox", "Fixes de fiabilidad + entrada por voz completa + OCR
+dedicado + kal-in", fix de naming de la extensión VS Code) sin haberse
+hecho `fetch`/`pull` en ningún momento de la sesión. Reconciliación en
+2 pasos, sin descartar nada de ningún lado: (1) la limpieza completa
+de arriba se commiteó primero, tal cual, como checkpoint; (2) recién
+después, `git merge origin/main` trajo los 3 commits remotos. 4
+conflictos reales (no cosméticos — ambos lados agregaban líneas
+distintas al mismo bloque de imports), todos resueltos a mano
+verificando que CADA import importado por ambos lados se usa de
+verdad en el archivo antes de conservarlo:
+- `agent_core/routers/chat.py`: el docstring de `/uploads` ("imagen
+  propia" → "imagen o audio propio", ya soporta audio) + el `# noqa:
+  B008` que esta limpieza le había agregado al mismo endpoint.
+- `kernel/registry/registry.py` y `kernel/registry/sandboxed_skill.py`:
+  imports nuevos de la auditoría remota (`is_valid_tool_name`,
+  `permission_cascade`, `verify_skill_signature`) + los ya existentes
+  — puramente aditivo, ninguno reemplazaba al otro.
+- `tests/test_sandboxed_skill.py`: mismo patrón, imports nuevos de
+  test para los mismos símbolos.
+
+**Bug real encontrado por la suite completa POST-merge, no por
+inspección**: 6 tests fallaron, los 5 tests de integración con Docker
+real (`test_kernel_bus_audio_stt_inpaint_integration.py`,
+`test_kernel_bus_download_service_integration.py`,
+`test_kernel_bus_image_service_integration.py`) más
+`test_validate_skills.py::test_real_project_skills_are_all_verified`,
+todos con el mismo error: `"firma tampered, se requiere 'verified'"`.
+Causa: el `ruff check . --fix` de la limpieza de arriba reordenó
+imports en los 7 `skills/*/tool.py` — cambiando su contenido — pero
+nunca se los volvió a firmar. Antes del merge esto no se notaba porque
+nada en la suite ejercía `verify_skill_signature()` de verdad contra
+el contenido actual; los 3 commits recién mergeados agregan
+exactamente esa verificación real a `sandboxed_skill.py` (parte de las
+"5 vulnerabilidades reales de kernel/sandbox"), así que la firma
+desactualizada pasó de ser un dato inerte a una falla real y
+reproducible. Fix: identificar qué keypair firmó cada skill
+comparando el fingerprint de clave pública embebido en cada
+`skill.sig` contra los `.pub` locales (6 de las 7 —
+audio/inpaint/image/qr_code/system_info/voice_roundtrip— firmadas con
+`data/keys/kal_project/`, `download_via_kernel` con `data/keys/` a
+secas) y re-firmar cada una con su propio `--key-dir` original (nunca
+uno nuevo, para no cambiarle el autor a una skill ya publicada). Los 6
+tests originalmente fallidos pasan tras la re-firma; suite completa
+final: 1201 passed, 0 failed.
+
+Lección para el futuro: cualquier `ruff --fix`/reformateo automático
+que toque `skills/*/tool.py` invalida su firma — hace falta
+re-firmar como parte del mismo cambio, no como un paso separado que se
+pueda olvidar. Candidato a automatizar (hook de pre-commit o chequeo
+en CI que detecte `skill.sig` desactualizado), no implementado en esta
+sesión.
+
+## Chequeo de drift kal-in ↔ kal (`scripts/check_kernel_drift.py`) (2026-09-27)
+
+Pregunta del usuario tras la reconciliación de arriba: ¿es posible que
+una modificación en kal se propague sola a kal-in, sobre todo en
+producción? Respuesta corta: no, hoy no — kal-in todavía embebe su
+propia copia del kernel en vez de depender del paquete kal (ver
+`CONTRIBUTING.md`), y "automático" tampoco sería deseable para código
+que llega a producción sin revisión humana. Recomendado en vez de la
+migración completa (invasiva, prematura mientras la API de kal puede
+seguir moviéndose): un chequeo de drift que detecte divergencia rápido,
+sin tocar la relación de dependencia todavía.
+
+**Confirmó su propio valor de inmediato**: al construirlo y correrlo
+por primera vez contra el `kal` real, encontró que 4 de las "5
+vulnerabilidades reales de kernel/sandbox" de la auditoría externa de
+Likay-OS (2026-09-26) — K-1, K-4, K-5, K-6 — nunca se habían portado a
+kal, pese a que la sesión anterior de limpieza de kal había afirmado
+"kal está al día" tras portar solo el fix de `docker_runner.py` (K-2 +
+el hang sin timeout de kal-in issue #4). Esos 4 fixes se portaron a kal
+en esa misma sesión (ver `docs/HISTORY.md` de kal, "4 vulnerabilidades
+reales más").
+
+**Diseño**: compara byte a byte `kernel/`, `sdk/`, `audit/`,
+`code_analysis/` (los directorios que ambos `CONTRIBUTING.md` ya
+documentan como "mecanismo puro, sin extensión de agente") más las
+skills que existen en AMBOS repos por nombre — nunca exige que las
+listas completas de skills coincidan, kal-in tiene su propio Skill
+Market más grande. Dos exclusiones deliberadas, no descuidos:
+- `utils/config.py`: kal-in tiene a propósito MÁS campos que kal
+  (LLM/memoria/multimodal, ver limpieza de kal del mismo día) — no es
+  drift, es diseño.
+- `*.sig`: un blob de firma criptográfica siempre difiere entre repos
+  que re-firmaron con claves distintas (como pasó hoy mismo, ver
+  sección de arriba) aunque el código real sea idéntico — comparar la
+  firma en sí sería puro ruido permanente.
+
+**Reporta, no corrige ni bloquea**: mismo criterio que `pip-audit` en
+CI — nueva, sin historial de uso real todavía, corre por schedule
+diario + manual (`workflow_dispatch`), nunca en cada push (el estado de
+kal no cambia porque kal-in tenga un commit nuevo). El test que
+comparaba contra el kal real se sacó de la suite de pytest committeada
+(quedaba "rojo" cada vez que hubiera drift real y no resuelto, como el
+hallazgo de `malware_scan.py` de abajo) — la cobertura real de la
+LÓGICA del chequeo vive en 7 tests con repos sintéticos en
+`tmp_path`, deterministas; el chequeo contra el mundo real vive
+únicamente en el workflow de CI, informativo.
+
+**Hallazgo aparte, resuelto en la misma sesión**: el chequeo reportó
+que `kernel/security/malware_scan.py` (la ubicación en kal, la
+correcta arquitectónicamente — es un mecanismo de seguridad del
+kernel, no una capacidad de agente) no tenía equivalente acá, que
+todavía lo tenía en `tool_integration/malware_scan.py` — herencia de
+antes del split, nunca reorganizado. Con confirmación del usuario, se
+migró: `git mv tool_integration/malware_scan.py
+kernel/security/malware_scan.py` + `kernel/security/__init__.py`
+nuevo, imports actualizados en `kernel/registry/sandboxed_skill.py`,
+`tool_integration/download_manager.py`,
+`tests/test_sandboxed_skill.py`, `tests/test_download_manager.py`,
+`tests/test_malware_scan.py`. `ruff check .` (regla completa) limpio
+tras el `--fix` de reordenamiento de imports; suite completa corrida
+después — ver el commit para el resultado exacto. Esto cierra la
+única divergencia estructural real que quedaba entre kal y kal-in
+además de la diferencia de config ya documentada y aceptada
+(`utils/config.py`).
+
 ## Segunda auditoría externa (Likay-OS): 37 hallazgos corregidos — varios pertenecen al kernel extraído, backport pendiente (2026-09-26/27)
 
 Auditoría externa nueva (`docs/SECURITY-AUDIT-2026-09-26.md`, distinta
@@ -8560,3 +8794,59 @@ esos dos archivos.
 El resto de los 37 (memoria/sesiones por conversación, endpoints HTTP,
 llm_settings, extensión de VS Code, frontend) vive en la capa de
 agente de kal-in, sin relación con el kernel compartido.
+
+## Reconciliación con 6 commits remotos, en paralelo a la ronda de arriba (2026-09-28)
+
+Al ir a pushear los 37 fixes de la entrada anterior, `git push` rechazó
+por no-fast-forward: dos sesiones distintas habían trabajado en
+paralelo desde el mismo punto (`74df780`) sin saberlo — esta, sobre los
+37 hallazgos de `docs/SECURITY-AUDIT-2026-09-26.md`, y otra (avisada
+por el usuario: "estaba corriendo otra auditoría, me apresuré a
+hacerlo antes que terminaras tu trabajo") que ya había pusheado 6
+commits: la limpieza/reconciliación/chequeo de drift documentados en
+las 3 entradas justo arriba de esta.
+
+**Verificación de conflictos ANTES de mergear** (`git merge-tree`,
+sin efecto secundario sobre el árbol de trabajo): de 135 archivos
+tocados del lado remoto, solo 5 tenían conflicto real — el resto
+(incluidos varios que ambas ramas modificaban, como
+`agent_core/llm/agent_loop.py`, `kernel/registry/sandboxed_skill.py`,
+`tool_integration/adapters/browser.py`) se auto-fusionó limpio porque
+tocaban líneas distintas del mismo archivo. Los 5 reales, todos por el
+mismo patrón (ambos lados agregaban algo distinto al mismo bloque de
+imports, o —en `docs/HISTORY.md`— ambos agregaban una entrada nueva al
+final): `agent_core/routers/chat.py`, `docs/HISTORY.md`,
+`tests/test_kernel_bus_socket_server.py`,
+`tests/test_permission_cascade.py`,
+`tool_integration/download_manager.py`. Resueltos a mano, sin
+descartar nada de ningún lado — mismo criterio que la reconciliación
+de la sesión anterior (ver "Reconciliación con 3 commits remotos..."
+arriba): cada import se revisó contra su uso real antes de conservarlo,
+y en `docs/HISTORY.md` se conservaron las 4 entradas completas (las 3
+de la otra sesión, cronológicamente primero por timestamp de commit —
+2026-09-27 tarde — seguidas de la de esta sesión, commiteada recién
+2026-09-28).
+
+**Verificado, no asumido, después del merge**: `ruff check .` (regla
+completa, la misma que la otra sesión dejó en cero) sigue en cero;
+`scripts/validate_skills.py` confirma que las 7 skills re-firmadas por
+la otra sesión (tras su propio `ruff --fix`, ver la entrada de
+reconciliación de arriba) siguen verificando — este merge no las tocó,
+así que no había riesgo real, pero se confirmó igual en vez de
+asumirlo; suite completa: **1245 passed, 0 failed** (1245 = 1237 de
+esta sesión + ~8 tests nuevos de la otra, como
+`test_docker_runner_pull_timeout.py` — números que se solapan lo
+suficiente como para no ser una suma exacta de "sus tests + los
+míos", confirmando que ambos conjuntos de tests nuevos conviven sin
+pisarse).
+
+Nota aparte, sin acción posible desde este repo: junto con la
+reconciliación, el usuario compartió un informe de re-auditoría
+(`RE-AUDITORIA-SEGURIDAD-2026-09-28.md`) sobre el repo `kal` (el
+kernel extraído) — una TERCERA ronda de auditoría/remediación,
+corriendo directamente contra ese otro repo, sin relación con los 37
+hallazgos de `SECURITY-AUDIT-2026-09-26.md` que esta sesión corrigió
+acá. Contenido no verificado ni actuado desde acá (sin checkout local
+de `carlosbv99-bit/kal` en este entorno) — mencionado para que quede
+registrado el contexto completo de por qué hubo divergencia, no como
+trabajo pendiente de este repo.

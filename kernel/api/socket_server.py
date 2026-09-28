@@ -26,7 +26,12 @@ import threading
 from pathlib import Path
 
 from audit.audit_log import AuditEvent, audit_log
-from kernel.api.bus import ActionNotFoundError, ArtifactNotFoundError, KernelServiceBus, ServiceNotFoundError
+from kernel.api.bus import (
+    ActionNotFoundError,
+    ArtifactNotFoundError,
+    KernelServiceBus,
+    ServiceNotFoundError,
+)
 from kernel.api.protocol import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
@@ -126,14 +131,14 @@ class KernelBusSocketServer:
             while requests_handled < self.max_requests and not self._stop_event.is_set():
                 try:
                     conn, _ = self._server_socket.accept()
-                except (socket.timeout, OSError):
+                except (TimeoutError, OSError):
                     return
 
                 with conn:
                     conn.settimeout(self.idle_timeout)
                     try:
                         line = self._read_line(conn)
-                    except (socket.timeout, OSError):
+                    except (TimeoutError, OSError):
                         continue
                     except LineTooLongError:
                         self._audit_line_too_long()
@@ -199,7 +204,7 @@ class KernelBusSocketServer:
             # Seguros de devolver tal cual.
             self._audit_call(request.method, "failure", str(e))
             return error_response(request.id, METHOD_NOT_FOUND, str(e))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — a propósito, tiene que atrapar CUALQUIER excepción (ver abajo)
             # Hallazgo de la revisión de seguridad 2026-07-09: antes se
             # devolvía str(e) crudo a la skill — un servicio real puede
             # fallar de formas que revelan detalles del host (rutas de

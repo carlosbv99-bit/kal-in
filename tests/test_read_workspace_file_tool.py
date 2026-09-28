@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import pytest
 
-from tool_integration.adapters.vscode_files import ProjectFilesRejectedError, ReadWorkspaceFileTool
+from tool_integration.adapters.vscode_files import (
+    ProjectFilesRejectedError,
+    ReadWorkspaceFileTool,
+)
 
 
 def test_rejects_an_absolute_path():

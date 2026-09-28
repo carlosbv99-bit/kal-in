@@ -26,8 +26,8 @@ las justifique (ver docs/HISTORY.md y la memoria del proyecto).
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from utils.config import settings
 from utils.logger import get_logger

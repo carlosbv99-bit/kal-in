@@ -15,8 +15,8 @@ import requests
 pytest.importorskip("diffusers")
 pytest.importorskip("torch")
 
-from tool_integration.adapters.image_gen import ImageGenerationTool  # noqa: E402
-from utils.config import settings  # noqa: E402
+from tool_integration.adapters.image_gen import ImageGenerationTool
+from utils.config import settings
 
 
 @pytest.fixture
@@ -75,7 +75,7 @@ def api_tool(tmp_path, monkeypatch):
     monkeypatch.setattr(settings.multimodal.image, "artifact_dir", str(tmp_path / "images_api"))
     monkeypatch.setenv("IMAGE_GEN_API_KEY", "sk-test-fake-key")
     fake_png_b64 = base64.b64encode(b"fake-png-bytes").decode("ascii")
-    fake_post = lambda *a, **kw: FakeResponse({"data": [{"b64_json": fake_png_b64}]})  # noqa: E731
+    fake_post = lambda *a, **kw: FakeResponse({"data": [{"b64_json": fake_png_b64}]})
     return ImageGenerationTool(http_post=fake_post)
 
 

@@ -10,7 +10,12 @@ Ollama corriendo de verdad.
 """
 from __future__ import annotations
 
-from agent_core.llm.agent_loop import SYSTEM_PROMPT, AgentLoop, AgentTool, _agent_tool_from_tool
+from agent_core.llm.agent_loop import (
+    SYSTEM_PROMPT,
+    AgentLoop,
+    AgentTool,
+    _agent_tool_from_tool,
+)
 from agent_core.llm.ollama_client import OllamaError
 from agent_core.llm.provider import ChatResponse, ToolCall
 from sdk.artifacts import Artifact
@@ -961,7 +966,7 @@ def test_vscode_client_rejects_a_hallucinated_multimedia_tool_call_as_unknown():
     tool_call para una herramienta excluida (no debería, ya que ni
     siquiera está en la lista que se le mandó), se rechaza como
     herramienta desconocida — nunca se ejecuta de verdad."""
-    loop, fake_llm = _loop(
+    loop, _fake_llm = _loop(
         [
             ChatResponse(content="", tool_calls=[ToolCall(name="image_generation", arguments={"prompt": "x"})]),
             ChatResponse(content="listo"),
@@ -1097,7 +1102,7 @@ def test_a_raw_json_array_of_files_is_detected_as_a_propose_project_files_call()
         ),
         ChatResponse(content="Listo, creé el archivo."),
     ]
-    loop, fake_llm = _loop(responses, tools=None)
+    loop, _fake_llm = _loop(responses, tools=None)
 
     result = loop.run("creá una página web", client="vscode")
 
@@ -1154,7 +1159,7 @@ def test_project_files_artifact_summarizes_without_leaking_full_content():
     class FakeProposeTool:
         class manifest:
             description = "propone archivos"
-            parameters_schema = {"type": "object", "properties": {}}
+            parameters_schema = {"type": "object", "properties": {}}  # noqa: RUF012 — fixture de test, nunca se muta
             permissions = frozenset()
 
         def execute(self, **kwargs):
@@ -1186,7 +1191,7 @@ def test_text_artifact_with_summary_key_is_shown_verbatim_as_observation():
     class FakeTextTool:
         class manifest:
             description = "analiza algo"
-            parameters_schema = {"type": "object", "properties": {}}
+            parameters_schema = {"type": "object", "properties": {}}  # noqa: RUF012 — fixture de test, nunca se muta
             permissions = frozenset()
 
         def execute(self, **kwargs):
@@ -1203,7 +1208,7 @@ def test_project_files_artifact_requiring_approval_is_a_clear_error():
     class FakeProposeTool:
         class manifest:
             description = "propone archivos"
-            parameters_schema = {"type": "object", "properties": {}}
+            parameters_schema = {"type": "object", "properties": {}}  # noqa: RUF012 — fixture de test, nunca se muta
             permissions = frozenset()
 
         def execute(self, **kwargs):
@@ -1221,7 +1226,7 @@ def test_workspace_file_request_artifact_tells_the_model_to_wait_not_invent_cont
     class FakeReadTool:
         class manifest:
             description = "lee un archivo del workspace"
-            parameters_schema = {"type": "object", "properties": {}}
+            parameters_schema = {"type": "object", "properties": {}}  # noqa: RUF012 — fixture de test, nunca se muta
             permissions = frozenset()
 
         def execute(self, **kwargs):
@@ -1251,7 +1256,7 @@ def test_android_build_request_artifact_tells_the_model_it_is_still_in_progress(
     class FakeAndroidBuildTool:
         class manifest:
             description = "compila e instala una app Android"
-            parameters_schema = {"type": "object", "properties": {}}
+            parameters_schema = {"type": "object", "properties": {}}  # noqa: RUF012 — fixture de test, nunca se muta
             permissions = frozenset()
 
         def execute(self, **kwargs):
@@ -1457,7 +1462,7 @@ def test_agent_tool_from_tool_captures_the_raw_artifact_on_last_artifact():
     class FakeImageTool:
         class manifest:
             description = "genera una imagen"
-            parameters_schema = {"type": "object", "properties": {}}
+            parameters_schema = {"type": "object", "properties": {}}  # noqa: RUF012 — fixture de test, nunca se muta
             permissions = frozenset()
 
         def execute(self, **kwargs):

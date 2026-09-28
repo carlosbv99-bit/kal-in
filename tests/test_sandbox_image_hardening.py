@@ -22,7 +22,7 @@ def _minimal_image_built() -> bool:
         client = docker.from_env()
         client.images.get(MINIMAL_IMAGE)
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort: Docker no disponible degrada a False, nunca rompe
         return False
 
 

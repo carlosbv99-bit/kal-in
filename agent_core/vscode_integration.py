@@ -36,7 +36,7 @@ def is_extension_installed() -> bool:
     if not is_code_cli_available():
         return False
     result = subprocess.run(
-        ["code", "--list-extensions"], capture_output=True, text=True, timeout=30,
+        ["code", "--list-extensions"], capture_output=True, text=True, timeout=30, check=False,
     )
     return _EXTENSION_ID.lower() in result.stdout.lower()
 
@@ -105,7 +105,7 @@ def _install_extension_unaudited() -> str:
 
 def _run(cmd: list[str], step: str) -> None:
     result = subprocess.run(
-        cmd, cwd=str(_EXTENSION_DIR), capture_output=True, text=True, timeout=_STEP_TIMEOUT_SECONDS,
+        cmd, cwd=str(_EXTENSION_DIR), capture_output=True, text=True, timeout=_STEP_TIMEOUT_SECONDS, check=False,
     )
     if result.returncode != 0:
         raise VSCodeIntegrationError(f"Falló '{step}': {(result.stderr or result.stdout).strip()}")

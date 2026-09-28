@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import pytest
 
+from tool_integration.download_manager import (
+    DownloadedResource,
+    DownloadValidationError,
+)
 from tool_integration.services import DownloadService, KernelServiceError
-from tool_integration.download_manager import DownloadedResource, DownloadValidationError
 
 
 class FakeDownloadManager:

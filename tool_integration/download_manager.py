@@ -5,7 +5,7 @@ privadas/reservadas (DNS rebinding, ver kernel/permissions/network_safety.py),
 y además específico de descargar un ARCHIVO (no navegar
 interactivamente): tope de tamaño real (nunca se descarga "todo
 primero y se mide después") y escaneo de malware con ClamAV
-(tool_integration/malware_scan.py, ya construido para artefactos de
+(kernel/security/malware_scan.py, ya construido para artefactos de
 skills, reusado tal cual acá).
 
 BUG REAL ENCONTRADO EN USO: este módulo tenía SU PROPIO chequeo de
@@ -43,14 +43,15 @@ from __future__ import annotations
 
 import hashlib
 import socket
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import requests
 
-from tool_integration.malware_scan import MalwareScanError, scan_bytes
 from kernel.permissions.network_safety import is_unsafe_ip
+from kernel.security.malware_scan import MalwareScanError, scan_bytes
 from utils.config import settings
 from utils.logger import get_logger
 

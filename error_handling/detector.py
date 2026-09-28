@@ -12,9 +12,14 @@ from __future__ import annotations
 
 import re
 
-from error_handling.circuit_breaker import circuit_breaker, error_signature
-from error_handling.strategies import STRATEGY_REGISTRY, RepairContext, RepairResult, RepairStrategy
 from audit.audit_log import AuditEvent, audit_log
+from error_handling.circuit_breaker import circuit_breaker, error_signature
+from error_handling.strategies import (
+    STRATEGY_REGISTRY,
+    RepairContext,
+    RepairResult,
+    RepairStrategy,
+)
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -70,7 +75,7 @@ def classify_sandbox_error(stderr: str) -> tuple[str, str]:
 
 
 class ErrorDetector:
-    def __init__(self, strategies: dict[str, "RepairStrategy"] | None = None):
+    def __init__(self, strategies: dict[str, RepairStrategy] | None = None):
         """
         strategies: mapa opcional error_type -> instancia ya construida
         de RepairStrategy. Sin esto, cada estrategia se instanciaba con
@@ -116,7 +121,9 @@ class ErrorDetector:
             logger.info(f"Estrategia para {ctx.error_type} aún no implementada (skeleton)")
             result = RepairResult(success=False, detail="strategy_not_implemented")
         except Exception as e:
-            logger.exception(f"Estrategia de reparación falló inesperadamente: {e}")
+            # logger.exception() ya agrega el traceback completo solo —
+            # repetir {e} en el mensaje era redundante.
+            logger.exception("Estrategia de reparación falló inesperadamente")
             result = RepairResult(success=False, detail=str(e))
 
         # Si la estrategia ya reejecutó el código (already_retried=True)

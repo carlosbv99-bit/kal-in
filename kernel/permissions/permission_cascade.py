@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from sdk.skill import Tool
 
 
-def trust_tier_for(tool: "Tool") -> str:
+def trust_tier_for(tool: Tool) -> str:
     """
     Nivel de confianza de una herramienta ya registrada, para la cascada
     de permisos (PermissionCascade más abajo) — "system" | "agent" | "skill".

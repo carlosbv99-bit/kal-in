@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
@@ -28,7 +29,6 @@ from cryptography.hazmat.primitives.serialization import (
     PrivateFormat,
     PublicFormat,
 )
-from cryptography.exceptions import InvalidSignature
 
 from utils.config import settings
 
@@ -36,7 +36,7 @@ DEFAULT_KEY_DIR = Path("data/keys")
 
 
 def _canonical_payload(name: str, version: int, source_code: str) -> bytes:
-    return f"{name}\n{version}\n{source_code}".encode("utf-8")
+    return f"{name}\n{version}\n{source_code}".encode()
 
 
 class ToolSigner:

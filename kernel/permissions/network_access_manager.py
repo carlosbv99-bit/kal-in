@@ -28,7 +28,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from kernel.permissions.access_manager import AccessManager, AccessManagerError, PendingAccessRequest
+from kernel.permissions.access_manager import (
+    AccessManager,
+    AccessManagerError,
+    PendingAccessRequest,
+)
 from kernel.permissions.network_permissions import NetworkAction, NetworkScope
 from kernel.permissions.network_safety import is_hostname_allowed
 from utils.config import settings
@@ -53,7 +57,7 @@ class PendingNetworkAccess:
     status: str = "pending_approval"
 
     @classmethod
-    def _from_generic(cls, request: PendingAccessRequest) -> "PendingNetworkAccess":
+    def _from_generic(cls, request: PendingAccessRequest) -> PendingNetworkAccess:
         return cls(
             id=request.id, skill_name=request.skill_name, scope=NetworkScope(request.scope),
             action=NetworkAction(request.action), resource_key=request.resource_key, status=request.status,

@@ -15,7 +15,7 @@ from __future__ import annotations
 from audit.audit_log import AuditEvent, audit_log
 from code_analysis.ast_validator import validate_code
 from kernel.lifecycle.docker_runner import DockerSandboxRunner, SandboxResult
-from sdk.permissions import Permission, UNSUPPORTED_RUNTIME_PERMISSIONS
+from sdk.permissions import UNSUPPORTED_RUNTIME_PERMISSIONS, Permission
 from utils.logger import get_logger
 
 logger = get_logger(__name__)

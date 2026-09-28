@@ -11,9 +11,9 @@ kernel/api/bus.py::KernelServiceBus._resolve_input_artifacts()).
 """
 from __future__ import annotations
 
-from sdk.skill import Tool
 from sdk.artifacts import Artifact
 from sdk.context import call as kernel_call
+from sdk.skill import Tool
 
 # Rectángulo centrado razonable para la imagen base de 1024x1024 que
 # genera image.generate por defecto (ver settings.multimodal.image).

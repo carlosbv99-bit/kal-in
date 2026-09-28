@@ -22,8 +22,8 @@ pytest.importorskip("piper")
 if shutil.which("ffmpeg") is None:
     pytest.skip("ffmpeg no está instalado en el sistema (requerido por moviepy)", allow_module_level=True)
 
-from tool_integration.adapters.video_gen import VideoCompositionTool  # noqa: E402
-from utils.config import settings  # noqa: E402
+from tool_integration.adapters.video_gen import VideoCompositionTool
+from utils.config import settings
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def tool(tmp_path, monkeypatch):
     instance = VideoCompositionTool()
     try:
         instance.audio_tool._get_voice()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001 — cualquier falla al cargar un modelo real (red, caché corrupta) debe saltear el test, no romperlo
         pytest.skip(f"No se pudo cargar el modelo de voz de piper: {e}")
     return instance
 

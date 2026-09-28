@@ -17,8 +17,8 @@ import io
 import pytest
 from PIL import Image
 
+from kernel.security.malware_scan import MalwareScanError
 from tool_integration.download_manager import DownloadManager, DownloadValidationError
-from tool_integration.malware_scan import MalwareScanError
 
 
 def _real_png_bytes() -> bytes:
@@ -202,7 +202,7 @@ def test_succeeds_with_real_clamav_scan_not_mocked():
     mensaje claro si ClamAV no está instalado en este entorno, en vez
     de mockearlo también acá.
     """
-    from tool_integration.malware_scan import is_clamav_available
+    from kernel.security.malware_scan import is_clamav_available
 
     if not is_clamav_available():
         pytest.skip("ClamAV no está instalado en este entorno")

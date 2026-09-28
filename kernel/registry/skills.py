@@ -72,9 +72,9 @@ from typing import TYPE_CHECKING
 import yaml
 
 from audit.audit_log import AuditEvent, audit_log
-from sdk.skill import ToolManifest
-from sdk.permissions import Permission
 from kernel.registry.skill_signing import verify_skill_signature
+from sdk.permissions import Permission
+from sdk.skill import ToolManifest
 from utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -199,9 +199,9 @@ def _validate_entry_point_reference(skill_dir: Path, entry_point: str) -> str | 
 
 
 def load_skills(
-    registry: "ToolRegistry",
+    registry: ToolRegistry,
     skills_dir: Path = DEFAULT_SKILLS_DIR,
-    image_builder: "SkillImageBuilder | None" = None,
+    image_builder: SkillImageBuilder | None = None,
 ) -> list[SkillStatus]:
     """
     `image_builder` es inyectable (mismo motivo que `sandbox=` en
@@ -287,11 +287,13 @@ def load_skills(
         if manifest.requirements:
             try:
                 if image_builder is None:
-                    from kernel.lifecycle.skill_image_builder import SkillImageBuilder as _SkillImageBuilder
+                    from kernel.lifecycle.skill_image_builder import (
+                        SkillImageBuilder as _SkillImageBuilder,
+                    )
 
                     image_builder = _SkillImageBuilder()
                 image = image_builder.build_or_get_image(manifest.name, manifest.requirements)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — un fallo de build no debe romper la carga del resto de las skills
                 detail = str(e)
                 logger.warning(f"Skill '{manifest.name}': no se pudo preparar su imagen: {detail}")
                 results.append(

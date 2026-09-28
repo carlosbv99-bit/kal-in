@@ -39,12 +39,17 @@ conversación debe quedar disponible en el siguiente turno.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 from uuid import uuid4
 
 from agent_core.capability_broker import capability_broker
-from agent_core.client_provider import _MULTIMEDIA_TOOL_NAMES, _VSCODE_ONLY_TOOL_NAMES, get_client_provider
+from agent_core.client_provider import (
+    _MULTIMEDIA_TOOL_NAMES,
+    _VSCODE_ONLY_TOOL_NAMES,
+    get_client_provider,
+)
 from agent_core.llm.json_extraction import extract_json_array, extract_json_object
 from agent_core.llm.ollama_client import OllamaClient
 from agent_core.llm.provider import LLMProvider, ProviderError, ToolCall
@@ -52,14 +57,18 @@ from agent_core.llm.self_check_tracker import SelfCheckTracker
 from agent_core.llm.tool_repeat_limiter import ToolRepeatLimiter
 from agent_core.memory.manager import MemoryManager
 from audit.audit_log import AuditEvent, audit_log
-from task_execution.executor import TaskExecutor
-from tool_integration.adapters.core_tools import CodeExecutionTool, MemoryRecallTool, MemoryRememberTool
-from sdk.skill import Tool
-from sdk.artifacts import Artifact
 from kernel.permissions.permission_cascade import permission_cascade, trust_tier_for
-from sdk.permissions import Permission
 from kernel.registry.registry import ToolRegistry
 from kernel.registry.registry import tool_registry as default_tool_registry
+from sdk.artifacts import Artifact
+from sdk.permissions import Permission
+from sdk.skill import Tool
+from task_execution.executor import TaskExecutor
+from tool_integration.adapters.core_tools import (
+    CodeExecutionTool,
+    MemoryRecallTool,
+    MemoryRememberTool,
+)
 from utils.config import settings
 from utils.logger import get_logger
 

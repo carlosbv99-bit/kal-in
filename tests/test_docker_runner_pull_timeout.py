@@ -39,6 +39,33 @@ class _HangingContainers:
         raise AssertionError("containers.run() no debería completarse dentro de este test")
 
 
+class _FakeContainer:
+    def __init__(self):
+        self.id = "fake-container-id"
+        self.killed = False
+        self.removed = False
+
+    def kill(self):
+        self.killed = True
+
+    def remove(self, force=False):
+        self.removed = True
+
+
+class _SlowThenSucceedsContainers:
+    """Simula un pull LENTO pero no realmente colgado: tarda más que el
+    timeout, pero eventualmente termina con un contenedor real — el
+    escenario del bug de recursos huérfanos (2026-09-27)."""
+
+    def __init__(self, delay_seconds: float, container: _FakeContainer):
+        self.delay_seconds = delay_seconds
+        self.container = container
+
+    def run(self, *args, **kwargs):
+        time.sleep(self.delay_seconds)
+        return self.container
+
+
 class _FakeClient:
     def __init__(self, containers):
         self.containers = containers
@@ -59,6 +86,34 @@ def test_run_times_out_if_containers_run_itself_hangs(monkeypatch):
     # margen generoso para no ser flaky en una máquina cargada.
     assert elapsed < 1.9
     assert hanging.called
+
+
+def test_container_created_after_the_timeout_gets_killed_and_removed(monkeypatch):
+    """
+    BUG REAL ENCONTRADO EN REVISIÓN (2026-09-27, preparando una auditoría
+    externa): si containers.run() termina DESPUÉS del timeout (un pull
+    lento, no realmente colgado), el contenedor resultante quedaba
+    huérfano — nadie lo mataba ni lo removía. El callback de limpieza
+    debe atraparlo, aunque el timeout ya se haya devuelto al llamador.
+    """
+    container = _FakeContainer()
+    slow = _SlowThenSucceedsContainers(delay_seconds=0.3, container=container)
+    monkeypatch.setattr(docker, "from_env", lambda: _FakeClient(slow))
+    runner = DockerSandboxRunner()
+
+    result = runner.run("print('hola')", timeout_seconds=0.1)
+
+    assert result.status == "timeout"
+    # El contenedor todavía no existía cuando run() devolvió el timeout.
+    assert not container.killed
+    assert not container.removed
+
+    # containers.run() todavía sigue corriendo en el thread de fondo —
+    # esperar a que termine (0.3s) y a que el callback corra.
+    time.sleep(0.4)
+
+    assert container.killed
+    assert container.removed
 
 
 @requires_docker

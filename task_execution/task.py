@@ -1,10 +1,10 @@
 """Modelo de datos de una tarea."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
 import time
 import uuid
+from dataclasses import dataclass, field
+from enum import Enum
 
 
 class TaskStatus(str, Enum):

@@ -1,11 +1,17 @@
-# Contribuir con Kal
+# Contribuir con Kal-in
 
 🇬🇧 [English](CONTRIBUTING.md) | 🇪🇸 Español
 
-Hay dos cosas distintas que podés querer contribuir: **código** al
-kernel en sí (`kernel/`, `agent_core/`, `sdk/`, tests), o una **Skill**
-al Skill Market. Tienen flujos distintos, cubiertos en las dos
-secciones de abajo.
+> Este repo es **kal-in** — el agente de referencia de kal, construido
+> sobre el kernel kal (ahora un repo separado,
+> [carlosbv99-bit/kal](https://github.com/carlosbv99-bit/kal)). Este
+> repo todavía trae su propia copia del kernel en vez de depender de
+> ese paquete — ver la nota al principio de [README.es.md](README.es.md).
+
+Hay dos cosas distintas que podés querer contribuir: **código**
+(`kernel/`, `sdk/`, `agent_core/`, `tool_integration/`, tests), o una
+**Skill** al Skill Market. Tienen flujos distintos, cubiertos en las
+dos secciones de abajo.
 
 ## Contribuir código
 
@@ -38,16 +44,24 @@ secciones de abajo.
 
 **Dónde vive cada cosa**, si no estás seguro dónde entra un cambio:
 - `kernel/` — sandboxing, permisos, el registro de Skills, el Kernel
-  Bus, los Kernel Services (imagen/audio/STT). Cero dependencia de
-  `agent_core/` — es deliberado, mantenelo así.
-- `agent_core/` — el loop del agente LLM, el orquestador, la memoria,
-  el Conversation Engine. Depende de `kernel/`/`sdk/`, nunca al revés.
+  Bus. Infraestructura de seguridad pura: sin LLM, sin ML, sin lógica
+  de agente. Cero dependencia de `agent_core/`/`tool_integration/` —
+  es deliberado, mantenelo así (verificado con grep, no solo por
+  convención).
 - `sdk/` — la API pública que importa una Skill (`Tool`,
   `ToolManifest`, `Artifact`, `Permission`, `call()`). 100% stdlib a
   propósito: este paquete se copia tal cual dentro del contenedor
   Docker de cada Skill (ver `kernel/registry/sandboxed_skill.py`), así
   que nunca puede ganar una dependencia que no esté ya dentro del
   contenedor.
+- `agent_core/` — kal-in en sí: el loop del agente LLM, el
+  orquestador, la memoria, el Conversation Engine. Depende de
+  `kernel/`/`sdk/`, nunca al revés.
+- `tool_integration/` — las herramientas concretas que usa un agente
+  (generación de imagen/audio/video, browser, integración con VS
+  Code) más los Kernel Services (`tool_integration/services.py`) que
+  sostienen al Kernel Bus — capacidad de agente, no mecanismo de
+  kernel, por eso vive fuera de `kernel/`.
 - `tests/` — refleja el módulo que testea (`test_agent_loop.py` →
   `agent_core/llm/agent_loop.py`, etc.). Un sufijo `*_integration.py`
   significa que necesita un servicio real (Ollama, Docker) y se salta
@@ -65,7 +79,7 @@ leer todo el código primero.
 
 ## Contribuir con una Skill
 
-El Skill Market de Kal ([explorarlo acá](https://carlosbv99-bit.github.io/kal/))
+El Skill Market de Kal-in ([explorarlo acá](https://carlosbv99-bit.github.io/kal-in/))
 es la carpeta `skills/` de este repositorio. Publicar una Skill
 significa abrir un pull request contra ella.
 

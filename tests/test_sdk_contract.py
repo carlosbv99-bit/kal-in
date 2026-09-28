@@ -25,7 +25,11 @@ import pytest
 import sdk
 from sdk.artifacts import Artifact
 from sdk.context import SOCKET_PATH, KernelError, call
-from sdk.permissions import RUNTIME_ENFORCED, Permission, UNSUPPORTED_RUNTIME_PERMISSIONS
+from sdk.permissions import (
+    RUNTIME_ENFORCED,
+    UNSUPPORTED_RUNTIME_PERMISSIONS,
+    Permission,
+)
 from sdk.skill import Tool, ToolManifest
 
 
@@ -37,7 +41,12 @@ def test_sdk_dunder_all_is_exactly_these_six_names():
 
 
 def test_sdk_top_level_import_exposes_the_six_names():
-    from sdk import Artifact as A, KernelError as KE, Permission as P, Tool as T, ToolManifest as TM, call as c
+    from sdk import Artifact as A
+    from sdk import KernelError as KE
+    from sdk import Permission as P
+    from sdk import Tool as T
+    from sdk import ToolManifest as TM
+    from sdk import call as c
 
     assert A is Artifact
     assert KE is KernelError

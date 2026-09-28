@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import pytest
 
-import agent_core.llm_settings as llm_settings
 import agent_core.orchestrator as orchestrator_module
+from agent_core import llm_settings
 from agent_core.llm.ollama_client import OllamaClient
 from agent_core.llm.openai_compatible_client import OpenAICompatibleClient
 from agent_core.orchestrator import _ACTIVE_RUNTIME_NAME, build_llm_client
-from agent_core.runtime.manager import runtime_manager
 from agent_core.runtime.managed_provider import RuntimeManagedLLMProvider
+from agent_core.runtime.manager import runtime_manager
 from kernel.broker.resource_broker import ResourceBroker
 from utils.config import settings
 

@@ -11,10 +11,12 @@ import pytest
 
 pytest.importorskip("PIL")
 
-from PIL import Image  # noqa: E402
+from PIL import Image
 
-from tool_integration.adapters.image_composition import ImageCompositionTool  # noqa: E402
-from utils.config import settings  # noqa: E402
+from tool_integration.adapters.image_composition import (
+    ImageCompositionTool,
+)
+from utils.config import settings
 
 
 @pytest.fixture

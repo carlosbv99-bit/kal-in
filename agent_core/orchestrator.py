@@ -36,17 +36,17 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from agent_core.context_service import ContextService
 from agent_core.conversation_engine import ConversationEngine
+from agent_core.default_tools import register_default_static_tools
 from agent_core.llm.agent_loop import AgentLoop
 from agent_core.llm.ollama_client import OllamaClient
 from agent_core.llm.openai_compatible_client import OpenAICompatibleClient
 from agent_core.llm.planner import PlanningAgentLoop
 from agent_core.llm.provider import LLMProvider
 from agent_core.llm_settings import read_llm_env_var
+from agent_core.memory.manager import MemoryManager
 from agent_core.runtime.llm_runtimes import OllamaRuntime, OpenAICompatibleRuntime
 from agent_core.runtime.managed_provider import RuntimeManagedLLMProvider
 from agent_core.runtime.manager import runtime_manager
-from agent_core.memory.manager import MemoryManager
-from agent_core.default_tools import register_default_static_tools
 from agent_core.self_diagnosis import SelfDiagnosisAgent
 from agent_core.self_modification import self_modification_manager
 from agent_core.sessions import session_manager
@@ -182,7 +182,7 @@ def _pressure_check_loop() -> None:
     while not _pressure_check_stop.wait(interval):
         try:
             resource_broker.evict_idle_and_pressured()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — a propósito, ver el comentario de abajo
             # Nunca debe tumbar el thread de background por un error
             # transitorio (Ollama caído un instante, etc.) — el próximo
             # ciclo lo vuelve a intentar solo.
@@ -477,7 +477,7 @@ def _artifact_url(uri: str) -> str | None:
 # _artifact_url/_reinject_llm_client ya existen en este módulo — cada
 # router hace `from agent_core.orchestrator import ...` de estos nombres,
 # así que tienen que estar definidos antes de este punto.
-from agent_core.routers import (  # noqa: E402
+from agent_core.routers import (
     android_build,
     audit,
     chat,

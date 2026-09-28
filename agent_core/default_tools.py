@@ -24,8 +24,17 @@ from tool_integration.adapters.speech_to_text import SpeechToTextTool
 from tool_integration.adapters.text_file import CreateTextFileTool
 from tool_integration.adapters.video_gen import VideoCompositionTool
 from tool_integration.adapters.vscode_android import AndroidBuildScreenshotTool
-from tool_integration.adapters.vscode_files import ImportResourceTool, ProposeProjectFilesTool, ReadWorkspaceFileTool
-from tool_integration.services import AudioService, DownloadService, ImageService, STTService
+from tool_integration.adapters.vscode_files import (
+    ImportResourceTool,
+    ProposeProjectFilesTool,
+    ReadWorkspaceFileTool,
+)
+from tool_integration.services import (
+    AudioService,
+    DownloadService,
+    ImageService,
+    STTService,
+)
 
 
 def register_default_static_tools() -> None:

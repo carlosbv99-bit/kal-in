@@ -31,7 +31,8 @@ kernel/lifecycle/ebpf/event_consumer.py para esa discusión completa.
 from __future__ import annotations
 
 import sys
-from typing import Iterable, TextIO
+from collections.abc import Iterable
+from typing import TextIO
 
 from kernel.lifecycle.ebpf.event_consumer import parse_event_line, record_syscall_event
 from utils.logger import get_logger

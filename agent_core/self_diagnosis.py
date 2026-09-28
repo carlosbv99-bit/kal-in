@@ -20,13 +20,17 @@ tocar disco real.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 from agent_core.llm.ollama_client import OllamaClient
 from agent_core.llm.provider import LLMProvider, ProviderError
-from agent_core.self_modification import SelfModificationManager, SelfModProposal, self_modification_manager
+from agent_core.self_modification import (
+    SelfModificationManager,
+    SelfModProposal,
+    self_modification_manager,
+)
 from audit.audit_log import AuditEvent, audit_log
 from utils.logger import get_logger
 
