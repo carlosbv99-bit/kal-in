@@ -8905,3 +8905,48 @@ un job de CI que detecte que un `.txt` cambió sin que su `.lock`
 correspondiente se haya regenerado (mismo tipo de gap que el de
 firmas de skill desactualizadas tras un `ruff --fix`, documentado más
 arriba) — candidato real para una próxima sesión, no bloqueante hoy.
+
+## Hook de pre-commit: firma de skill desactualizada, detectada antes de que exista el commit (2026-09-28)
+
+Último pendiente de la lista original: "candidato a automatizar (hook
+de pre-commit o chequeo en CI que detecte `skill.sig` desactualizado),
+no implementado en esta sesión". El chequeo en CI YA existía
+(`.github/workflows/validate-skills.yml` + `scripts/validate_skills.py`,
+dispara en cada push/PR que toque `skills/**`, usa la misma
+`verify_skill_signature()` real) — lo que faltaba era el complemento
+de feedback INMEDIATO: nada impedía crear el commit en primer lugar,
+solo te enterabas después, en CI o en la próxima corrida de la suite
+completa (exactamente lo que pasó con el bug real de las 7 firmas rotas
+por `ruff --fix`, documentado más arriba).
+
+**`scripts/check_staged_skill_signatures.py`**: mira `git diff --cached
+--name-only`, encuentra qué skills tienen algún archivo de CONTENIDO
+staged (nunca `skill.sig` en sí, que no puede invalidar su propia
+firma), y para esas —solo esas, no las 7+ del repo entero en cada
+commit que ni toca `skills/`— corre `verify_skill_signature()` contra
+el contenido real. Si alguna da `"tampered"`, imprime el comando exacto
+de `scripts/sign_skill.py` para arreglarlo y devuelve 1 (nunca firma
+nada por sí solo: eso necesita la clave privada del autor).
+
+**`scripts/hooks/pre-commit` + `scripts/install_git_hooks.py`**: git
+nunca versiona `.git/hooks/` (cada clon lo pierde), así que el hook
+real vive versionado en `scripts/hooks/` y un instalador de una sola
+línea (`python3 scripts/install_git_hooks.py`, copia + permiso de
+ejecución, nunca symlink — no todos los filesystems lo soportan bien
+ahí) lo pone en su lugar. Documentado en `CONTRIBUTING.md`/`.es.md`
+como paso nuevo del setup, junto a instalar dependencias.
+
+**Verificado de punta a punta, no solo con tests unitarios**: instalado
+el hook en este mismo repo, modificado `skills/qr_code/tool.py` sin
+re-firmar, `git commit` real rechazado con el mensaje esperado, estado
+restaurado y confirmado con `validate_skills.py` que las 7 firmas reales
+siguen intactas. 9 tests nuevos (`tests/test_check_staged_skill_signatures.py`)
+cubren la lógica de detección (ignora `skill.sig` solo, deduplica
+varias skills, no-op rápido sin tocar `skills/`) y `main()` de punta a
+punta contra skills reales en `tmp_path` (firmadas, sin firmar,
+tampereadas).
+
+No se tocó `kal` (el kernel extraído) en esta sesión — el mismo gap
+probablemente existe ahí también (misma `verify_skill_signature()`,
+mismo `scripts/validate_skills.py`), queda como candidato a portar si
+hace falta.

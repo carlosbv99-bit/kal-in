@@ -26,7 +26,17 @@ in the two sections below.
    image/audio/video/STT/browser code specifically; most of the test
    suite runs without it (those tests skip themselves via
    `pytest.importorskip(...)` when it's missing).
-3. Run the tests:
+3. Install the local git hook (once per clone):
+   ```
+   python3 scripts/install_git_hooks.py
+   ```
+   Rejects a commit that leaves a skill with modified content but a
+   stale `skill.sig` — a `ruff --fix` reordering imports in
+   `skills/*/tool.py` already broke this in practice (see
+   `docs/HISTORY.md`, "Reconciliación con 3 commits remotos + bug real
+   de firmas rotas"). Without this hook, you only find out once the
+   full suite or CI fails, not before committing.
+4. Run the tests:
    ```
    python -m pytest tests/ -q
    ```
@@ -34,12 +44,12 @@ in the two sections below.
    running (`requires_docker` in `tests/conftest.py`) or a real Ollama
    instance (`tests/test_*_integration.py`) — those skip themselves
    automatically when the dependency isn't available.
-4. Lint (same check CI enforces — real errors only, not a style
+5. Lint (same check CI enforces — real errors only, not a style
    opinion):
    ```
    python -m ruff check --select=E9,F .
    ```
-5. Open a pull request against `main`.
+6. Open a pull request against `main`.
 
 **Where things live**, if you're not sure where a change belongs:
 - `kernel/` — sandboxing, permissions, the Skill registry, the Kernel

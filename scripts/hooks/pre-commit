@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Instalado por scripts/install_git_hooks.py — no editar la copia en
+# .git/hooks/pre-commit directamente (git no la versiona, un
+# checkout/clon nuevo la pierde), editar ESTE archivo y reinstalar.
+#
+# Corre scripts/check_staged_skill_signatures.py: rechaza un commit
+# que deja una skill con contenido modificado pero skill.sig
+# desactualizado (ver el docstring de ese script para el bug real que
+# motivó esto). No-op inmediato si el commit no toca skills/**.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+if [ -x ".venv/bin/python" ]; then
+  PYTHON=".venv/bin/python"
+else
+  PYTHON="python3"
+fi
+
+"$PYTHON" scripts/check_staged_skill_signatures.py

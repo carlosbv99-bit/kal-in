@@ -26,7 +26,17 @@ dos secciones de abajo.
    imagen/audio/video/STT/browser específicamente; la mayoría de la
    suite corre sin eso (esos tests se saltan solos vía
    `pytest.importorskip(...)` cuando falta).
-3. Corré los tests:
+3. Instalá el git hook local (una sola vez por clon):
+   ```
+   python3 scripts/install_git_hooks.py
+   ```
+   Rechaza un commit que deja una skill con contenido modificado pero
+   `skill.sig` desactualizado — un `ruff --fix` reordenando imports en
+   `skills/*/tool.py` ya rompió esto en la práctica (ver
+   `docs/HISTORY.md`, "Reconciliación con 3 commits remotos + bug real
+   de firmas rotas"). Sin este hook, te enterás recién cuando falle la
+   suite completa o CI, no antes de commitear.
+4. Corré los tests:
    ```
    python -m pytest tests/ -q
    ```
@@ -35,12 +45,12 @@ dos secciones de abajo.
    instancia real de Ollama (`tests/test_*_integration.py`) — esos se
    saltan solos automáticamente cuando la dependencia no está
    disponible.
-4. Lint (el mismo chequeo que aplica la CI — errores reales, no una
+5. Lint (el mismo chequeo que aplica la CI — errores reales, no una
    opinión de estilo):
    ```
    python -m ruff check --select=E9,F .
    ```
-5. Abrí un pull request contra `main`.
+6. Abrí un pull request contra `main`.
 
 **Dónde vive cada cosa**, si no estás seguro dónde entra un cambio:
 - `kernel/` — sandboxing, permisos, el registro de Skills, el Kernel
