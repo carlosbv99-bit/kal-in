@@ -85,6 +85,46 @@ If your change is small and well-scoped, look for an issue labeled
 **good first issue** — those are picked to be understandable without
 reading the whole codebase first.
 
+## Keeping kal-in and kal in sync
+
+This repo embeds its own copy of `kernel/`, `sdk/`, `audit/`, and
+`code_analysis/` instead of depending on the `kal` package (see the
+note at the top of this file). That means a fix made in one repo
+**never reaches the other on its own**. This has bitten this project
+for real, more than once: K-2 (a symlink-based host file read) sat
+unfixed in kal for two weeks after being fixed here, found only by a
+manual audit; the same thing happened in reverse with M-12 (unkeyed
+audit log hash chain) and the pre-commit skill-signature check — both
+originated here and had to be found and ported to kal separately, by
+hand, well after the fact.
+
+If your change touches `kernel/`, `sdk/`, `audit/`, `code_analysis/`,
+or a Skill that exists in both repos by name (check `skills/` in
+each): before calling the change done —
+1. Check whether the equivalent file/logic exists in the other repo.
+2. If it does, apply the equivalent fix there too, in the same
+   sitting — not as a "port this later" note. Adapt comments that
+   reference file paths or audit IDs specific to one repo, but keep
+   the same underlying protection.
+3. Run that repo's own test suite and lint independently — don't
+   assume "it worked here, it'll work there." Different Python
+   version floors and slightly different surrounding code are real
+   sources of divergence on their own (see `docs/HISTORY.md`, M-9: a
+   lockfile resolved against the wrong Python version almost shipped).
+4. Commit and push to both repos, and reference the sibling commit's
+   hash in the second commit message once it exists — `git log` alone
+   should be able to answer "did this get ported?" without anyone
+   having to remember.
+
+`scripts/check_kernel_drift.py` (`.github/workflows/kernel_drift.yml`,
+daily + on demand) is the safety net for whatever slips through this,
+not the primary mechanism — it only reports divergence, it never
+fixes anything, and only this repo runs it today (nothing currently
+checks from kal's side outward). Run it locally at any time with:
+```
+python3 scripts/check_kernel_drift.py --kal-repo /path/to/local/kal
+```
+
 ## Contributing a Skill
 
 Kal-in's Skill Market ([browse it here](https://carlosbv99-bit.github.io/kal-in/))

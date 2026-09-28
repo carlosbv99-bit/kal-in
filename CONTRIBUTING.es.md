@@ -87,6 +87,48 @@ Si tu cambio es chico y bien acotado, buscá un issue etiquetado
 **good first issue** — están elegidos para entenderse sin tener que
 leer todo el código primero.
 
+## Mantener kal-in y kal sincronizados
+
+Este repo embebe su propia copia de `kernel/`, `sdk/`, `audit/` y
+`code_analysis/` en vez de depender del paquete `kal` (ver la nota al
+principio de este archivo). Eso significa que un fix hecho en un repo
+**nunca llega solo al otro**. Ya pasó de verdad, más de una vez: K-2
+(lectura arbitraria de archivos del host vía symlink) quedó sin
+corregir en kal durante dos semanas después de corregirse acá,
+encontrado recién por una auditoría manual; lo mismo pasó al revés con
+M-12 (cadena del audit log sin clave) y el chequeo de firma de skill
+en pre-commit — los dos se originaron acá y hubo que encontrarlos y
+portarlos a kal aparte, a mano, mucho después.
+
+Si tu cambio toca `kernel/`, `sdk/`, `audit/`, `code_analysis/`, o una
+Skill que existe en ambos repos con el mismo nombre (revisá `skills/`
+en cada uno): antes de dar el cambio por terminado —
+1. Revisá si el archivo/lógica equivalente existe en el otro repo.
+2. Si existe, aplicá el fix equivalente ahí también, en la misma
+   sesión — no como una nota de "portarlo después". Adaptá los
+   comentarios que citen rutas de archivo o IDs de auditoría propios
+   de un repo, pero mantené la misma protección real.
+3. Corré la suite de tests y el lint de ESE repo por separado — no
+   asumas que "si funcionó acá, funciona allá". Un piso de versión de
+   Python distinto, o código alrededor ligeramente distinto, ya
+   causaron divergencia real por sí solos (ver `docs/HISTORY.md`,
+   M-9: un lockfile resuelto contra la versión de Python equivocada
+   casi se publica así).
+4. Commiteá y pusheá a los dos repos, y referenciá el hash del commit
+   del otro repo en el segundo commit una vez que exista — que
+   `git log` solo alcance para responder "¿esto se portó?", sin que
+   nadie tenga que acordarse de memoria.
+
+`scripts/check_kernel_drift.py` (`.github/workflows/kernel_drift.yml`,
+diario + a mano) es la red de seguridad para lo que se escape de este
+proceso, no el mecanismo principal — solo reporta divergencia, nunca
+corrige nada, y hoy solo corre desde este repo (nada chequea todavía
+desde kal hacia afuera). Se puede correr local en cualquier momento
+con:
+```
+python3 scripts/check_kernel_drift.py --kal-repo /ruta/local/a/kal
+```
+
 ## Contribuir con una Skill
 
 El Skill Market de Kal-in ([explorarlo acá](https://carlosbv99-bit.github.io/kal-in/))
