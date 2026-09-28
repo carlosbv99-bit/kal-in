@@ -18,16 +18,30 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import hmac
 import json
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from utils.admin_token import get_or_create_admin_token
 from utils.correlation import get_correlation_id
 
 AUDIT_LOG_PATH = Path("logs/audit.log")
 AUDIT_LOG_PATH.parent.mkdir(exist_ok=True)
+
+# VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+# 2026-09-26), A-10/M-12: el encadenamiento usaba SHA-256 SIN CLAVE —
+# cualquiera con permiso de escritura sobre logs/audit.log podía
+# reescribir el archivo entero recalculando la cadena de hashes desde
+# cero, y verify_chain() seguía diciendo "íntegra" (integridad
+# accidental, nunca autenticidad real: no probaba que KAL-IN escribió
+# esas entradas). Reusa get_or_create_admin_token() (mismo patrón
+# get-or-create persistido en data/keys/, ver utils/admin_token.py)
+# apuntando a un archivo de clave PROPIO — nunca el mismo secreto que
+# el token admin, aunque comparta la función generadora.
+_HMAC_KEY_PATH = Path("data/keys/audit_hmac_key")
 
 EventType = Literal[
     "error_repair",
@@ -53,6 +67,7 @@ EventType = Literal[
     "artifact_scan_blocked",
     "vscode_extension_installed",
     "kernel_line_too_long",
+    "kernel_line_invalid_encoding",
     "filesystem_access_requested",
     "filesystem_access_granted",
     "filesystem_access_denied",
@@ -77,7 +92,7 @@ class AuditEvent:
     prev_hash: str = ""                # encadenado para detectar manipulación
     event_hash: str = ""
 
-    def compute_hash(self) -> str:
+    def compute_hash(self, key: bytes) -> str:
         payload = json.dumps(
             {
                 "event_type": self.event_type,
@@ -89,7 +104,7 @@ class AuditEvent:
             },
             sort_keys=True,
         ).encode("utf-8")
-        return hashlib.sha256(payload).hexdigest()
+        return hmac.new(key, payload, hashlib.sha256).hexdigest()
 
 
 @dataclass
@@ -150,17 +165,38 @@ class AuditLog:
     cadena.
     """
 
-    def __init__(self, path: Path = AUDIT_LOG_PATH):
+    def __init__(self, path: Path = AUDIT_LOG_PATH, hmac_key: bytes | None = None):
         self.path = path
+        self._hmac_key = hmac_key or get_or_create_admin_token(token_path=_HMAC_KEY_PATH).encode("utf-8")
 
     @staticmethod
     def _read_last_hash(f) -> str:
-        """Asume que `f` ya está posicionado al inicio y bajo lock exclusivo."""
+        """
+        Asume que `f` ya está posicionado al inicio y bajo lock exclusivo.
+
+        VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+        2026-09-26), A-10 (punto 2): un json.loads() sin try/except acá
+        significaba que UN renglón corrupto (escritura parcial por
+        crash/kill -9 a mitad de un f.write(), el propio módulo ya
+        documenta múltiples escritores concurrentes) hacía fallar
+        record() con JSONDecodeError — y TODO evento posterior se
+        perdía en silencio (nadie llama record() dentro de un
+        try/except en los ~15 call sites reales). Fail-forward acá:
+        si la ÚLTIMA línea no parsea, se sigue escribiendo encadenado
+        desde "genesis" (equivalente a que esa línea corrupta rompa la
+        cadena — ya detectable por verify_chain()/diagnose_chain(),
+        que SÍ deben seguir viendo esa ruptura), en vez de tirar abajo
+        toda auditoría futura por una única línea ilegible.
+        """
         content = f.read()
         if not content.strip():
             return "genesis"
-        last_entry = json.loads(content.strip().splitlines()[-1])
-        return last_entry["event_hash"]
+        last_line = content.strip().splitlines()[-1]
+        try:
+            last_entry = json.loads(last_line)
+            return last_entry["event_hash"]
+        except (json.JSONDecodeError, KeyError):
+            return "genesis"
 
     def record(self, event: AuditEvent) -> AuditEvent:
         # Correlation ID (ver utils/correlation.py) inyectado automáticamente
@@ -180,7 +216,7 @@ class AuditLog:
             try:
                 f.seek(0)
                 event.prev_hash = self._read_last_hash(f)
-                event.event_hash = event.compute_hash()
+                event.event_hash = event.compute_hash(self._hmac_key)
                 f.write(json.dumps(asdict(event)) + "\n")
                 f.flush()
             finally:
@@ -197,7 +233,16 @@ class AuditLog:
             return []
         lines = self.path.read_text(encoding="utf-8").strip().splitlines()
         recent = lines[-n:] if n > 0 else lines
-        return [json.loads(line) for line in reversed(recent)]
+        entries = []
+        for line in reversed(recent):
+            # A-10 (punto 2): un renglón corrupto no debe tirar abajo el
+            # dashboard completo — se muestra como una entrada marcada,
+            # no se pierde el resto del historial real alrededor.
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                entries.append({"event_type": "(ilegible)", "summary": "línea de audit.log corrupta", "outcome": "failure"})
+        return entries
 
     def verify_chain(self) -> bool:
         """
@@ -220,23 +265,32 @@ class AuditLog:
         breaks: list[ChainBreak] = []
 
         for i, line in enumerate(lines):
-            entry = json.loads(line)
-
-            chain_ok = entry["prev_hash"] == prev
-            recomputed = AuditEvent(
-                event_type=entry["event_type"],
-                summary=entry["summary"],
-                context=entry["context"],
-                outcome=entry["outcome"],
-                timestamp=entry["timestamp"],
-                prev_hash=entry["prev_hash"],
-            ).compute_hash()
-            hash_ok = recomputed == entry["event_hash"]
+            # A-10 (punto 2): un renglón que ni siquiera parsea como JSON
+            # (escritura parcial por crash) es, en sí mismo, la evidencia
+            # más fuerte posible de ruptura — se reporta como tal en vez
+            # de tirar abajo el diagnóstico completo de las demás entradas.
+            try:
+                entry = json.loads(line)
+                recomputed = AuditEvent(
+                    event_type=entry["event_type"],
+                    summary=entry["summary"],
+                    context=entry["context"],
+                    outcome=entry["outcome"],
+                    timestamp=entry["timestamp"],
+                    prev_hash=entry["prev_hash"],
+                ).compute_hash(self._hmac_key)
+                chain_ok = entry["prev_hash"] == prev
+                hash_ok = recomputed == entry["event_hash"]
+                event_type, outcome, claimed_hash = entry["event_type"], entry["outcome"], entry["event_hash"]
+            except (json.JSONDecodeError, KeyError):
+                chain_ok = False
+                hash_ok = False
+                event_type, outcome, claimed_hash = "(ilegible)", "(ilegible)", prev
 
             if not chain_ok or not hash_ok:
                 breaks.append(
                     ChainBreak(
-                        index=i, event_type=entry["event_type"], outcome=entry["outcome"],
+                        index=i, event_type=event_type, outcome=outcome,
                         chain_ok=chain_ok, hash_ok=hash_ok,
                     )
                 )
@@ -245,8 +299,11 @@ class AuditLog:
             # si esta entrada fue tampereada, la siguiente debe seguir
             # evaluándose contra lo que el archivo dice que es su hash, para
             # poder seguir detectando rupturas de encadenamiento posteriores
-            # de forma independiente de esta.
-            prev = entry["event_hash"]
+            # de forma independiente de esta. Si la línea era ilegible,
+            # claimed_hash quedó en `prev` sin cambios (no hay ningún hash
+            # reclamado que propagar) — la SIGUIENTE entrada real se sigue
+            # evaluando contra el último hash bueno conocido.
+            prev = claimed_hash
 
         return ChainDiagnosis(is_valid=not breaks, total_entries=len(lines), breaks=breaks)
 

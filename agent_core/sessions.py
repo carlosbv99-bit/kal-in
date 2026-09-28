@@ -27,10 +27,31 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from sdk.artifacts import Artifact
 from sdk.permissions import Permission
+
+# VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+# 2026-09-26), M-7: /chat no pide token admin (uso normal, ver
+# agent_core/routers/memory.py para el criterio de qué SÍ lo pide) y
+# acepta cualquier `session_id` que el cliente elija — sin límite,
+# cada id nuevo (con o sin mala intención, alcanza con probar muchos
+# ids distintos) crecía `_sessions` para siempre, y cada sesión
+# individual también podía crecer sin límite (turns/artifacts/progress).
+# Topes generosos (alcanzan para el uso real de un kiosko de un solo
+# usuario) con desalojo LRU/recorte del más viejo, nunca un error
+# visible al usuario por alcanzarlos.
+_MAX_SESSIONS = 500
+_MAX_TURNS_PER_SESSION = 200
+_MAX_ARTIFACTS_PER_SESSION = 200
+_MAX_PROGRESS_ENTRIES = 200
+
+
+def _trim_oldest(items: list, max_len: int) -> None:
+    if len(items) > max_len:
+        del items[: len(items) - max_len]
 
 
 @dataclass
@@ -86,10 +107,14 @@ class Session:
 
 class SessionManager:
     def __init__(self):
-        self._sessions: dict[str, Session] = {}
+        # OrderedDict + move_to_end() en cada acceso: LRU real (M-7) —
+        # cuando se supera _MAX_SESSIONS, se desaloja la MENOS
+        # recientemente usada, nunca la más nueva ni una al azar.
+        self._sessions: OrderedDict[str, Session] = OrderedDict()
 
     def get_or_create(self, session_id: str | None) -> Session:
         if session_id and session_id in self._sessions:
+            self._sessions.move_to_end(session_id)
             return self._sessions[session_id]
         # Degradación con gracia (mismo espíritu que Planner.plan()): un
         # session_id desconocido (p.ej. el backend se reinició) no falla,
@@ -97,16 +122,20 @@ class SessionManager:
         new_id = session_id or str(uuid.uuid4())
         session = Session(id=new_id)
         self._sessions[new_id] = session
+        if len(self._sessions) > _MAX_SESSIONS:
+            self._sessions.popitem(last=False)
         return session
 
     def record_turn(self, session: Session, goal: str, final_answer: str) -> None:
         session.turns.append(Turn(goal=goal, final_answer=final_answer))
+        _trim_oldest(session.turns, _MAX_TURNS_PER_SESSION)
 
     def update_active_artifact(self, session: Session, artifact: Artifact) -> None:
         session.active_artifact = artifact
 
     def record_artifact(self, session: Session, artifact: Artifact, tool_name: str) -> None:
         session.artifacts.append(ArtifactRecord(artifact=artifact, tool_name=tool_name))
+        _trim_oldest(session.artifacts, _MAX_ARTIFACTS_PER_SESSION)
 
     def update_denied_permissions(self, session: Session, permissions: frozenset[Permission]) -> None:
         """Reemplaza el override de permisos de la sesión (no se acumula
@@ -118,6 +147,7 @@ class SessionManager:
 
     def append_progress(self, session: Session, entry: dict) -> None:
         session.progress.append(entry)
+        _trim_oldest(session.progress, _MAX_PROGRESS_ENTRIES)
 
 
 session_manager = SessionManager()

@@ -45,7 +45,19 @@ def list_skills():
 
 @router.get("/tools/{name}/versions", summary="Historial de versiones de una herramienta")
 def list_tool_versions(name: str):
-    return {"name": name, "versions": orchestrator.tools.list_versions(name)}
+    """
+    VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    2026-09-26), B-5: list_versions() rutea por VersionStore._tool_dir(),
+    que rechaza con ValueError cualquier nombre que no matchee el
+    charset válido (ver kernel/registry/versioning.py) — sin este
+    try/except, ese ValueError llegaba sin capturar hasta FastAPI, que
+    lo convierte en 500 crudo. Un nombre inválido es un error del
+    CLIENTE (400), nunca una falla real del servidor.
+    """
+    try:
+        return {"name": name, "versions": orchestrator.tools.list_versions(name)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/tools/{name}/verify", summary="Verificar la firma de una herramienta")

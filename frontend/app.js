@@ -6,11 +6,35 @@ const API = "";
 // Token administrativo (self-modification, aprobación/rollback de
 // herramientas, configuración del modelo, etc.) — ver
 // utils/admin_token.py y agent_core/orchestrator.py.
+//
+// M-1 (auditoría externa Likay-OS, 2026-09-26): localStorage es legible
+// por cualquier script que corra en este origen — un XSS podría robar
+// el token. Se mantiene deliberadamente (no una cookie httpOnly ni
+// sessionStorage) porque kal-in es un kiosko de un solo usuario en su
+// propia máquina, y la fricción real de re-pedir el token en cada
+// carga de página ya se probó impracticable (ver ensureAdminToken() más
+// abajo). La mitigación real es la CSP de _SecurityHeadersMiddleware
+// (agent_core/orchestrator.py, script-src 'self') — cierra la vía de
+// XSS que haría falta para explotar esto, en vez de mover el token a
+// otro lado. Lo único corregido acá es que ya no queda VISIBLE en la
+// URL/historial del navegador (ver persistAdminTokenFromUrl()).
 const ADMIN_TOKEN_STORAGE_KEY = "kal_admin_token";
 
 function persistAdminTokenFromUrl() {
-  const fromUrl = new URLSearchParams(window.location.search).get("admin_token");
-  if (fromUrl) localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, fromUrl);
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = params.get("admin_token");
+  if (!fromUrl) return;
+  localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, fromUrl);
+  // VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+  // 2026-09-26), M-1: sin esto, el token quedaba visible en la barra
+  // de direcciones y persistía en el historial del navegador (y en
+  // cualquier autocompletado) — se lee UNA vez y se limpia de la URL
+  // visible de inmediato, sin recargar la página (history.replaceState
+  // no dispara ninguna navegación).
+  params.delete("admin_token");
+  const cleanQuery = params.toString();
+  const cleanUrl = window.location.pathname + (cleanQuery ? `?${cleanQuery}` : "") + window.location.hash;
+  window.history.replaceState({}, "", cleanUrl);
 }
 
 // FRICCIÓN REAL ENCONTRADA EN USO: pedirle a un usuario no-programador

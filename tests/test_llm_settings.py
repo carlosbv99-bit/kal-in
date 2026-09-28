@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 import requests
+import yaml
 
 from agent_core import llm_settings
 from agent_core.llm.provider import ProviderError
@@ -137,13 +138,58 @@ def test_update_persists_provider_base_url_and_model_to_yaml(_fake_paths):
         default_model="grok-3", api_key="sk-123",
     )
 
-    text = config_path.read_text(encoding="utf-8")
-    assert 'provider: "openai_compatible"' in text
-    assert 'base_url: "https://api.x.ai/v1"' in text
-    assert 'default_model: "grok-3"' in text
+    # M-5 (auditoría externa Likay-OS, 2026-09-26): los valores ahora se
+    # escriben vía yaml.safe_dump() (escapado real) en vez de f'"{value}"'
+    # crudo — un string simple como estos sale como escalar plano SIN
+    # comillas (forma válida y equivalente en YAML), así que se verifica
+    # parseando el archivo real en vez de buscar el string exacto viejo.
+    parsed = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert parsed["llm"]["provider"] == "openai_compatible"
+    assert parsed["llm"]["base_url"] == "https://api.x.ai/v1"
+    assert parsed["llm"]["default_model"] == "grok-3"
     assert settings.llm.provider == "openai_compatible"
     assert settings.llm.base_url == "https://api.x.ai/v1"
     assert settings.llm.default_model == "grok-3"
+
+
+# --- M-5 (auditoría externa Likay-OS, 2026-09-26): escapado real de
+# valores al escribir config.yaml/.env, no interpolación cruda ---
+
+
+def test_a_value_with_a_quote_and_colon_does_not_break_the_yaml_file(_fake_paths):
+    """
+    Un nombre de modelo así podía llegar acá vía _first_chat_capable_model()
+    si el proveedor en la nube configurado (o uno comprometido) lo
+    devuelve como parte de GET /models — antes, f'"{value}"' crudo
+    producía YAML inválido o corría el riesgo de inyectar contenido.
+    """
+    config_path, _ = _fake_paths
+    tricky_model = 'raro" #  malicious_key: true'
+
+    update_llm_settings(
+        provider="openai_compatible", base_url="https://api.x.ai/v1",
+        default_model=tricky_model, api_key="sk-123",
+    )
+
+    parsed = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert parsed["llm"]["default_model"] == tricky_model
+    assert "malicious_key" not in parsed["llm"]
+
+
+def test_a_value_with_a_newline_is_rejected_instead_of_breaking_the_yaml_file(_fake_paths):
+    with pytest.raises(LLMSettingsError, match="saltos de línea"):
+        update_llm_settings(
+            provider="openai_compatible", base_url="https://api.x.ai/v1",
+            default_model="modelo\ninyectado: true", api_key="sk-123",
+        )
+
+
+def test_an_api_key_with_a_newline_is_rejected_instead_of_injecting_an_env_var(_fake_paths):
+    with pytest.raises(LLMSettingsError, match="saltos de línea"):
+        update_llm_settings(
+            provider="openai_compatible", base_url="https://api.x.ai/v1",
+            api_key="sk-123\nMALICIOUS_VAR=1",
+        )
 
 
 def test_update_preserves_comments_and_commented_out_examples(_fake_paths):

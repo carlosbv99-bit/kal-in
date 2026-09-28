@@ -8490,3 +8490,73 @@ reportado + el intento de XSS) y contra el servidor real corriendo —
 sin poder confirmarlo en un navegador real dentro de esta sesión (sin
 herramienta de navegador disponible), documentado con honestidad en
 vez de asumir que "se ve bien".
+
+## Segunda auditoría externa (Likay-OS): 37 hallazgos corregidos — varios pertenecen al kernel extraído, backport pendiente (2026-09-26/27)
+
+Auditoría externa nueva (`docs/SECURITY-AUDIT-2026-09-26.md`, distinta
+de la ronda K-1..K-6 ya cerrada en el commit `74df780`): 5 críticos,
+10 altos, 12 medios, 6 bajos. Decisión del usuario: "vos decidís el
+orden, pero corregí todos los hallazgos" — se corrigieron los 37,
+orden crítico → alto → medio → bajo, cada uno con su propio test de
+regresión (nunca solo el fix, sin poder probar que quedó cerrado).
+
+**Dos casos NO se "corrigieron" a ciegas, se re-confirmaron con el
+usuario primero**, porque ya eran decisiones deliberadas y
+documentadas de antes, no descuidos:
+- A-9 (modal bloqueante antes de compilar/instalar Android): ya
+  discutido y decidido en `vscode-extension/src/androidBuild.ts`
+  (2026-07-30) — "aviso puntual, no bloqueante" fue explícitamente
+  elegido sobre un modal. Re-confirmado sin cambios; el modal queda
+  como riesgo aceptado, igual criterio que K-3.
+- La parte de `shell:true`/command injection de A-9 SÍ era un bug real
+  nuevo (no una decisión de antes) — corregida sin pedir nada.
+
+**Lo más importante para este repo puntual: varios fixes tocan código
+que YA NO vive solo acá.** Desde el split kal/kal-in (2026-09-13, ver
+entrada arriba), `kernel/` de este repo es una COPIA que diverge del
+kernel puro extraído a `carlosbv99-bit/kal` — no hay ningún mecanismo
+de sync automático, cada lado avanza por su cuenta desde el filter-repo
+inicial. Estos fixes de ESTA ronda tienen equivalente real en ese
+kernel y probablemente hacen falta ahí también, backport manual
+pendiente, no hecho en esta sesión (sin acceso a ese repo desde acá):
+
+- `kernel/api/sandbox_api.py` (C-3): `POST /execute` corría código
+  arbitrario sin ninguna autenticación, alcanzable desde cualquier
+  servicio de `agent_net`. Ahora exige un secreto compartido
+  (`X-Sandbox-Secret`, `SANDBOX_RUNNER_SECRET`) — fail closed si no
+  está configurado.
+- `kernel/registry/sandboxed_skill.py` (A-1): `_collect_skill_files()`
+  usaba `path.is_file()` (sigue symlinks) al recolectar el código de
+  una skill antes de mandarlo al sandbox — lectura arbitraria de
+  archivos del host. Mismo patrón que K-2 (`docker_runner.py`,
+  ya corregido en la ronda anterior) pero del lado de ENTRADA, no de
+  salida. Fix: `os.lstat()` + `stat.S_ISREG()` +
+  `.resolve().is_relative_to(root)`, dos capas, igual que K-2.
+- `kernel/api/socket_server.py` (B-4): una skill (la confianza más
+  baja del sistema) podía mandar bytes no-UTF-8 y `line.decode("utf-8")`
+  sin capturar mataba en silencio el thread de `_serve()` — nueva
+  `InvalidLineEncodingError`, auditada, sin tumbar el servicio.
+- `audit/audit_log.py` (A-10/M-12): `sandboxed_skill.py` importa este
+  módulo (`from audit.audit_log import AuditEvent, audit_log`), así que
+  cruzó a `carlosbv99-bit/kal` en el split — dos fixes acá: la cadena
+  de hashes pasó de SHA-256 sin clave a HMAC (quien pueda escribir el
+  archivo ya no puede reescribir la cadena entera sin conocer la
+  clave), y un renglón corrupto (antes tumbaba TODO record()/tail()/
+  diagnose_chain() futuro con un JSONDecodeError sin capturar) ahora
+  se reporta como ruptura detectada en vez de romper la auditoría
+  entera.
+
+**Sin verificar, no asumido** (no tengo acceso a `carlosbv99-bit/kal`
+desde esta sesión): si `kernel/permissions/permission_cascade.py`
+también cruzó al split (A-5, default nuevo de `globally_denied` con
+docker/cámara/micrófono/portapapeles — hoy solo se tocó el default en
+`utils/config.py`/`config.yaml` de ESTE repo, no ese módulo en sí) y si
+el `docker-compose.yml`/Dockerfile de ese repo replica la topología de
+`sandbox_runner`+`docker_socket_proxy` (M-11, separados a una red
+`sandbox_net` propia acá, sin `agent` adentro). Ambos merecen la misma
+revisión del lado del kernel — quien lo retome ahí debería empezar por
+esos dos archivos.
+
+El resto de los 37 (memoria/sesiones por conversación, endpoints HTTP,
+llm_settings, extensión de VS Code, frontend) vive en la capa de
+agente de kal-in, sin relación con el kernel compartido.

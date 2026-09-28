@@ -95,3 +95,36 @@ def test_object_tolerates_a_literal_unescaped_newline_inside_a_string_value():
     content = '{"name": "run_code", "arguments": {"code": "linea1\nlinea2"}}'
     result = extract_json_object(content)
     assert result == {"name": "run_code", "arguments": {"code": "linea1\nlinea2"}}
+
+
+# --- allow_embedded=False (B-1, auditoría externa Likay-OS, 2026-09-26):
+# usado por agent_core/llm/agent_loop.py::_extract_fallback_tool_call()
+# para el camino que EJECUTA una herramienta — un JSON con forma de
+# tool call citado dentro de prosa más larga (p.ej. contenido de una
+# página web que el modelo resume) no debe contar como candidato ahí. ---
+
+
+def test_allow_embedded_false_rejects_json_found_within_surrounding_text():
+    content = 'Claro, aquí tenés: {"steps": ["uno"]} espero que sirva'
+    assert extract_json_object(content, allow_embedded=False) is None
+
+
+def test_allow_embedded_false_still_accepts_the_whole_content_as_json():
+    assert extract_json_object('{"name": "run_code", "arguments": {}}', allow_embedded=False) == {
+        "name": "run_code", "arguments": {},
+    }
+
+
+def test_allow_embedded_false_still_accepts_a_fenced_json_block():
+    content = 'Voy a hacer esto:\n```json\n{"name": "run_code", "arguments": {}}\n```'
+    assert extract_json_object(content, allow_embedded=False) == {"name": "run_code", "arguments": {}}
+
+
+def test_array_allow_embedded_false_rejects_json_found_within_surrounding_text():
+    content = 'Los archivos son: [{"path": "a.py", "content": "x"}] avisame si necesitás más'
+    assert extract_json_array(content, allow_embedded=False) is None
+
+
+def test_array_allow_embedded_false_still_accepts_the_whole_content_as_json():
+    content = '[{"path": "a.py", "content": "x"}]'
+    assert extract_json_array(content, allow_embedded=False) == [{"path": "a.py", "content": "x"}]

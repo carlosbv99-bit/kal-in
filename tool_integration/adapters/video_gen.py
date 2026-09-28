@@ -84,6 +84,12 @@ class VideoCompositionTool(Tool):
     def execute(self, scenes: list[Scene], **kwargs) -> Artifact:
         if not scenes:
             raise ValueError("se necesita al menos una escena para componer un video")
+        if len(scenes) > self.cfg.max_scenes:
+            raise ValueError(
+                f"se pidieron {len(scenes)} escenas — el máximo permitido es {self.cfg.max_scenes} "
+                "(cada escena genera una imagen y una narración reales, ver config.yaml: "
+                "multimodal.video.max_scenes)."
+            )
 
         try:
             from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips

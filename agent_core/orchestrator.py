@@ -22,6 +22,7 @@ que necesita compartir (el singleton `orchestrator`, `require_admin_token`,
 """
 from __future__ import annotations
 
+import os
 import secrets
 import threading
 from contextlib import asynccontextmanager
@@ -219,9 +220,28 @@ async def _lifespan(_app: FastAPI):
 # título pero sin descripción/versión/tags, y ningún endpoint tenía
 # `summary=` (algunos ni docstring: los comentarios con `#` que parecen
 # documentación no cuentan, FastAPI solo lee el docstring real).
+#
+# B-6 (auditoría externa Likay-OS, 2026-09-26): ese catálogo (mapa
+# completo de cada endpoint, su forma y sus modelos) es valioso para
+# desarrollo/integración local, pero es también el primer lugar que
+# miraría cualquier atacante con solo acceso de red — no expone
+# secretos por sí solo, pero facilita reconocimiento de más. AGENT_ENV
+# (ver .env.example, hasta ahora sin ningún efecto real en el código)
+# ahora lo apaga cuando vale "production" — "development" (el default)
+# preserva el catálogo completo, sin cambiar nada para el uso local
+# habitual de kal-in.
+def _is_production_env() -> bool:
+    return os.environ.get("AGENT_ENV", "development").strip().lower() == "production"
+
+
+_IS_PRODUCTION = _is_production_env()
+
 app = FastAPI(
     title="Kal",
     lifespan=_lifespan,
+    docs_url=None if _IS_PRODUCTION else "/docs",
+    redoc_url=None if _IS_PRODUCTION else "/redoc",
+    openapi_url=None if _IS_PRODUCTION else "/openapi.json",
     description=(
         "API HTTP del agente Kal: cada acción (herramienta, escritura de "
         "archivo, acceso a red) pasa por un kernel de seguridad propio — "
@@ -283,6 +303,52 @@ class _OriginValidationMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """
+    VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    2026-09-26), C-2/M-2: ningún response llevaba
+    X-Content-Type-Options, CSP, X-Frame-Options ni Referrer-Policy —
+    grep de "nosniff"/"Content-Security-Policy" en todo el proyecto:
+    cero resultados. Sin nosniff, un navegador puede "adivinar" el tipo
+    real de un archivo servido por /artifacts distinto al que dice su
+    Content-Type, agravando cualquier confusión de tipo; sin CSP/
+    X-Frame-Options, una página externa puede embeber el panel en un
+    <iframe> para clickjacking sobre acciones sensibles (aprobar una
+    herramienta, aplicar una auto-modificación).
+
+    CSP sin 'unsafe-inline' — el frontend no tiene <script>/<style>
+    inline (verificado), así que no hace falta debilitarla. Permite
+    Google Fonts (únicos recursos externos reales de frontend/
+    index.html) y nada más de terceros.
+
+    /artifacts además lleva Content-Disposition: attachment — no evita
+    que <img>/<audio> los rendericen inline (esa cabecera solo afecta
+    navegación de nivel superior, no la carga de un subrecurso), pero
+    sí evita que alguien abra la URL directo en una pestaña nueva y el
+    navegador la ejecute como si fuera parte de la página.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "style-src 'self' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data:; "
+            "media-src 'self'; "
+            "script-src 'self'; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'"
+        )
+        if request.url.path.startswith("/artifacts/"):
+            response.headers["Content-Disposition"] = "attachment"
+        return response
+
+
+app.add_middleware(_SecurityHeadersMiddleware)
 app.add_middleware(_OriginValidationMiddleware)
 
 # Segunda capa de defensa (la primera es que docker-compose ya solo
@@ -293,7 +359,15 @@ app.add_middleware(_OriginValidationMiddleware)
 # verificaba ninguna identidad real. Token persistido en disco (ver
 # utils/admin_token.py), no en el código ni en config.yaml.
 _ADMIN_TOKEN = get_or_create_admin_token()
-logger.info(
+# VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+# 2026-09-26), M-1: logger.info() escribe TANTO a la terminal como a
+# logs/agent.log (ver utils/logger.py) — el segundo es un archivo
+# persistente que ahora además rota en varios backups (ver A-8), así
+# que el token quedaría legible en disco mucho después de imprimirse.
+# print() a stdout preserva el flujo de recuperación real (el usuario
+# lo busca en la terminal donde corre run_kal.sh, ver frontend/app.js)
+# sin dejarlo también en un archivo de log de retención larga.
+print(
     "Token administrativo generado/leído para self-modification y aprobación de "
     "herramientas. Para usar esas acciones desde el frontend, abrilo una vez como "
     f"http://localhost:8000/?admin_token={_ADMIN_TOKEN}"
@@ -301,7 +375,17 @@ logger.info(
 
 
 def require_admin_token(x_kal_admin_token: str | None = Header(default=None)) -> None:
-    if x_kal_admin_token is None or not secrets.compare_digest(x_kal_admin_token, _ADMIN_TOKEN):
+    # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    # 2026-09-26), M-6: secrets.compare_digest() sobre dos `str` exige
+    # que ambos sean ASCII puro — un header con un byte no-ASCII (nada
+    # exótico: cualquier valor pegado con un caracter raro) lanza
+    # TypeError, sin capturar, que FastAPI convierte en un 500 crudo en
+    # vez del 401 limpio que esta función debería devolver siempre.
+    # Comparar como bytes (codificando ambos lados) no tiene esa
+    # restricción — mismo resultado, sin la vía de crash.
+    if x_kal_admin_token is None or not secrets.compare_digest(
+        x_kal_admin_token.encode("utf-8", errors="replace"), _ADMIN_TOKEN.encode("utf-8")
+    ):
         raise HTTPException(
             status_code=401,
             detail="Token administrativo inválido o ausente (header X-Kal-Admin-Token).",

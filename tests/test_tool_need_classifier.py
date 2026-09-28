@@ -74,3 +74,42 @@ def test_confidence_is_always_the_probability_of_the_predicted_class():
     for msg in ["hola", "generame una imagen de un perro", "que tal", "ejecuta este codigo"]:
         _, confidence = predict_needs_tool(msg)
         assert confidence >= 0.5
+
+
+# --- M-10 (auditoría externa Likay-OS, 2026-09-26): verificación de
+# integridad antes de joblib.load() (pickle) ---
+
+
+def test_model_with_a_matching_hash_verifies(tmp_path):
+    model_path = tmp_path / "model.joblib"
+    model_path.write_bytes(b"contenido cualquiera")
+    hash_path = tmp_path / "model.joblib.sha256"
+    import hashlib
+
+    hash_path.write_text(hashlib.sha256(model_path.read_bytes()).hexdigest())
+
+    assert tnc._verify_model_integrity(model_path, hash_path) is True
+
+
+def test_model_with_a_tampered_content_fails_verification(tmp_path):
+    model_path = tmp_path / "model.joblib"
+    model_path.write_bytes(b"contenido original")
+    hash_path = tmp_path / "model.joblib.sha256"
+    hash_path.write_text("0" * 64)  # hash que no corresponde al contenido real
+
+    assert tnc._verify_model_integrity(model_path, hash_path) is False
+
+
+def test_missing_hash_file_fails_verification(tmp_path):
+    model_path = tmp_path / "model.joblib"
+    model_path.write_bytes(b"contenido cualquiera")
+    hash_path = tmp_path / "no-existe.sha256"
+
+    assert tnc._verify_model_integrity(model_path, hash_path) is False
+
+
+def test_the_real_shipped_model_and_hash_match():
+    """Contrato real: el .joblib y el .sha256 que se commitean juntos
+    deben coincidir siempre — si esto falla, alguien regeneró uno sin
+    el otro (ver scripts/train_tool_need_classifier.py)."""
+    assert tnc._verify_model_integrity(tnc._MODEL_PATH, tnc._MODEL_HASH_PATH) is True

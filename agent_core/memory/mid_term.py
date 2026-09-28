@@ -55,22 +55,70 @@ class MidTermMemory(MemoryBackend):
             pass  # la columna ya existe
 
     def store(self, item: MemoryItem) -> None:
-        self.conn.execute(
-            """
-            INSERT OR REPLACE INTO memory_items
-                (id, content, metadata, created_at, relevance_score, repetitions, confidence)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                item.id,
-                item.content,
-                json.dumps(item.metadata),
-                item.created_at,
-                item.relevance_score,
-                item.repetitions,
-                item.confidence.value,
-            ),
-        )
+        """
+        VULNERABILIDAD/BUG REAL ENCONTRADO EN AUDITORÍA EXTERNA
+        (Likay-OS, 2026-09-26), A-6: nada en todo el código incrementaba
+        jamás `repetitions` ni `relevance_score` más allá de sus
+        defaults (1 y 0.0) — candidates_for_promotion() exige
+        repetitions >= 3 AND relevance_score >= 0.75 (config.yaml), un
+        umbral que ninguna fila podía cruzar NUNCA. Consecuencia real
+        doble: (1) promote_mid_to_long() nunca promovió NADA desde que
+        existe — la "memoria de largo plazo" nunca se activó de
+        verdad; (2) la redacción de credenciales antes de persistir
+        para siempre (classify()/redact() en promote_mid_to_long(), ver
+        agent_core/memory/manager.py) es la ÚNICA barrera de seguridad
+        de ese camino, y quedaba sin poder ejecutarse jamás — dead code
+        de seguridad.
+
+        Fix mínimo y honesto: cuando el mismo contenido EXACTO ya
+        existe en mediano plazo (p.ej. el mismo resumen de tarea o
+        patrón de error->reparación consolidado más de una vez), se
+        trata como una repetición real del mismo patrón — se
+        incrementa `repetitions` y `relevance_score` (tope 1.0) sobre
+        la fila EXISTENTE en vez de insertar una fila nueva sin
+        relación. Deliberadamente NO se inventa un scorer de relevancia
+        semántica (no existe ninguno en este código hoy, y no es parte
+        de este fix) — "relevancia" acá es, literalmente, cuántas veces
+        se repitió el mismo contenido.
+        """
+        existing = self.conn.execute(
+            "SELECT id, relevance_score, repetitions, metadata FROM memory_items WHERE content = ?",
+            (item.content,),
+        ).fetchone()
+        if existing is not None:
+            existing_id, existing_relevance, existing_repetitions, existing_metadata_json = existing
+            merged_metadata = {**json.loads(existing_metadata_json), **item.metadata}
+            self.conn.execute(
+                """
+                UPDATE memory_items
+                SET repetitions = ?, relevance_score = ?, metadata = ?, confidence = ?
+                WHERE id = ?
+                """,
+                (
+                    existing_repetitions + item.repetitions,
+                    min(1.0, existing_relevance + 0.25 * item.repetitions),
+                    json.dumps(merged_metadata),
+                    item.confidence.value,
+                    existing_id,
+                ),
+            )
+        else:
+            self.conn.execute(
+                """
+                INSERT OR REPLACE INTO memory_items
+                    (id, content, metadata, created_at, relevance_score, repetitions, confidence)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item.id,
+                    item.content,
+                    json.dumps(item.metadata),
+                    item.created_at,
+                    item.relevance_score,
+                    item.repetitions,
+                    item.confidence.value,
+                ),
+            )
         self.conn.commit()
 
     def retrieve(self, query: str, top_k: int = 5) -> list[MemoryItem]:

@@ -23,8 +23,27 @@ _JSON_ARRAY_FENCE_RE = re.compile(r"```(?:json)?\s*(\[.*?\])\s*```", re.DOTALL)
 _BARE_JSON_ARRAY_RE = re.compile(r"(\[.*\])", re.DOTALL)
 
 
-def extract_json_object(content: str) -> dict | None:
-    """Devuelve el primer objeto JSON parseable encontrado en `content`, o None."""
+def extract_json_object(content: str, allow_embedded: bool = True) -> dict | None:
+    """
+    Devuelve el primer objeto JSON parseable encontrado en `content`, o None.
+
+    `allow_embedded`: VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA
+    EXTERNA (Likay-OS, 2026-09-26), B-1 — amplificador de A-2/A-3. Con
+    el default (True), un objeto JSON "suelto" en CUALQUIER lugar de un
+    bloque de prosa más largo también cuenta como candidato — pensado
+    para planner.py (parsea la respuesta de un LLM dedicado a planificar,
+    bajo riesgo) y para detectar un intento de tool call FALLIDO (nunca
+    se ejecuta nada desde ese camino). Pero agent_loop.py::
+    _extract_fallback_tool_call() usa esto para decidir qué EJECUTAR —
+    si el modelo cita/repite texto de una fuente no confiable (una
+    página web, el resultado de otra herramienta) que contiene JSON con
+    la forma de un tool call real, ese candidato "embebido en prosa"
+    podía disparar una ejecución que el modelo nunca decidió de verdad.
+    False restringe a los dos casos donde el JSON es claramente la
+    intención COMPLETA del modelo: el contenido entero, o un bloque
+    ```json``` — nunca un fragmento que solo aparece DENTRO de un texto
+    más largo.
+    """
     if not content or not content.strip():
         return None
 
@@ -35,9 +54,10 @@ def extract_json_object(content: str) -> dict | None:
     stripped = content.strip()
     if stripped.startswith("{"):
         candidates.append(stripped)
-    bare_match = _BARE_JSON_RE.search(content)
-    if bare_match:
-        candidates.append(bare_match.group(1))
+    if allow_embedded:
+        bare_match = _BARE_JSON_RE.search(content)
+        if bare_match:
+            candidates.append(bare_match.group(1))
 
     for candidate in candidates:
         try:
@@ -57,7 +77,7 @@ def extract_json_object(content: str) -> dict | None:
     return None
 
 
-def extract_json_array(content: str) -> list | None:
+def extract_json_array(content: str, allow_embedded: bool = True) -> list | None:
     """
     Igual que extract_json_object() pero para un ARRAY JSON — usado por
     agent_loop.py para reconocer un intento de propose_project_files
@@ -65,6 +85,9 @@ def extract_json_array(content: str) -> list | None:
     el envoltorio {"name", "arguments"} que sí reconoce
     extract_json_object). Devuelve el primer array JSON parseable
     encontrado en `content`, o None.
+
+    `allow_embedded`: ver el mismo parámetro en extract_json_object()
+    (B-1, auditoría externa Likay-OS 2026-09-26) — mismo criterio.
     """
     if not content or not content.strip():
         return None
@@ -76,9 +99,10 @@ def extract_json_array(content: str) -> list | None:
     stripped = content.strip()
     if stripped.startswith("["):
         candidates.append(stripped)
-    bare_match = _BARE_JSON_ARRAY_RE.search(content)
-    if bare_match:
-        candidates.append(bare_match.group(1))
+    if allow_embedded:
+        bare_match = _BARE_JSON_ARRAY_RE.search(content)
+        if bare_match:
+            candidates.append(bare_match.group(1))
 
     for candidate in candidates:
         try:

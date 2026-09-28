@@ -6,25 +6,30 @@
 
 -r requirements-core.txt
 
+# M-9 (auditoría externa Likay-OS, 2026-09-26): techo al PRÓXIMO MAJOR
+# de lo REALMENTE instalado y validado (no del piso histórico, que en
+# varios casos ya quedó lejos de la versión real en uso) — ver el
+# mismo comentario en requirements-core.txt para el criterio completo.
+
 # --- Embeddings locales para memoria de largo plazo ---
-sentence-transformers>=3.0    # embeddings locales, sin API externa
+sentence-transformers>=3.0,<7.0    # embeddings locales, sin API externa
 
 # --- Generación de imágenes/video ---
-diffusers>=0.27          # generación de imágenes (sd-turbo)
-accelerate>=0.30         # carga eficiente de modelos de diffusers
-huggingface_hub>=0.23    # descarga de modelos (embeddings, sd-turbo, voces de piper)
-moviepy>=1.0.3           # composición de video (ver NOTA en video_gen.py sobre v1 vs v2)
+diffusers>=0.27,<1.0          # generación de imágenes (sd-turbo)
+accelerate>=0.30,<2.0         # carga eficiente de modelos de diffusers
+huggingface_hub>=0.23,<2.0    # descarga de modelos (embeddings, sd-turbo, voces de piper)
+moviepy>=1.0.3,<3.0           # composición de video (ver NOTA en video_gen.py sobre v1 vs v2)
 # NOTA: video_gen.py también requiere el binario `ffmpeg` del sistema,
 # no instalable vía pip: `sudo apt install ffmpeg`
 
 # --- Texto a voz ---
-piper-tts>=1.2           # texto a voz local vía ONNX, eficiente en CPU
+piper-tts>=1.2,<2.0           # texto a voz local vía ONNX, eficiente en CPU
 
 # --- Voz a texto ---
-faster-whisper>=1.0     # Whisper vía CTranslate2, más liviano/rápido en CPU que openai-whisper
+faster-whisper>=1.0,<2.0     # Whisper vía CTranslate2, más liviano/rápido en CPU que openai-whisper
 
 # --- Edición de imágenes ---
-rembg>=2.0               # eliminar fondo (modelo u2net, se descarga la 1a vez)
+rembg>=2.0,<3.0               # eliminar fondo (modelo u2net, se descarga la 1a vez)
 # NOTA: se evaluó `realesrgan` para upscale con IA real — su dependencia
 # núcleo `basicsr` no instala en este entorno (incompatible con
 # torchvision recientes). Por eso el upscale de image_editing.py usa un
@@ -32,7 +37,7 @@ rembg>=2.0               # eliminar fondo (modelo u2net, se descarga la 1a vez)
 # de ese adaptador.
 
 # --- Extracción de texto de una imagen (OCR dedicado, no vía LLM) ---
-rapidocr>=3.9              # modelos PP-OCR (Baidu) reimplementados sobre ONNXRuntime
+rapidocr>=3.9,<4.0              # modelos PP-OCR (Baidu) reimplementados sobre ONNXRuntime
 # NOTA: no paddleocr/paddlepaddle directo — paddlepaddle no tiene build
 # para Python 3.14 (el que usa este proyecto), ni wheel publicado en
 # PyPI todavía. rapidocr usa los MISMOS modelos PP-OCR (pesos y
@@ -42,7 +47,7 @@ rapidocr>=3.9              # modelos PP-OCR (Baidu) reimplementados sobre ONNXRu
 # contenido en tareas de OCR de texto denso).
 
 # --- Navegador (browser agent) ---
-playwright>=1.40
+playwright>=1.40,<2.0
 # NOTA: además del paquete pip, hace falta instalar el binario de Chromium
 # una vez: `playwright install chromium` (mismo patrón que ffmpeg en
 # video_gen.py — no es instalable solo con pip).

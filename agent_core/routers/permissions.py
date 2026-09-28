@@ -9,6 +9,8 @@ resultado real sin que nadie se lo reporte).
 """
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -18,6 +20,23 @@ from kernel.permissions.filesystem_access_manager import FilesystemAccessError, 
 from kernel.permissions.network_access_manager import NetworkAccessError, network_access_manager
 
 router = APIRouter(tags=["Permisos"])
+
+
+def _validate_request_id(request_id: str) -> str:
+    # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    # 2026-09-26), parte de C-4: report-outcome queda sin token admin a
+    # propósito (ver docstring más abajo — la extensión de VS Code no
+    # tiene forma de obtenerlo), pero sin ESTA validación cualquiera
+    # podía inyectar entradas arbitrarias en el log de auditoría con un
+    # request_id inventado. Los IDs reales siempre son uuid4 (ver
+    # tool_integration/adapters/vscode_android.py, kernel/permissions/
+    # filesystem_access_manager.py) — esto no autentica al llamador,
+    # pero cierra la inyección trivial de basura no estructurada.
+    try:
+        UUID(request_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="request_id inválido.")
+    return request_id
 
 
 class FilesystemAccessApproveRequest(BaseModel):
@@ -32,7 +51,7 @@ class FilesystemAccessOutcomeRequest(BaseModel):
     # por política, esto deja constancia de qué pasó DE VERDAD (auditoría
     # con datos reales, no solo "se permitió").
     outcome: str = Field(description="'written' | 'discarded' — qué pasó realmente del lado del cliente.")
-    files_written: list[str] = Field(default_factory=list)
+    files_written: list[str] = Field(default_factory=list, max_length=200)
 
 
 class NetworkAccessApproveRequest(BaseModel):
@@ -94,6 +113,7 @@ def report_filesystem_access_outcome(request_id: str, req: FilesystemAccessOutco
     qué pasó DE VERDAD del lado de la extensión (¿el usuario aplicó la
     propuesta o la descartó?) — nunca decide nada, solo audita.
     """
+    request_id = _validate_request_id(request_id)
     audit_log.record(
         AuditEvent(
             event_type="filesystem_access_granted" if req.outcome == "written" else "filesystem_access_denied",

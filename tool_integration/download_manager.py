@@ -45,6 +45,7 @@ import hashlib
 import socket
 from dataclasses import dataclass
 from typing import Any, Callable
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -111,14 +112,16 @@ class DownloadManager:
         self._get = get_fn or requests.get
         self._resolve = resolve_fn or _default_resolve
 
-    def download_and_validate(self, url: str, expected_type: str) -> DownloadedResource:
-        from urllib.parse import urlparse
-
-        if expected_type not in _VALIDATORS:
-            raise DownloadValidationError(
-                f"Tipo de recurso '{expected_type}' no soportado todavía — hoy solo 'image'."
-            )
-
+    def _validate_destination(self, url: str) -> None:
+        """
+        Valida esquema + IP resuelta de `url` — extraído para poder
+        aplicarse tanto a la URL original como a CADA salto de
+        redirección (ver M-4 en _stream_download): validar solo la URL
+        de entrada y confiar en que requests siga redirecciones
+        automáticamente dejaba pasar un servidor que responde 302 hacia
+        una IP privada/interna — el chequeo de abajo nunca se aplicaba
+        a ESE destino real.
+        """
         scheme = urlparse(url).scheme.lower()
         if scheme == "http" and not settings.downloads.allow_http:
             raise DownloadValidationError(
@@ -136,6 +139,14 @@ class DownloadManager:
                 "— posible DNS rebinding, no se descarga nada."
             )
 
+    def download_and_validate(self, url: str, expected_type: str) -> DownloadedResource:
+        if expected_type not in _VALIDATORS:
+            raise DownloadValidationError(
+                f"Tipo de recurso '{expected_type}' no soportado todavía — hoy solo 'image'."
+            )
+
+        self._validate_destination(url)
+
         content = self._stream_download(url)
 
         try:
@@ -149,13 +160,45 @@ class DownloadManager:
             content=content, sha256=hashlib.sha256(content).hexdigest(), mime=mime, size_bytes=len(content),
         )
 
+    _MAX_REDIRECTS = 5
+    _REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
+
     def _stream_download(self, url: str) -> bytes:
         max_bytes = settings.downloads.max_size_mb * 1024 * 1024
-        try:
-            response = self._get(url, stream=True, timeout=30)
-            response.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            raise DownloadValidationError(f"No se pudo descargar '{url}': {e}") from e
+        current_url = url
+        response = None
+        for _ in range(self._MAX_REDIRECTS + 1):
+            try:
+                # allow_redirects=False a propósito (M-4, auditoría
+                # externa Likay-OS 2026-09-26): con redirecciones
+                # automáticas, un servidor controlado por el atacante
+                # podía responder 302 hacia una IP privada/interna y
+                # requests lo seguía SIN pasar de nuevo por
+                # _validate_destination() — el chequeo de arriba solo
+                # protegía el hostname ORIGINAL, nunca el destino real
+                # de la descarga. Cada salto se valida acá ANTES de
+                # seguirlo, nunca después de ya haberle pegado.
+                response = self._get(current_url, stream=True, timeout=30, allow_redirects=False)
+            except requests.exceptions.RequestException as e:
+                raise DownloadValidationError(f"No se pudo descargar '{current_url}': {e}") from e
+
+            if response.status_code in self._REDIRECT_STATUS_CODES:
+                location = response.headers.get("Location")
+                if not location:
+                    raise DownloadValidationError(f"'{current_url}' redirigió sin header Location.")
+                current_url = urljoin(current_url, location)
+                self._validate_destination(current_url)
+                continue
+
+            try:
+                response.raise_for_status()
+            except requests.exceptions.RequestException as e:
+                raise DownloadValidationError(f"No se pudo descargar '{current_url}': {e}") from e
+            break
+        else:
+            raise DownloadValidationError(
+                f"'{url}' generó demasiadas redirecciones (más de {self._MAX_REDIRECTS})."
+            )
 
         chunks: list[bytes] = []
         total = 0

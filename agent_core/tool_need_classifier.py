@@ -21,6 +21,7 @@ opción segura, así que fail-open hacia needs_tool=True logra lo mismo).
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import joblib
@@ -30,8 +31,39 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 _MODEL_PATH = Path(__file__).resolve().parent / "tool_need_classifier.joblib"
+_MODEL_HASH_PATH = _MODEL_PATH.with_suffix(_MODEL_PATH.suffix + ".sha256")
+
+
+def _verify_model_integrity(model_path: Path, hash_path: Path) -> bool:
+    """
+    VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    2026-09-26), M-10: joblib.load() usa pickle por debajo — cargar un
+    .joblib reemplazado por fuera de un commit real de git (una
+    escritura de filesystem lograda por cualquier otro bug, o un
+    tamper directo del artefacto) ejecuta código arbitrario, y esto
+    corre en tiempo de IMPORT del módulo, antes de casi cualquier otra
+    defensa. Fail closed: hash ausente/ilegible/no coincidente se trata
+    igual que "modelo no disponible" (ver el fail-open ya establecido
+    más abajo hacia needs_tool=True, nunca se bloquea el chat por esto).
+    """
+    try:
+        expected = hash_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        logger.warning(f"No se encontró el hash de integridad del clasificador ({hash_path})")
+        return False
+    actual = hashlib.sha256(model_path.read_bytes()).hexdigest()
+    if actual != expected:
+        logger.warning(
+            f"El clasificador de necesidad de herramienta ({model_path}) no coincide con su hash "
+            "de integridad conocido — se rechaza sin cargarlo, posible manipulación del archivo."
+        )
+        return False
+    return True
+
 
 try:
+    if not _verify_model_integrity(_MODEL_PATH, _MODEL_HASH_PATH):
+        raise ValueError("Verificación de integridad fallida")
     _model = joblib.load(_MODEL_PATH)
     _NO_TOOL_INDEX = list(_model.classes_).index(False)
 except Exception as e:  # noqa: BLE001 — cualquier falla acá es "modelo no disponible"

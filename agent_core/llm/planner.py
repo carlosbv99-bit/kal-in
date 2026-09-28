@@ -118,6 +118,7 @@ class PlanningAgentLoop:
         client: str | None = None,
         required_capabilities: list[str] | None = None,
         on_step: Callable[[AgentStep], None] | None = None,
+        session_id: str | None = None,
     ) -> PlanRunResult:
         plan = self.planner.plan(goal, model=model) if use_planner else Planner._single_step_plan(goal)
 
@@ -128,6 +129,7 @@ class PlanningAgentLoop:
                 history=history, session_context=session_context,
                 denied_permissions=denied_permissions, client=client,
                 required_capabilities=required_capabilities, on_step=on_step,
+                session_id=session_id,
             )
             step_results.append(PlanStepResult(step=step.description, result=run_result))
             if run_result.status == "llm_error":

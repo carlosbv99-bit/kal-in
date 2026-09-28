@@ -15,6 +15,7 @@ Uso:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -99,6 +100,19 @@ def main() -> None:
 
     joblib.dump(final_pipeline, MODEL_PATH)
     print(f"\nModelo final (entrenado con el dataset completo) guardado en {MODEL_PATH} ({MODEL_PATH.stat().st_size} bytes)")
+
+    # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    # 2026-09-26), M-10: agent_core/tool_need_classifier.py hace
+    # joblib.load() (pickle por debajo) de este archivo EN TIEMPO DE
+    # IMPORT, sin verificar su integridad — un .joblib reemplazado en
+    # el filesystem por fuera de un commit real de git logra ejecución
+    # de código arbitraria apenas alguien importa ese módulo. El hash
+    # se regenera automáticamente acá, junto al modelo, para que
+    # reentrenar nunca deje el par modelo/hash desincronizado.
+    hash_path = MODEL_PATH.with_suffix(MODEL_PATH.suffix + ".sha256")
+    digest = hashlib.sha256(MODEL_PATH.read_bytes()).hexdigest()
+    hash_path.write_text(digest + "\n", encoding="utf-8")
+    print(f"Hash de integridad actualizado en {hash_path}")
 
 
 if __name__ == "__main__":

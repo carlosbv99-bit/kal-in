@@ -9,9 +9,11 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from agent_core.context_service import EditorContextSignals
 from agent_core.conversation_engine import get_trivial_reply
+from agent_core.memory import security_policy
 from agent_core.tool_need_classifier import predict_needs_tool
 from agent_core.llm.provider import ProviderError
 from agent_core.orchestrator import _artifact_url, orchestrator
@@ -27,6 +29,20 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["Chat"])
 
 
+# VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+# 2026-09-26), A-2/A-3: ninguno de estos campos tenía tope de tamaño —
+# `text` en particular podía llevar un archivo arbitrariamente grande
+# directo al prompt del LLM (costo/DoS de tokens) y, sin ningún límite
+# de items, `workspace_tree`/`open_editors` también. Los topes son
+# generosos (alcanzan para un archivo de código real grande) pero
+# finitos — ver además el marcado explícito de "esto es DATO, no
+# instrucción" agregado en context_service.py para la inyección de
+# prompt en sí (el tope de tamaño no la previene, solo acota el costo).
+_MAX_EDITOR_TEXT_CHARS = 200_000
+_MAX_WORKSPACE_TREE_ITEMS = 2_000
+_MAX_PATH_CHARS = 1_000
+
+
 class EditorContextRequest(BaseModel):
     """
     Señal cruda del editor (ver agent_core/context_service.py) — el
@@ -34,20 +50,20 @@ class EditorContextRequest(BaseModel):
     acá, solo estos campos. El Context Service decide cómo se ve en
     el mensaje final al LLM.
     """
-    relative_path: str
-    language_id: str
-    text: str
+    relative_path: str = Field(max_length=_MAX_PATH_CHARS)
+    language_id: str = Field(max_length=100)
+    text: str = Field(max_length=_MAX_EDITOR_TEXT_CHARS)
     is_selection: bool
     # Pieza mínima de "Editor Context Provider" (2026-07-20) — ver
     # agent_core/context_service.py::EditorContextSignals. Ambos vacíos
     # por defecto: compatibilidad con clientes viejos que todavía no
     # los mandan.
-    workspace_tree: list[str] = Field(default_factory=list)
-    open_editors: list[str] = Field(default_factory=list)
+    workspace_tree: list[str] = Field(default_factory=list, max_length=_MAX_WORKSPACE_TREE_ITEMS)
+    open_editors: list[str] = Field(default_factory=list, max_length=_MAX_WORKSPACE_TREE_ITEMS)
 
 
 class ChatRequest(BaseModel):
-    goal: str = Field(description="Mensaje del usuario / objetivo para el agente.")
+    goal: str = Field(max_length=20_000, description="Mensaje del usuario / objetivo para el agente.")
     model: str | None = Field(default=None, description="Override del modelo LLM a usar. None = el default de config.yaml.")
     use_planner: bool | None = Field(default=None, description="None = usar el default de config.yaml (llm.planning_enabled).")
     session_id: str | None = Field(default=None, description="None = crea una sesión nueva (ver agent_core/sessions.py).")
@@ -111,7 +127,13 @@ def chat(req: ChatRequest):
     # mano cruzando ambos logs).
     correlation_id = new_id()
     set_correlation_id(correlation_id)
-    logger.info(f"POST /chat: {req.goal!r}")
+    # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    # 2026-09-26), A-6/A-8: el goal crudo del usuario (posible pegado
+    # de una credencial para depurar algo, ver agent_core/memory/
+    # security_policy.py) quedaba escrito tal cual en logs/agent.log,
+    # un archivo con retención larga y sin la política de redacción
+    # que sí protege la memoria persistente del agente.
+    logger.info(f"POST /chat: {security_policy.redact(req.goal)!r}")
 
     session = orchestrator.sessions.get_or_create(req.session_id)
     use_planner = req.use_planner if req.use_planner is not None else settings.llm.planning_enabled
@@ -285,6 +307,7 @@ def chat(req: ChatRequest):
             # preservando el comportamiento actual sin cambios.
             required_capabilities=ce_result.required_capabilities if ce_result is not None else None,
             on_step=_on_step,
+            session_id=session.id,
         )
     except ProviderError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -489,6 +512,29 @@ _ALLOWED_IMAGE_UPLOAD_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
 _ALLOWED_AUDIO_UPLOAD_CONTENT_TYPES = {"audio/wav", "audio/mpeg", "audio/webm", "audio/ogg", "audio/mp4"}
 _ALLOWED_UPLOAD_CONTENT_TYPES = _ALLOWED_IMAGE_UPLOAD_CONTENT_TYPES | _ALLOWED_AUDIO_UPLOAD_CONTENT_TYPES
 
+# VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+# 2026-09-26), C-2: la extensión del archivo guardado salía de
+# `file.filename` (elegido por el CLIENTE), sin ninguna relación con
+# `file.content_type` (ya validado arriba) — mandar
+# Content-Type: image/png con filename="pwn.html" guardaba
+# data/artifacts/uploads/<uuid>.html, que /artifacts (StaticFiles,
+# infiere el tipo por la EXTENSIÓN en disco) servía como text/html en
+# el mismo origen donde el panel guarda el token admin — XSS
+# almacenado same-origin → robo de token → RCE vía
+# /self-modification/apply. La extensión ahora sale SIEMPRE de este
+# mapa fijo, derivado del content_type YA VALIDADO — nunca de
+# filename, que se ignora por completo para esta decisión.
+_EXTENSION_FOR_CONTENT_TYPE = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "audio/wav": ".wav",
+    "audio/mpeg": ".mp3",
+    "audio/webm": ".webm",
+    "audio/ogg": ".ogg",
+    "audio/mp4": ".mp4",
+}
+
 
 @router.post("/uploads", summary="Subir una imagen o un audio propio")
 async def upload_image(file: UploadFile = File(...), session_id: str | None = Form(None)):
@@ -521,7 +567,7 @@ async def upload_image(file: UploadFile = File(...), session_id: str | None = Fo
     upload_dir = Path(cfg.artifact_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    suffix = Path(file.filename or "").suffix or (".png" if modality == "image" else ".wav")
+    suffix = _EXTENSION_FOR_CONTENT_TYPE[file.content_type]
     dest_path = upload_dir / f"{uuid.uuid4()}{suffix}"
     max_bytes = cfg.max_size_mb * 1024 * 1024
 
@@ -534,6 +580,24 @@ async def upload_image(file: UploadFile = File(...), session_id: str | None = Fo
                 dest_path.unlink(missing_ok=True)
                 raise HTTPException(status_code=400, detail=f"Archivo demasiado grande (máx {cfg.max_size_mb}MB)")
             f.write(chunk)
+
+    # Segunda capa (C-2): el content_type declarado por el cliente ya
+    # decide la extensión (arriba) — esto además confirma que el
+    # CONTENIDO real es una imagen de verdad, no solo que el cliente
+    # dijo "es una imagen". Sin esto, alguien podría subir HTML/SVG con
+    # Content-Type: image/png (pasando el chequeo de arriba) y aun así
+    # quedar guardado con extensión .png/.jpg/.webp — inofensivo para
+    # XSS (StaticFiles serviría image/png por la extensión real), pero
+    # igual un archivo corrupto/no-imagen no debería aceptarse callado.
+    if modality == "image":
+        from PIL import Image, UnidentifiedImageError
+
+        try:
+            with Image.open(dest_path) as img:
+                img.verify()
+        except (UnidentifiedImageError, OSError):
+            dest_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail="El contenido no es una imagen válida.")
 
     session = orchestrator.sessions.get_or_create(session_id)
     artifact = Artifact(
@@ -606,7 +670,18 @@ async def transcribe_audio(file: UploadFile = File(...)):
             tmp.write(chunk)
 
     try:
-        result = _transcription_service.transcribe(str(tmp_path))
+        # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+        # 2026-09-26), M-7: faster-whisper es CPU-bound y este endpoint
+        # se llama repetidas veces por grabación (transcripción en
+        # vivo) — llamarlo directo dentro de un `async def` bloquea el
+        # ÚNICO event loop de uvicorn (sin --workers, ver
+        # scripts/run_kal.sh) durante toda la inferencia, colgando
+        # CUALQUIER otro pedido concurrente (/chat, /health, todo) sin
+        # relación con esta transcripción. run_in_threadpool lo saca del
+        # event loop — seguro con múltiples llamadas concurrentes
+        # porque STTService ya serializa el acceso real al modelo con
+        # su propio threading.Lock (ver tool_integration/services.py).
+        result = await run_in_threadpool(_transcription_service.transcribe, str(tmp_path))
     except KernelServiceError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     except Exception as e:  # noqa: BLE001

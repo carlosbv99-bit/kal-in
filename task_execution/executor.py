@@ -23,6 +23,15 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+# 2026-09-26), M-7: POST /tasks no pide token admin (uso normal, mismo
+# criterio que /chat) y cada submit() agregaba una entrada más a
+# `_tasks` para siempre, sin límite — mismo problema que
+# agent_core/sessions.py::SessionManager (ver ese archivo para el
+# fix equivalente). Tope generoso, desalojando la tarea más VIEJA por
+# created_at cuando se supera.
+_MAX_TASKS = 1000
+
 
 class TaskExecutor:
     def __init__(
@@ -49,6 +58,9 @@ class TaskExecutor:
     def submit(self, description: str) -> Task:
         task = Task(description=description)
         self._tasks[task.id] = task
+        if len(self._tasks) > _MAX_TASKS:
+            oldest_id = min(self._tasks, key=lambda tid: self._tasks[tid].created_at)
+            del self._tasks[oldest_id]
         return task
 
     def get(self, task_id: str) -> Task | None:

@@ -12,8 +12,10 @@ de permiso que auditar, solo el resultado real de compilar/instalar.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+from uuid import UUID
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from audit.audit_log import AuditEvent, audit_log
 
@@ -24,11 +26,23 @@ class AndroidBuildOutcomeRequest(BaseModel):
     # "installed" | "build_failed" | "no_device" | "discarded" — ver
     # vscode-extension/src/androidBuild.ts para cada caso real.
     outcome: str
-    detail: str = ""
+    detail: str = Field(default="", max_length=2000)
 
 
 @router.post("/android-build/{request_id}/report-outcome")
 def report_android_build_outcome(request_id: str, req: AndroidBuildOutcomeRequest):
+    # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    # 2026-09-26), parte de C-4: sin token admin a propósito (mismo
+    # motivo que report_filesystem_access_outcome en
+    # agent_core/routers/permissions.py — la extensión de VS Code no
+    # tiene forma de obtener el token), pero sin esta validación
+    # cualquiera podía inyectar entradas arbitrarias en el log de
+    # auditoría. Los IDs reales siempre son uuid4 (ver
+    # tool_integration/adapters/vscode_android.py).
+    try:
+        UUID(request_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="request_id inválido.")
     audit_log.record(
         AuditEvent(
             event_type="android_build_completed" if req.outcome == "installed" else "android_build_failed",

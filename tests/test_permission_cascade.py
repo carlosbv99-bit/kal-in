@@ -19,6 +19,7 @@ from kernel.permissions.permission_cascade import PermissionCascade, trust_tier_
 from sdk.permissions import Permission
 from kernel.registry.registry import DynamicSandboxedTool
 from kernel.registry.sandboxed_skill import SandboxedSkillTool
+from utils.config import settings
 
 
 # --- trust_tier_for() — la señal de confianza viene del TIPO del wrapper,
@@ -102,3 +103,22 @@ def test_cascade_only_reports_what_was_actually_requested():
     cascade = PermissionCascade(_FakeCascadeConfig())
     missing = cascade.missing_permissions(frozenset({Permission.FILESYSTEM_READ}), "skill")
     assert missing == frozenset()  # skill SÍ cubre filesystem_read
+
+
+# --- Test de contrato (A-5, auditoría externa Likay-OS, 2026-09-26) ---
+#
+# Contra la config REAL (config/config.yaml vía utils.config.settings,
+# no un _FakeCascadeConfig) — si alguien alguna vez vacía
+# globally_denied "temporalmente" para probar algo y se olvida de
+# revertirlo, o trust_tier_for() alguna vez clasifica mal una
+# herramienta como "system", este test falla en vez de dejar pasar en
+# silencio el permiso más peligroso del sistema (docker: acceso
+# directo al daemon del host, fuera del sandbox que todo lo demás
+# respeta).
+
+
+def test_dangerous_permissions_are_globally_denied_by_default_even_for_system_tier():
+    cascade = PermissionCascade(settings.permissions)
+    dangerous = frozenset({Permission.DOCKER, Permission.CAMERA, Permission.MICROPHONE, Permission.CLIPBOARD})
+    missing = cascade.missing_permissions(dangerous, "system")
+    assert missing == dangerous

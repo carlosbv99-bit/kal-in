@@ -47,13 +47,13 @@ class FakeTaskExecutor:
 
 
 class FakeMemoryManager:
-    def remember(self, content, metadata=None):
+    def remember(self, content, metadata=None, session_id=None):
         class Item:
             id = "fake-id"
 
         return Item()
 
-    def recall(self, query, top_k=3):
+    def recall(self, query, top_k=3, session_id=None):
         return {"short_term": [], "mid_term": [], "long_term": []}
 
 

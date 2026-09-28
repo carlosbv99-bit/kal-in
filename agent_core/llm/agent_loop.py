@@ -343,19 +343,28 @@ class AgentLoop:
         )
 
     def _current_tools(
-        self, client: str | None = None, required_capabilities: list[str] | None = None
+        self,
+        client: str | None = None,
+        required_capabilities: list[str] | None = None,
+        session_id: str | None = None,
     ) -> dict[str, AgentTool]:
         if self._explicit_tools is not None:
             return self._explicit_tools
-        return self._build_tools_from_registry(client, required_capabilities)
+        return self._build_tools_from_registry(client, required_capabilities, session_id)
 
     def _build_tools_from_registry(
-        self, client: str | None = None, required_capabilities: list[str] | None = None
+        self,
+        client: str | None = None,
+        required_capabilities: list[str] | None = None,
+        session_id: str | None = None,
     ) -> dict[str, AgentTool]:
         instance_tools: dict[str, Tool] = {
             "run_code": CodeExecutionTool(self.task_executor),
-            "remember": MemoryRememberTool(self.memory),
-            "recall": MemoryRecallTool(self.memory),
+            # session_id: ver A-4 en agent_core/memory/manager.py — sin
+            # esto, remember()/recall() de esta conversación se mezclaban
+            # con los de cualquier otra sesión activa en el mismo proceso.
+            "remember": MemoryRememberTool(self.memory, session_id=session_id),
+            "recall": MemoryRecallTool(self.memory, session_id=session_id),
         }
         merged: dict[str, Tool] = {**self.tool_registry.active_tools(), **instance_tools}
         excluded = get_client_provider(client).excluded_tool_names()
@@ -392,8 +401,19 @@ class AgentLoop:
         Solo se acepta si el JSON tiene "name" con un nombre de
         herramienta que existe — así un JSON cualquiera que el modelo
         mencione al pasar no se confunde con un tool call.
+
+        VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+        2026-09-26), B-1 (amplificador de A-2/A-3): allow_embedded=False
+        en ambas llamadas de abajo — este es el camino que EJECUTA una
+        herramienta real, así que un JSON con forma de tool call que
+        solo aparece DENTRO de un bloque de prosa más largo (p.ej. el
+        modelo citando/resumiendo el contenido de una página web que
+        contiene ese JSON a propósito) ya no cuenta como candidato. Solo
+        se acepta si el JSON es la respuesta COMPLETA del modelo, o un
+        bloque ```json``` — los dos casos reales confirmados con
+        qwen2.5-coder:14b (ver más arriba), nunca un fragmento citado.
         """
-        data = extract_json_object(content)
+        data = extract_json_object(content, allow_embedded=False)
         if data is not None and data.get("name") in tools:
             arguments = data.get("arguments", {})
             if isinstance(arguments, dict):
@@ -409,7 +429,7 @@ class AgentLoop:
         # "todo el código en una sola línea") en vez de crear la
         # propuesta de verdad.
         if "propose_project_files" in tools:
-            files = extract_json_array(content)
+            files = extract_json_array(content, allow_embedded=False)
             if files and all(
                 isinstance(f, dict) and isinstance(f.get("path"), str) and isinstance(f.get("content"), str)
                 for f in files
@@ -476,6 +496,7 @@ class AgentLoop:
         client: str | None = None,
         required_capabilities: list[str] | None = None,
         on_step: Callable[[AgentStep], None] | None = None,
+        session_id: str | None = None,
     ) -> AgentRunResult:
         """
         `history` (turnos previos de la misma sesión, ver
@@ -524,7 +545,7 @@ class AgentLoop:
         """
         max_steps = max_steps or settings.llm.max_agent_steps
         max_tool_repeats = max_tool_repeats or settings.llm.max_tool_repeats
-        tools = self._current_tools(client, required_capabilities)
+        tools = self._current_tools(client, required_capabilities, session_id)
         # BUG REAL ENCONTRADO EN USO: session_context como un SEGUNDO
         # mensaje role="system" separado (en vez de fundido en el
         # primero) hacía que qwen3-coder:30b lo ignorara por completo —

@@ -4,46 +4,59 @@
 # la lista real que hace falta para que la suite de tests colecte y corra,
 # no una suposición por análisis estático de imports.
 
+# VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+# 2026-09-26), M-9: ninguna dependencia tenía techo superior — un
+# `pip install` futuro podía instalar en silencio un major nuevo (o una
+# versión comprometida/yankeada y republicada bajo el mismo rango) sin
+# que nada lo notara. Techo al PRÓXIMO MAJOR (generoso: nunca bloquea
+# un patch/minor real dentro del mismo major) para cada paquete
+# directo. Fuera de alcance de este fix: un lockfile con hashes
+# (pip-compile/poetry) que fije también el árbol TRANSITIVO completo —
+# necesita resolver contra la red y verificarse aparte, no algo para
+# improvisar a ciegas acá.
+
 # --- Core ---
-pydantic>=2.6
-pydantic-settings>=2.2
-PyYAML>=6.0
-python-dotenv>=1.0
-requests>=2.31          # usado directamente por agent_core/llm/ollama_client.py
+pydantic>=2.6,<3.0
+pydantic-settings>=2.2,<3.0
+PyYAML>=6.0,<7.0
+python-dotenv>=1.0,<2.0
+requests>=2.31,<3.0          # usado directamente por agent_core/llm/ollama_client.py
 
 # --- Web / API ---
-fastapi>=0.110
-uvicorn[standard]>=0.29
-python-multipart>=0.0.9  # requisito de FastAPI para UploadFile/Form (POST /uploads)
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29,<1.0
+python-multipart>=0.0.9,<0.1.0  # requisito de FastAPI para UploadFile/Form (POST /uploads)
 
 # --- Memoria ---
 # Mediano plazo
-sqlalchemy>=2.0
+sqlalchemy>=2.0,<3.0
 # Largo plazo — chromadb es NO perezoso (LongTermMemory._build_client() lo
 # importa en __init__, y MemoryManager se construye como singleton al
 # importar agent_core/orchestrator.py), así que va en core y no en
-# multimodal pese a ser parte del stack de memoria "pesada".
-chromadb>=0.4
+# multimodal pese a ser parte del stack de memoria "pesada". El piso
+# >=0.4 quedó viejo frente a lo real instalado (1.5.x) — techo relativo
+# a ESO, no al piso histórico.
+chromadb>=0.4,<2.0
 # qdrant-client>=1.8  # alternativa para producción
 
 # --- Sandbox ---
-docker>=7.0
+docker>=7.0,<8.0
 
 # --- Firmas digitales de herramientas dinámicas ---
-cryptography>=42.0
+cryptography>=42.0,<51.0
 
 # --- Utilidades ---
-tenacity>=8.2          # reintentos con backoff
-structlog>=24.1         # logging estructurado
-psutil>=5.9            # RAM disponible del sistema, ver kernel/broker/resource_broker.py
+tenacity>=8.2,<10.0          # reintentos con backoff
+structlog>=24.1,<27.0         # logging estructurado
+psutil>=5.9,<8.0            # RAM disponible del sistema, ver kernel/broker/resource_broker.py
 
 # --- Imágenes ---
 # Pillow (no solo diffusers/rembg) se usa directo en varios módulos core
 # (download_manager.py, image_editing.py) y en tests sin importorskip —
 # va en core, no en multimodal.
-Pillow>=10.0
+Pillow>=10.0,<12.0
 
 # --- Clasificador local de necesidad de herramienta ---
 # TF-IDF + regresión logística (agent_core/tool_need_classifier.py) —
 # CPU puro, sin GPU, joblib viene como dependencia transitiva.
-scikit-learn>=1.4
+scikit-learn>=1.4,<2.0

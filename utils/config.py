@@ -218,6 +218,14 @@ class VideoGenConfig(BaseModel):
     fps: int = 24
     seconds_per_scene: int = 4
     artifact_dir: str = "data/artifacts/video"
+    # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    # 2026-09-26), B-3: `scenes` no tenía ningún tope — cada escena
+    # dispara una generación de imagen (SDXL-Turbo) Y una narración TTS
+    # reales, más su propio tramo de video. Un pedido (o una inyección
+    # de prompt) con cientos de escenas es cómputo real sin control,
+    # nunca un simple "pedido grande legítimo": un video explicativo
+    # real rara vez pasa de una docena de escenas.
+    max_scenes: int = 20
 
 
 class STTConfig(BaseModel):
@@ -485,7 +493,20 @@ class PermissionCascadeConfig(BaseModel):
       por defecto, aunque su propio manifest declare requires_network=True;
       hace falta subir esto acá explícitamente para habilitarlo de verdad.
     """
-    globally_denied: list[str] = Field(default_factory=list)
+    # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    # 2026-09-26), A-5: vacío por defecto significaba que el ÚNICO
+    # techo real para docker/camera/microphone/clipboard era
+    # trust_tier_caps["system"] — si trust_tier_for() alguna vez
+    # clasifica mal una herramienta (o una futura herramienta de
+    # primera parte declara uno de estos permisos sin necesitarlo de
+    # verdad), no había ninguna segunda barrera independiente. HOY
+    # ninguna herramienta real declara estos 4 permisos (confirmado por
+    # grep en todo tool_integration/kernel/sdk) — este default no
+    # bloquea nada existente, cierra la puerta a que algo lo haga sin
+    # que alguien lo saque explícitamente de esta lista a propósito.
+    globally_denied: list[str] = Field(
+        default_factory=lambda: ["docker", "camera", "microphone", "clipboard"]
+    )
     trust_tier_caps: dict[str, list[str]] = Field(default_factory=lambda: {
         "system": ["filesystem_read", "filesystem_write", "network", "browser",
                    "gpu", "camera", "microphone", "clipboard", "docker"],

@@ -12,9 +12,12 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from agent_core import orchestrator as orchestrator_module
-from agent_core.orchestrator import app
+from agent_core.orchestrator import _ADMIN_TOKEN, app
 
 client = TestClient(app, base_url="http://localhost")
+# C-4 (auditoría externa Likay-OS, 2026-09-26): estos endpoints ahora
+# exigen token admin — ver agent_core/routers/memory.py.
+_HEADERS = {"X-Kal-Admin-Token": _ADMIN_TOKEN}
 
 
 class _FakeMemoryManager:
@@ -42,7 +45,7 @@ def test_delete_a_single_item_delegates_to_memory_manager_forget(monkeypatch):
     fake = _FakeMemoryManager()
     monkeypatch.setattr(orchestrator_module.orchestrator, "memory", fake)
 
-    response = client.delete("/memory/long_term/algun-id")
+    response = client.delete("/memory/long_term/algun-id", headers=_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {"deleted": "algun-id", "tier": "long_term"}
@@ -53,7 +56,7 @@ def test_delete_a_single_item_with_an_invalid_tier_returns_400(monkeypatch):
     fake = _FakeMemoryManager(raise_on_forget=ValueError("Nivel de memoria inválido: 'x'"))
     monkeypatch.setattr(orchestrator_module.orchestrator, "memory", fake)
 
-    response = client.delete("/memory/x/algun-id")
+    response = client.delete("/memory/x/algun-id", headers=_HEADERS)
 
     assert response.status_code == 400
 
@@ -62,7 +65,7 @@ def test_bulk_delete_with_a_keyword_filter(monkeypatch):
     fake = _FakeMemoryManager(forget_matching_return=3)
     monkeypatch.setattr(orchestrator_module.orchestrator, "memory", fake)
 
-    response = client.delete("/memory", params={"keyword": "openai"})
+    response = client.delete("/memory", params={"keyword": "openai"}, headers=_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {"deleted_count": 3}
@@ -77,7 +80,7 @@ def test_bulk_delete_without_any_filter_returns_400():
     parámetros — MemoryManager.forget_matching() se protege a sí mismo
     (ValueError), el router lo traduce a 400.
     """
-    response = client.delete("/memory")
+    response = client.delete("/memory", headers=_HEADERS)
 
     assert response.status_code == 400
 
@@ -89,6 +92,7 @@ def test_bulk_delete_passes_through_all_supported_filters(monkeypatch):
     response = client.delete(
         "/memory",
         params={"tier": "mid_term", "classification": "secret", "before": "1000", "after": "500"},
+        headers=_HEADERS,
     )
 
     assert response.status_code == 200

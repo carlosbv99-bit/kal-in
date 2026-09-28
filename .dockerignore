@@ -1,0 +1,32 @@
+# VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+# 2026-09-26), C-1: el Dockerfile hace `COPY . .` sin ningún
+# .dockerignore — .gitignore NUNCA se aplica al build context de
+# Docker (son mecanismos completamente separados). Sin este archivo,
+# construir la imagen sobre un checkout que ya corrió localmente
+# (data/keys/ con la clave de firma Ed25519 real + el token admin real)
+# los hornea DENTRO de las capas de la imagen. El bind mount de
+# docker-compose.yml (./data:/app/data) NO borra esto: solo lo tapa en
+# runtime — la copia horneada sigue extraíble de las capas de la
+# imagen (docker save/history) aunque el contenedor en ejecución nunca
+# la muestre.
+
+.git/
+.venv/
+venv/
+data/
+logs/
+*.db
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+tests/
+docs/
+dist/
+.env
+.env.*
+!.env.example
+vscode-extension/node_modules/
+vscode-extension/out/
+vscode-extension/*.vsix
+.claude/

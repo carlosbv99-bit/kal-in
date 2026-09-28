@@ -21,7 +21,7 @@ def test_installed_outcome_is_recorded_as_success():
     audit_log.record = lambda event: calls.append(event) or original_record(event)
     try:
         response = client.post(
-            "/android-build/req-1/report-outcome",
+            "/android-build/11111111-1111-4111-8111-111111111111/report-outcome",
             json={"outcome": "installed", "detail": "app-debug.apk instalado en Pixel_7"},
         )
     finally:
@@ -30,7 +30,7 @@ def test_installed_outcome_is_recorded_as_success():
     assert response.status_code == 200
     assert calls[0].event_type == "android_build_completed"
     assert calls[0].outcome == "success"
-    assert calls[0].context["request_id"] == "req-1"
+    assert calls[0].context["request_id"] == "11111111-1111-4111-8111-111111111111"
 
 
 def test_build_failed_outcome_is_recorded_as_failure():
@@ -39,7 +39,7 @@ def test_build_failed_outcome_is_recorded_as_failure():
     audit_log.record = lambda event: calls.append(event) or original_record(event)
     try:
         response = client.post(
-            "/android-build/req-2/report-outcome",
+            "/android-build/22222222-2222-4222-8222-222222222222/report-outcome",
             json={"outcome": "build_failed", "detail": "error: unresolved reference 'foo'"},
         )
     finally:
@@ -51,12 +51,12 @@ def test_build_failed_outcome_is_recorded_as_failure():
 
 
 def test_no_device_outcome_is_recorded_as_failure():
-    response = client.post("/android-build/req-3/report-outcome", json={"outcome": "no_device", "detail": ""})
+    response = client.post("/android-build/33333333-3333-4333-8333-333333333333/report-outcome", json={"outcome": "no_device", "detail": ""})
     assert response.status_code == 200
-    assert response.json() == {"id": "req-3", "outcome": "no_device"}
+    assert response.json() == {"id": "33333333-3333-4333-8333-333333333333", "outcome": "no_device"}
 
 
 def test_response_echoes_request_id_and_outcome():
-    response = client.post("/android-build/req-4/report-outcome", json={"outcome": "discarded"})
+    response = client.post("/android-build/44444444-4444-4444-8444-444444444444/report-outcome", json={"outcome": "discarded"})
     assert response.status_code == 200
-    assert response.json() == {"id": "req-4", "outcome": "discarded"}
+    assert response.json() == {"id": "44444444-4444-4444-8444-444444444444", "outcome": "discarded"}

@@ -34,7 +34,9 @@ resto del código de la skill puede importar libremente `sdk.*`, nunca
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import stat
 import tempfile
 import uuid
 from pathlib import Path
@@ -253,10 +255,31 @@ class SandboxedSkillTool(Tool):
         de nada al runner (ya se leyó en load_skills()) y __pycache__
         puede tener .pyc de una versión de Python distinta a la de la
         imagen del contenedor.
+
+        VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+        2026-09-26), A-1: `path.is_file()` sigue symlinks. Distinto del
+        K-2 ya corregido en docker_runner.py::_collect_output_files()
+        (ese era sobre la salida de un contenedor, escribible por
+        código YA sandboxeado); acá el riesgo es sobre skills/<x>/ en
+        el HOST — quien pueda escribir ahí (un paquete de skill de
+        terceros, o el mismo bug de TOCTOU que motivó la re-verificación
+        de firma arriba) podía dejar un symlink apuntando a cualquier
+        archivo del host, y este proceso lo leía sin darse cuenta y lo
+        mandaba dentro del contenedor. Mismo fix en dos capas que K-2:
+        `os.lstat` (nunca sigue symlinks) descarta el symlink de
+        archivo, y `.resolve().is_relative_to(root)` cubre además un
+        directorio intermedio symlinkeado.
         """
         files: dict[str, str | bytes] = {}
+        resolved_root = self.skill_dir.resolve()
         for path in self.skill_dir.rglob("*"):
-            if not path.is_file():
+            try:
+                st = os.lstat(path)
+            except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            if not path.resolve().is_relative_to(resolved_root):
                 continue
             if path.name == "skill.yaml" or "__pycache__" in path.parts or path.suffix == ".pyc":
                 continue

@@ -187,6 +187,10 @@ multimodal:
     fps: 24
     seconds_per_scene: 4
     artifact_dir: "data/artifacts/video"
+    # B-3 (auditoría externa Likay-OS, 2026-09-26): cada escena es una
+    # generación de imagen + TTS reales — tope contra un pedido (o una
+    # inyección de prompt) con una cantidad desproporcionada de escenas.
+    max_scenes: 20
 
   stt:
     backend: local                       # solo local por ahora (faster-whisper, CPU)
@@ -368,9 +372,16 @@ tool_integration:
 # esto técnicamente?" vs. "¿este contexto concreto puede pedirlo?").
 permissions:
   # Techo del sistema entero: nadie por debajo puede otorgar un permiso
-  # listado acá, pase lo que pase. Vacío por defecto — no hay ninguna
-  # prohibición global todavía, cada instalación la ajusta a su criterio.
-  globally_denied: []
+  # listado acá, pase lo que pase.
+  #
+  # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+  # 2026-09-26), A-5: vacío dejaba trust_tier_caps.system como el ÚNICO
+  # techo real para docker/camera/microphone/clipboard — sin segunda
+  # barrera independiente si algo clasificara mal una herramienta. Hoy
+  # ninguna herramienta real pide estos 4 permisos (confirmado por
+  # grep) — sacarlos de acá es una decisión explícita de quien
+  # despliegue esto, no un default silencioso.
+  globally_denied: [docker, camera, microphone, clipboard]
   # Techo por CÓMO se registró la herramienta (nunca por lo que la propia
   # herramienta/skill se autodeclare) — ver
   # kernel/permissions/permission_cascade.py::trust_tier_for().

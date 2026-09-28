@@ -20,10 +20,30 @@ services:
       - vector_store
     networks:
       - agent_net
-    # El agente NO tiene acceso directo al socket de Docker.
-    # La ejecución de sandbox se delega al servicio `sandbox_runner`
-    # vía una API interna, para que un fallo en el agente no implique
-    # acceso directo al daemon de Docker del host.
+    # El agente NO tiene acceso directo al socket de Docker — y, desde
+    # el fix de M-11 (auditoría externa Likay-OS, 2026-09-26), tampoco
+    # comparte RED con quien sí lo tiene (`sandbox_runner`/
+    # `docker_socket_proxy`, ver `sandbox_net` más abajo). Antes de este
+    # fix, `docker_socket_proxy` no tenía NINGUNA autenticación propia
+    # y vivía en `agent_net`, la MISMA red que `agent` — un `agent`
+    # comprometido (cualquier RCE futura, ninguna hoy conocida) podía
+    # conectarse directo a `docker_socket_proxy:2375` y hablarle a
+    # Docker él mismo, sin pasar por `sandbox_runner` ni por ningún
+    # código de agent_core.
+    #
+    # NOTA DE ARQUITECTURA (encontrada al investigar este fix, sin
+    # relación directa con M-11 pero real): kernel/lifecycle/executor.py
+    # habla con Docker DIRECTO vía el SDK de Python (docker.from_env()),
+    # nunca por HTTP a sandbox_runner — y el servicio `agent` de este
+    # compose no monta el socket de Docker ni define DOCKER_HOST, así
+    # que ese camino no puede conectarse a nada en este despliegue
+    # containerizado tal como está hoy (sí funciona en el modo de
+    # desarrollo de scripts/run_kal.sh, un solo proceso con acceso
+    # directo al Docker real del host). Separar las redes acá no rompe
+    # ningún camino que hoy funcione de verdad en docker-compose — deja
+    # además más visible que conectar `agent` con `sandbox_runner` de
+    # verdad requeriría una decisión de red explícita, no un efecto
+    # secundario de compartir `agent_net` sin querer.
 
   # Recomendación de una auditoría externa (2026-08-24, ver
   # docs/HISTORY.md): interponer un proxy de control entre
@@ -65,13 +85,26 @@ services:
       - SECRETS=0
       - PLUGINS=0
     networks:
-      - agent_net
-    # Sin puertos publicados al host: solo alcanzable desde agent_net.
+      - sandbox_net
+    # M-11 (auditoría externa Likay-OS, 2026-09-26): `sandbox_net` es
+    # una red PROPIA, separada de `agent_net` — este proxy no tiene
+    # ninguna autenticación suya (tecnativa/docker-socket-proxy no la
+    # ofrece de fábrica sin configurar TLS de cliente aparte), así que
+    # la única barrera real hoy es de qué red puede alcanzarlo. Antes,
+    # compartía `agent_net` con el contenedor `agent` — cualquiera ahí
+    # podía hablarle directo a Docker, sin pasar por `sandbox_runner`.
+    # Sin puertos publicados al host: solo alcanzable desde sandbox_net.
 
   sandbox_runner:
     build:
       context: .
       dockerfile: kernel/lifecycle/Dockerfile
+    # env_file: hallazgo C-3 (auditoría externa Likay-OS, 2026-09-26):
+    # POST /execute (kernel/api/sandbox_api.py) corría código arbitrario
+    # sin autenticación, alcanzable desde cualquier servicio de
+    # agent_net. SANDBOX_RUNNER_SECRET (definida en .env, mismo valor
+    # que lee `agent`) ahora se exige en el header X-Sandbox-Secret.
+    env_file: .env
     environment:
       - DOCKER_HOST=tcp://docker_socket_proxy:2375  # nunca el socket real, ver proxy arriba
       - SANDBOX_NETWORK_MODE=none
@@ -82,9 +115,13 @@ services:
     depends_on:
       - docker_socket_proxy
     networks:
-      - agent_net
+      - sandbox_net
     # Este servicio es el único con privilegios para lanzar contenedores
-    # efímeros. Superficie de ataque aislada del resto del sistema.
+    # efímeros. Superficie de ataque aislada del resto del sistema — ver
+    # M-11 arriba: `sandbox_net` es una red propia, sin `agent` adentro.
+    # Sin puertos publicados al host: sandbox_api.py solo se alcanza vía
+    # sandbox_net, nunca desde afuera (y ahora además exige
+    # SANDBOX_RUNNER_SECRET, ver C-3 arriba).
 
   vector_store:
     image: chromadb/chroma:latest
@@ -98,3 +135,10 @@ networks:
   agent_net:
     driver: bridge
     internal: false  # true en producción si no se necesita salida a internet
+  # M-11 (auditoría externa Likay-OS, 2026-09-26): red propia para
+  # sandbox_runner/docker_socket_proxy, separada de agent_net — `agent`
+  # no participa acá, así que no tiene ninguna ruta de red hacia el
+  # proxy de Docker aunque su propio proceso se comprometa.
+  sandbox_net:
+    driver: bridge
+    internal: true  # nunca necesita salida directa a internet propia

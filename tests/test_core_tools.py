@@ -40,7 +40,7 @@ class FakeMemoryManager:
     def __init__(self):
         self.remembered = []
 
-    def remember(self, content, metadata=None):
+    def remember(self, content, metadata=None, session_id=None):
         self.remembered.append(content)
 
         class Item:
@@ -48,7 +48,7 @@ class FakeMemoryManager:
 
         return Item()
 
-    def recall(self, query, top_k=3):
+    def recall(self, query, top_k=3, session_id=None):
         return {"short_term": [], "mid_term": [], "long_term": []}
 
 
@@ -109,7 +109,7 @@ def test_recall_with_no_results_reports_empty():
 
 def test_recall_formats_results_by_tier():
     class MemoryWithResults(FakeMemoryManager):
-        def recall(self, query, top_k=3):
+        def recall(self, query, top_k=3, session_id=None):
             return {
                 "short_term": [MemoryItem(content="a", confidence=MemoryConfidence.TEMPORAL)],
                 "mid_term": [],
@@ -133,7 +133,7 @@ def test_recall_marks_confidence_level_so_llm_can_distinguish_trust():
     humano) — el LLM no tenía cómo priorizar.
     """
     class MemoryWithResults(FakeMemoryManager):
-        def recall(self, query, top_k=3):
+        def recall(self, query, top_k=3, session_id=None):
             return {
                 "short_term": [MemoryItem(content="dato sin confirmar", confidence=MemoryConfidence.APRENDIDA)],
                 "mid_term": [],
@@ -148,7 +148,7 @@ def test_recall_marks_confidence_level_so_llm_can_distinguish_trust():
 
 def test_recall_never_filters_local_only_items_when_provider_is_local():
     class MemoryWithResults(FakeMemoryManager):
-        def recall(self, query, top_k=3):
+        def recall(self, query, top_k=3, session_id=None):
             return {
                 "short_term": [MemoryItem(content="secreto local", metadata={"sharing": "local_only"})],
                 "mid_term": [], "long_term": [],
@@ -169,7 +169,7 @@ def test_recall_filters_out_local_only_items_when_a_cloud_provider_is_active(mon
     LLM activo.
     """
     class MemoryWithResults(FakeMemoryManager):
-        def recall(self, query, top_k=3):
+        def recall(self, query, top_k=3, session_id=None):
             return {
                 "short_term": [MemoryItem(content="secreto local", metadata={"sharing": "local_only"})],
                 "mid_term": [],
@@ -190,7 +190,7 @@ def test_recall_treats_missing_sharing_metadata_as_local_only_by_default(monkeyp
     (o por cualquier otro motivo sin `sharing` en su metadata) se trata
     como local_only, nunca como compartible por omisión."""
     class MemoryWithResults(FakeMemoryManager):
-        def recall(self, query, top_k=3):
+        def recall(self, query, top_k=3, session_id=None):
             return {"short_term": [MemoryItem(content="sin metadata de sharing")], "mid_term": [], "long_term": []}
 
     monkeypatch.setattr(settings.llm, "provider", "openai_compatible")

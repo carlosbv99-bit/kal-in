@@ -40,7 +40,20 @@ const _SECURITY_NOTICE_SHOWN_KEY = "kal.androidBuild.securityNoticeShown";
 
 function runProcess(command: string, args: string[], cwd?: string): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd, shell: process.platform === "win32" });
+    // VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    // 2026-09-26), A-9: shell:true en Windows hace que Node concatene
+    // command+args como un string y lo reinterprete vía cmd.exe — un
+    // argumento con metacaracteres de shell (&, |, ^, etc.) se ejecuta
+    // como comando adicional, no como dato literal. Varios args acá
+    // vienen de datos NO totalmente controlados por este código
+    // (apkPath por vscode.workspace.findFiles, packageName parseado
+    // del manifiesto de un APK real vía aapt, targetSerial de `adb
+    // devices`) — sin shell:true, Node pasa cada elemento de `args`
+    // literal al proceso (CreateProcess de Windows), sin reinterpretar
+    // NADA como shell, incluso para gradlew.bat/.cmd (Node ya lo
+    // maneja de forma segura de forma nativa desde el fix de
+    // CVE-2024-27980 — agregar shell:true acá lo reintroducía).
+    const child = spawn(command, args, { cwd });
     let output = "";
     child.stdout?.on("data", (chunk) => {
       output += chunk.toString();
@@ -118,6 +131,13 @@ async function ensureSecurityNoticeShownOnce(context: vscode.ExtensionContext): 
   // aviso puntual informativo, no una fricción que haya que confirmar
   // cada vez (ver docs/HISTORY.md para la discusión completa de por
   // qué esto NO es un bloqueo estricto).
+  //
+  // RIESGO ACEPTADO Y DOCUMENTADO (auditoría externa Likay-OS,
+  // 2026-09-26, A-9): esa auditoría recomienda un modal bloqueante
+  // antes de CADA build/instalación — re-confirmado con el usuario
+  // tras esa auditoría, decisión sin cambios: se mantiene el aviso
+  // único no bloqueante (mismo criterio que K-3 en
+  // docs/SECURITY-AUDIT-2026-09-26.md).
   vscode.window.showWarningMessage(
     "Kal-in va a compilar tu proyecto Android e instalarlo en el dispositivo conectado. Compilar con Gradle " +
       "ejecuta código real (mismo riesgo que cualquier build de Gradle, con o sin kal-in) — si prefieres " +

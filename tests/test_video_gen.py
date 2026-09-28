@@ -58,6 +58,20 @@ def test_rejects_empty_scene_list(tool):
         tool.execute(scenes=[])
 
 
+def test_rejects_more_scenes_than_the_configured_maximum(tool, monkeypatch):
+    """
+    B-3 (auditoría externa Likay-OS, 2026-09-26): sin este tope, cada
+    escena de más es una generación de imagen + TTS reales sin límite —
+    el rechazo debe ocurrir ANTES de generar nada (nunca gasta cómputo
+    real en escenas que después de todos modos se van a rechazar).
+    """
+    monkeypatch.setattr(settings.multimodal.video, "max_scenes", 2)
+    scenes = [{"narration": "x", "image_prompt": "x"} for _ in range(3)]
+
+    with pytest.raises(ValueError, match="máximo permitido"):
+        tool.execute(scenes=scenes)
+
+
 def test_metadata_includes_scene_references(tool):
     scenes = [{"narration": "Prueba de metadata.", "image_prompt": "a mountain landscape"}]
     artifact = tool.execute(scenes=scenes)

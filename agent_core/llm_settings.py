@@ -20,13 +20,17 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import psutil
 import requests
+import yaml
 
 from agent_core.llm.openai_compatible_client import OpenAICompatibleClient
+from kernel.permissions.network_safety import is_unsafe_ip
 from utils.config import settings
 from utils.logger import get_logger
 
@@ -52,6 +56,43 @@ _CLOUD_PROFILES_PATH = Path("data/keys/cloud_profiles.json")
 
 class LLMSettingsError(Exception):
     """La actualización pedida es inválida — nada se escribió a disco."""
+
+
+def _validate_cloud_base_url(base_url: str) -> None:
+    """
+    VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    2026-09-26), A-7: un proveedor "openai_compatible" es, por
+    definición, un servicio EN LA NUBE (a diferencia de "ollama", que
+    sí soporta un base_url propio en la LAN a propósito) — no hay
+    ningún caso de uso legítimo para que apunte a una IP privada/
+    interna, y mandar LLM_API_KEY por http:// en vez de https:// la
+    expone en texto plano en la red. Este endpoint ya exige token
+    admin (ver require_admin_token en agent_core/orchestrator.py), pero
+    es la misma filosofía de "cada capa se protege sola" que el resto
+    de este archivo (p.ej. _ensure_enough_ram_to_load): un perfil
+    guardado con un base_url malicioso (data/keys/cloud_profiles.json
+    manipulado por fuera de este código) no debe poder redirigir la
+    API key ni el tráfico del agente hacia un servicio interno.
+    """
+    parsed = urlparse(base_url)
+    if parsed.scheme != "https":
+        raise LLMSettingsError(
+            f"'base_url' de un proveedor en la nube debe usar https:// (recibido: {parsed.scheme or '(ninguno)'}) "
+            "— http:// expondría la API key en texto plano en la red."
+        )
+    hostname = parsed.hostname
+    if not hostname:
+        raise LLMSettingsError(f"'base_url' inválida: no se pudo determinar el host de '{base_url}'.")
+    try:
+        resolved_ip = socket.gethostbyname(hostname)
+    except OSError:
+        raise LLMSettingsError(f"No se pudo resolver el host '{hostname}' de 'base_url'.")
+    if is_unsafe_ip(resolved_ip):
+        raise LLMSettingsError(
+            f"'base_url' resuelve a una IP privada/interna ({resolved_ip}) — un proveedor en la nube "
+            "nunca debería apuntar ahí. Si necesitás un backend propio en tu red, usá provider='ollama' "
+            "con un base_url propio, no 'openai_compatible'."
+        )
 
 
 def read_llm_env_var(key: str) -> str | None:
@@ -115,6 +156,7 @@ def update_llm_settings(
                 "Falta 'base_url' — un proveedor en la nube necesita la URL completa de su "
                 "API (p.ej. https://api.x.ai/v1), nunca el default de Ollama local."
             )
+        _validate_cloud_base_url(effective_base_url)
         effective_api_key = api_key or read_llm_env_var("LLM_API_KEY")
         if not effective_api_key:
             raise LLMSettingsError(
@@ -218,6 +260,11 @@ def save_cloud_profile(name: str, base_url: str, api_key: str) -> None:
 
     _CLOUD_PROFILES_PATH.parent.mkdir(parents=True, exist_ok=True)
     _CLOUD_PROFILES_PATH.write_text(json.dumps(profiles, indent=2), encoding="utf-8")
+    # B-2 (auditoría externa Likay-OS, 2026-09-26): quedaba con los
+    # permisos por defecto del proceso (típicamente 0644, legible por
+    # cualquier otro usuario del sistema) — mismo criterio que
+    # utils/admin_token.py::get_or_create_admin_token().
+    _CLOUD_PROFILES_PATH.chmod(0o600)
 
     if api_key:
         _update_env_var(api_key_env, api_key)
@@ -475,18 +522,53 @@ def pull_ollama_model(model: str) -> None:
 
 
 def _update_yaml_field(key: str, value: str) -> None:
+    """
+    VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+    2026-09-26), M-5: `value` se embebía como f'"{value}"' crudo — un
+    valor con una comilla o un salto de línea rompía el YAML, o peor,
+    INYECTABA nuevas claves. No es un caso solo teórico: default_model
+    puede llegar acá elegido automáticamente por
+    _first_chat_capable_model(), que lee nombres de modelo devueltos
+    por el SERVIDOR del proveedor en la nube configurado — un proveedor
+    comprometido/malicioso podría devolver un nombre con esa forma.
+    yaml.safe_dump() produce un escalar YAML correctamente escapado
+    (comillas, saltos de línea, backslashes) sin depender de que
+    `value` nunca contenga nada especial.
+    """
+    if "\n" in value or "\r" in value:
+        # La sustitución de abajo reemplaza UNA línea completa — un
+        # valor multilínea (p.ej. un "modelo" con un salto de línea
+        # embebido, devuelto por un proveedor en la nube comprometido
+        # vía _first_chat_capable_model()) no tiene una representación
+        # YAML de una sola línea segura acá. Fail closed, igual que
+        # _update_env_var().
+        raise LLMSettingsError(f"El valor para '{key}' no puede contener saltos de línea.")
+
     text = _CONFIG_PATH.read_text(encoding="utf-8")
+    # yaml.safe_dump de un dict de una clave (en vez del valor pelado)
+    # evita el marcador de fin de documento "..." que PyYAML agrega
+    # SIEMPRE que el nodo raíz de un dump es un escalar suelto.
+    dumped = yaml.safe_dump({"v": value}).strip()
+    safe_value = dumped[len("v:"):].strip()
     # Ancla a INICIO DE LÍNEA — nunca matchea los ejemplos comentados
     # (p.ej. "  #     base_url: ...") porque después de la indentación
     # el próximo carácter ahí es '#', no el nombre de la clave.
     pattern = re.compile(rf'^(\s*){re.escape(key)}:\s*.*$', re.MULTILINE)
-    new_text, count = pattern.subn(rf'\g<1>{key}: "{value}"', text, count=1)
+    new_text, count = pattern.subn(lambda m: f"{m.group(1)}{key}: {safe_value}", text, count=1)
     if count == 0:
         raise LLMSettingsError(f"No se encontró la clave '{key}' en config.yaml — no se pudo actualizar.")
     _CONFIG_PATH.write_text(new_text, encoding="utf-8")
 
 
 def _update_env_var(key: str, value: str) -> None:
+    # M-5 (auditoría externa Likay-OS, 2026-09-26): un valor con un
+    # salto de línea literal podía inyectar una variable de entorno
+    # NUEVA en .env (p.ej. una api_key pegada con "\nOTRA_VAR=x" dentro)
+    # — fail closed en vez de escribir algo que después se interpreta
+    # como dos líneas distintas.
+    if "\n" in value or "\r" in value:
+        raise LLMSettingsError(f"El valor para '{key}' no puede contener saltos de línea.")
+
     if not _ENV_PATH.exists():
         base = _ENV_EXAMPLE_PATH.read_text(encoding="utf-8") if _ENV_EXAMPLE_PATH.exists() else ""
         _ENV_PATH.write_text(base, encoding="utf-8")
@@ -494,8 +576,19 @@ def _update_env_var(key: str, value: str) -> None:
     text = _ENV_PATH.read_text(encoding="utf-8")
     pattern = re.compile(rf'^{re.escape(key)}=.*$', re.MULTILINE)
     if pattern.search(text):
-        new_text = pattern.sub(f"{key}={value}", text, count=1)
+        # Reemplazo vía lambda a propósito: pattern.sub(f"{key}={value}", ...)
+        # interpreta backreferences (\1, \g<...>) DENTRO de `value` si
+        # el valor los contiene literalmente (p.ej. una key que
+        # empiece con "\g" o "\1") — un bug de correctness real,
+        # separado de la inyección de arriba. La lambda trata `value`
+        # como texto literal, nunca como patrón de reemplazo de re.
+        new_text = pattern.sub(lambda m: f"{key}={value}", text, count=1)
     else:
         sep = "\n" if text and not text.endswith("\n") else ""
         new_text = f"{text}{sep}{key}={value}\n"
     _ENV_PATH.write_text(new_text, encoding="utf-8")
+    # B-2 (auditoría externa Likay-OS, 2026-09-26): .env tiene API keys
+    # en texto plano — quedaba con los permisos por defecto del proceso
+    # (típicamente 0644, legible por cualquier otro usuario del
+    # sistema). Mismo criterio que utils/admin_token.py.
+    _ENV_PATH.chmod(0o600)

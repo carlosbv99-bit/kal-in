@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from agent_core import orchestrator as orchestrator_module
 from agent_core.llm.agent_loop import AgentRunResult, AgentStep
@@ -124,8 +125,18 @@ def test_text_only_artifacts_are_never_recorded_in_the_history(monkeypatch):
     assert artifacts == []
 
 
+def _real_png_bytes() -> bytes:
+    # C-2 (auditoría externa Likay-OS, 2026-09-26): /uploads ahora
+    # valida con PIL que el contenido sea una imagen de verdad (ver
+    # agent_core/routers/chat.py) — bytes falsos con content_type
+    # "image/png" ya no alcanzan para pasar la subida.
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4), color="blue").save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def test_uploading_an_image_records_it_into_the_session_artifact_history():
-    files = {"file": ("foto.png", io.BytesIO(b"contenido-falso-de-imagen"), "image/png")}
+    files = {"file": ("foto.png", io.BytesIO(_real_png_bytes()), "image/png")}
 
     upload_response = client.post("/uploads", files=files)
     session_id = upload_response.json()["session_id"]

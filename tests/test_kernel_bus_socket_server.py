@@ -16,7 +16,12 @@ from pathlib import Path
 import pytest
 
 from kernel.api.bus import KernelServiceBus
-from kernel.api.socket_server import _MAX_LINE_BYTES, KernelBusSocketServer, LineTooLongError
+from kernel.api.socket_server import (
+    _MAX_LINE_BYTES,
+    InvalidLineEncodingError,
+    KernelBusSocketServer,
+    LineTooLongError,
+)
 from utils.correlation import set_correlation_id
 
 
@@ -169,6 +174,63 @@ def test_read_line_still_accepts_a_large_but_legitimate_line():
 
     line = KernelBusSocketServer._read_line(OneShotConn((payload + "\n").encode("utf-8")))
     assert line == payload
+
+
+# --- B-4 (auditoría externa Likay-OS, 2026-09-26): bytes no-UTF-8 no
+# deben matar el thread de _serve() en silencio (UnicodeDecodeError sin
+# capturar) ---
+
+
+def test_read_line_raises_invalid_encoding_for_non_utf8_bytes():
+    class OneShotConn:
+        def __init__(self, data):
+            self._buf = data
+
+        def recv(self, n):
+            chunk, self._buf = self._buf[:n], self._buf[n:]
+            return chunk
+
+    # 0xff nunca es un byte inicial válido de UTF-8.
+    with pytest.raises(InvalidLineEncodingError):
+        KernelBusSocketServer._read_line(OneShotConn(b"\xff\xfe\n"))
+
+
+def test_invalid_encoding_is_rejected_over_a_real_socket_and_audited(bus, socket_path, monkeypatch, tmp_path):
+    """
+    De punta a punta con un socket Unix real: una skill que manda bytes
+    que no son UTF-8 válido no tumba el thread que sirve su propia
+    conexión — el servidor sigue atendiendo pedidos legítimos
+    posteriores con normalidad.
+    """
+    from audit.audit_log import audit_log
+
+    monkeypatch.setattr(audit_log, "path", tmp_path / "audit.log")
+    server = KernelBusSocketServer(
+        bus, allowed_methods=["test.echo"], socket_path=socket_path, skill_name="atacante", idle_timeout=5,
+    )
+    server.start()
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect(str(socket_path))
+        sock.sendall(b"\xff\xfe\xff\n")
+        try:
+            data = sock.recv(1024)
+        except (ConnectionResetError, OSError):
+            data = b""
+        sock.close()
+        assert data == b""  # el servidor cerró esa conexión, nunca respondió nada
+
+        # La conexión siguiente (legítima) funciona con normalidad —
+        # confirma que el thread de _serve() SIGUE vivo.
+        response = _send(socket_path, {"jsonrpc": "2.0", "id": 1, "method": "test.echo", "params": {"text": "sigo vivo"}})
+    finally:
+        server.stop()
+
+    assert response["result"] == {"echoed": "sigo vivo"}
+    entries = audit_log.tail(5)
+    event_types = {e["event_type"] for e in entries}
+    assert "kernel_line_invalid_encoding" in event_types
 
 
 def test_oversized_line_is_rejected_over_a_real_socket_and_audited(bus, socket_path, monkeypatch, tmp_path):

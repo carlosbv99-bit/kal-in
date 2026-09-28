@@ -85,7 +85,7 @@ def test_inserting_forged_entry_breaks_chain(log):
     log.record(_event(summary="original"))
     forged = _event(summary="entrada forjada")
     forged.prev_hash = "genesis"  # no encadena con la entrada real anterior
-    forged.event_hash = forged.compute_hash()
+    forged.event_hash = forged.compute_hash(log._hmac_key)
 
     with open(log.path, "a", encoding="utf-8") as f:
         from dataclasses import asdict
@@ -273,3 +273,60 @@ def test_record_never_overwrites_a_correlation_id_the_caller_already_set(log):
     )
     event = log.record(explicit_event)
     assert event.context["correlation_id"] == "puesto-a-mano"
+
+
+# --- A-10/M-12 (auditoría externa Likay-OS, 2026-09-26): cadena firmada
+# con HMAC (no SHA-256 sin clave) + resiliencia a un renglón corrupto ---
+
+
+def test_hash_chain_is_keyed_not_plain_sha256(tmp_path):
+    """
+    Sin clave, cualquiera con acceso de escritura al archivo podía
+    recalcular la cadena entera y verify_chain() seguía diciendo
+    "íntegra" — un atacante que NO conoce la clave HMAC no puede
+    reconstruir un event_hash válido, aunque reescriba todo el archivo.
+    """
+    log_a = AuditLog(path=tmp_path / "audit.log", hmac_key=b"clave-uno")
+    log_b = AuditLog(path=tmp_path / "audit.log", hmac_key=b"clave-dos")
+
+    log_a.record(_event())
+    assert log_a.verify_chain() is True
+    assert log_b.verify_chain() is False  # misma cadena, clave distinta
+
+
+def test_a_corrupt_last_line_does_not_break_future_recording(log):
+    """
+    Antes: json.loads() sin try sobre la última línea significaba que
+    UNA escritura parcial (crash a mitad de un f.write()) dejaba
+    record() lanzando JSONDecodeError para siempre — auditoría muerta.
+    """
+    log.record(_event(summary="antes del crash"))
+    with open(log.path, "a", encoding="utf-8") as f:
+        f.write("esto no es json\n")  # simula una escritura parcial/corrupta
+
+    event = log.record(_event(summary="después del crash"))
+    assert event.event_hash  # record() no explotó
+    assert event.prev_hash == "genesis"  # no pudo encadenar con la línea ilegible
+
+
+def test_diagnose_chain_reports_unparseable_line_instead_of_raising(log):
+    log.record(_event(summary="uno"))
+    with open(log.path, "a", encoding="utf-8") as f:
+        f.write("esto no es json\n")
+
+    diagnosis = log.diagnose_chain()
+
+    assert diagnosis.is_valid is False
+    assert diagnosis.total_entries == 2
+    assert diagnosis.breaks[-1].event_type == "(ilegible)"
+
+
+def test_tail_reports_unparseable_line_instead_of_raising(log):
+    log.record(_event(summary="uno"))
+    with open(log.path, "a", encoding="utf-8") as f:
+        f.write("esto no es json\n")
+
+    entries = log.tail(10)
+
+    assert len(entries) == 2
+    assert entries[0]["event_type"] == "(ilegible)"

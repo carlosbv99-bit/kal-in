@@ -28,10 +28,11 @@ def _real_png_bytes() -> bytes:
 
 
 class FakeResponse:
-    def __init__(self, content: bytes, status_code: int = 200, chunk_size: int = 1024):
+    def __init__(self, content: bytes, status_code: int = 200, chunk_size: int = 1024, headers: dict | None = None):
         self._content = content
         self.status_code = status_code
         self._chunk_size = chunk_size
+        self.headers = headers or {}
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -124,6 +125,73 @@ def test_raises_a_clear_error_when_the_http_request_itself_fails():
     manager = _manager(get_fn=lambda *a, **kw: FakeResponse(b"", status_code=404))
     with pytest.raises(DownloadValidationError, match="No se pudo descargar"):
         manager.download_and_validate("https://unsplash.com/no-existe.jpg", expected_type="image")
+
+
+# --- M-4 (auditoría externa Likay-OS, 2026-09-26): SSRF vía redirección ---
+
+
+def test_redirect_to_an_unsafe_ip_is_rejected_before_following_it(monkeypatch):
+    """
+    Antes: allow_redirects=True (default de requests) seguía un 302
+    hacia CUALQUIER destino sin volver a validar su IP — solo el
+    hostname ORIGINAL pasaba por is_unsafe_ip(). Un servidor bajo
+    control del atacante en un dominio permitido podía redirigir hacia
+    localhost/169.254.169.254/una IP interna.
+    """
+
+    def fake_resolve(host):
+        if host == "interno.local":
+            return ["127.0.0.1"]
+        return ["93.184.216.34"]
+
+    calls = {"n": 0}
+
+    def fake_get(url, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return FakeResponse(b"", status_code=302, headers={"Location": "https://interno.local/secreto"})
+        pytest.fail("nunca debería seguir la redirección hacia un destino inseguro")
+
+    manager = DownloadManager(get_fn=fake_get, resolve_fn=fake_resolve)
+    with pytest.raises(DownloadValidationError, match="rebinding"):
+        manager.download_and_validate("https://unsplash.com/x.jpg", expected_type="image")
+
+
+def test_redirect_to_a_safe_destination_is_followed_and_succeeds(monkeypatch):
+    import tool_integration.download_manager as module
+
+    monkeypatch.setattr(module, "scan_bytes", lambda data, suffix="": None)
+    png_bytes = _real_png_bytes()
+    responses = [
+        FakeResponse(b"", status_code=302, headers={"Location": "https://unsplash.com/final.png"}),
+        FakeResponse(png_bytes),
+    ]
+
+    def fake_get(url, **kwargs):
+        return responses.pop(0)
+
+    manager = _manager(get_fn=fake_get)
+    result = manager.download_and_validate("https://unsplash.com/x.png", expected_type="image")
+
+    assert result.content == png_bytes
+
+
+def test_too_many_redirects_is_rejected():
+    def fake_get(url, **kwargs):
+        return FakeResponse(b"", status_code=302, headers={"Location": "https://unsplash.com/otra"})
+
+    manager = _manager(get_fn=fake_get)
+    with pytest.raises(DownloadValidationError, match="demasiadas redirecciones"):
+        manager.download_and_validate("https://unsplash.com/x.jpg", expected_type="image")
+
+
+def test_redirect_without_location_header_is_rejected():
+    def fake_get(url, **kwargs):
+        return FakeResponse(b"", status_code=302, headers={})
+
+    manager = _manager(get_fn=fake_get)
+    with pytest.raises(DownloadValidationError, match="sin header Location"):
+        manager.download_and_validate("https://unsplash.com/x.jpg", expected_type="image")
 
 
 def test_succeeds_with_real_clamav_scan_not_mocked():

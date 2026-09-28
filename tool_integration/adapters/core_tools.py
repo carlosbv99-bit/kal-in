@@ -70,11 +70,17 @@ class MemoryRememberTool(Tool):
         created_by="system",
     )
 
-    def __init__(self, memory):
+    def __init__(self, memory, session_id: str | None = None):
         self.memory = memory
+        # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA
+        # (Likay-OS, 2026-09-26), A-4: ver agent_core/memory/
+        # short_term.py — sin esto, remember()/recall() compartían un
+        # ÚNICO buffer de corto plazo entre TODAS las sesiones/usuarios
+        # del proceso (fuga de datos entre conversaciones distintas).
+        self.session_id = session_id
 
     def execute(self, content: str, **kwargs: Any) -> Artifact:
-        item = self.memory.remember(content)
+        item = self.memory.remember(content, session_id=self.session_id)
         return Artifact(
             modality="text", uri="",
             metadata={"summary": f"Guardado en memoria de corto plazo (id={item.id})"},
@@ -96,11 +102,12 @@ class MemoryRecallTool(Tool):
         created_by="system",
     )
 
-    def __init__(self, memory):
+    def __init__(self, memory, session_id: str | None = None):
         self.memory = memory
+        self.session_id = session_id  # ver comentario en MemoryRememberTool (A-4)
 
     def execute(self, query: str, top_k: int = 3, **kwargs: Any) -> Artifact:
-        results = self.memory.recall(query, top_k=top_k)
+        results = self.memory.recall(query, top_k=top_k, session_id=self.session_id)
         # Memory Security Policy Engine (Fase 1, ver
         # agent_core/memory/security_policy.py): si el proveedor de LLM
         # ACTIVO ahora mismo es en la nube, filtra cualquier item que no

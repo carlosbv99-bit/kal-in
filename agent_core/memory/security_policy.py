@@ -51,10 +51,34 @@ class MemorySharing(str, Enum):
 
 # Patrones de formato CONOCIDO y específico, no heurísticas genéricas —
 # cada uno con un label corto usado en el placeholder de redact().
+#
+# VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+# 2026-09-26), A-6: la lista original solo cubría 4 formatos (OpenAI
+# clásico, AWS, GitHub clásico, JWT) — ni siquiera las variantes
+# ACTUALES del mismo OpenAI (sk-proj-/sk-ant-, en uso real desde 2024)
+# pasaban, dejándolas promoverse a memoria persistente sin redactar.
+# Deliberadamente se sigue sin detección por entropía (mismo criterio
+# ya documentado arriba: alto riesgo de falsos positivos sobre
+# cualquier string que "parezca aleatorio") — cada patrón nuevo es,
+# igual que los originales, un prefijo de formato público y conocido.
 _SECRET_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("openai_key", re.compile(r"sk-[A-Za-z0-9]{20,}")),
+    ("openai_project_key", re.compile(r"sk-proj-[A-Za-z0-9_-]{20,}")),
+    ("anthropic_key", re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}")),
     ("aws_key", re.compile(r"AKIA[0-9A-Z]{16}")),
+    ("aws_temp_key", re.compile(r"ASIA[0-9A-Z]{16}")),
     ("github_token", re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}")),
+    ("github_pat", re.compile(r"github_pat_[A-Za-z0-9_]{20,}")),
+    ("slack_token", re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}")),
+    ("stripe_key", re.compile(r"(sk|rk)_live_[A-Za-z0-9]{20,}")),
+    ("google_api_key", re.compile(r"AIzaSy[A-Za-z0-9_-]{33}")),
+    ("groq_key", re.compile(r"gsk_[A-Za-z0-9]{20,}")),
+    ("xai_key", re.compile(r"xai-[A-Za-z0-9]{20,}")),
+    ("huggingface_token", re.compile(r"hf_[A-Za-z0-9]{20,}")),
+    ("npm_token", re.compile(r"npm_[A-Za-z0-9]{30,}")),
+    ("sendgrid_key", re.compile(r"SG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}")),
+    ("pypi_token", re.compile(r"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{20,}")),
+    ("gitlab_pat", re.compile(r"glpat-[A-Za-z0-9_-]{20,}")),
     ("jwt", re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")),
     ("private_key_block", re.compile(
         r"-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----.*?-----END (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",

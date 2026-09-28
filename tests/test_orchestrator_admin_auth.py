@@ -109,7 +109,7 @@ def test_android_build_report_outcome_never_requires_a_token():
     dispositivo — nunca debería exigir el token admin.
     """
     response = client.post(
-        "/android-build/algun-id/report-outcome",
+        "/android-build/9d1c1b1a-2222-4c3d-8b1a-000000000001/report-outcome",
         json={"outcome": "installed", "detail": "app-debug.apk instalado"},
     )
     assert response.status_code == 200
@@ -123,7 +123,7 @@ def test_filesystem_access_report_outcome_never_requires_a_token():
     nunca decide ni ejecuta nada.
     """
     response = client.post(
-        "/filesystem-access/algun-id/report-outcome",
+        "/filesystem-access/9d1c1b1a-2222-4c3d-8b1a-000000000002/report-outcome",
         json={"outcome": "written", "files_written": ["index.html"]},
     )
     assert response.status_code == 200
@@ -166,3 +166,23 @@ def test_admin_token_endpoint_rejects_a_real_lan_address():
     lan_client = TestClient(app, base_url="http://localhost", client=("192.168.1.50", 54321))
     response = lan_client.get("/admin-token")
     assert response.status_code == 403
+
+
+def test_non_ascii_admin_token_header_returns_401_not_500():
+    """
+    M-6 (auditoría externa Likay-OS, 2026-09-26): secrets.compare_digest()
+    sobre dos `str` exige ASCII puro — un header con un carácter no-ASCII
+    (aceptado igual por Starlette, que decodifica headers como latin-1)
+    lanzaba TypeError sin capturar, un 500 crudo en vez del 401 esperado.
+    """
+    # httpx (el cliente que usa TestClient) valida ASCII del lado
+    # cliente si se le pasa un str con un carácter no-ASCII — hay que
+    # pasar el header ya codificado en bytes (latin-1, lo mismo que
+    # Starlette usaría al decodificar un header HTTP real) para
+    # ejercitar de verdad el mismo valor que llegaría a compare_digest().
+    response = client.post(
+        "/tools/no-existe-esta-herramienta/approve",
+        json={"approved_by": "alguien"},
+        headers=[(b"X-Kal-Admin-Token", "tokén-con-acento-ñ".encode("latin-1"))],
+    )
+    assert response.status_code == 401

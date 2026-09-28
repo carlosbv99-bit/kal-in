@@ -10,6 +10,9 @@ distintas: este puede rotar/truncarse, el de auditoría no.
 from __future__ import annotations
 
 import logging
+import logging.handlers
+import os
+import stat
 import sys
 from pathlib import Path
 
@@ -18,6 +21,17 @@ from utils.correlation import get_correlation_id
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
+
+# VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+# 2026-09-26), A-8: logs/agent.log crecía sin límite (FileHandler
+# simple, nunca rotaba) y quedaba con los permisos por defecto del
+# proceso (típicamente legible por cualquier otro usuario del mismo
+# sistema) — un archivo que además contiene el goal del usuario
+# (redactado desde agent_core/routers/chat.py, ver security_policy.py,
+# pero sigue siendo texto de conversación real). 10MB x 5 backups
+# acota el crecimiento; 0600 restringe la lectura al dueño del proceso.
+_MAX_LOG_BYTES = 10 * 1024 * 1024
+_LOG_BACKUP_COUNT = 5
 
 
 class _CorrelationFilter(logging.Filter):
@@ -47,8 +61,15 @@ def get_logger(name: str) -> logging.Logger:
         "%(asctime)s | %(levelname)s | %(correlation_id)s | %(name)s | %(message)s"
     )
 
-    file_handler = logging.FileHandler(LOG_DIR / "agent.log", encoding="utf-8")
+    log_path = LOG_DIR / "agent.log"
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_path, maxBytes=_MAX_LOG_BYTES, backupCount=_LOG_BACKUP_COUNT, encoding="utf-8",
+    )
     file_handler.setFormatter(formatter)
+    try:
+        os.chmod(log_path, stat.S_IRUSR | stat.S_IWUSR)  # 0600 — solo el dueño del proceso
+    except OSError:
+        pass  # best-effort (p.ej. filesystem que no soporta chmod POSIX)
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)

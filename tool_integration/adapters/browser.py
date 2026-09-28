@@ -62,18 +62,32 @@ así que no hay ventana de carrera entre "lo que resolvimos" y "a dónde
 se conectó de verdad"), y `_reject_if_unsafe_destination()` la valida
 con `ipaddress` antes de exponer cualquier contenido.
 
-Límite conocido y aceptado (documentado, no escondido — mismo criterio
-que code_analysis/denylist.py): esto valida la navegación principal
-(el documento de nivel superior), no cada subrecurso que la propia
-página cargue después (una imagen/fetch/XHR embebido apuntando a una
-IP interna es una petición que hace el navegador, no algo que este
-código intercepta hoy). Tampoco protege si Chromium sirve la respuesta
-desde caché sin una conexión viva (`server_addr()` devuelve None en
-ese caso) — se falla cerrado (se rechaza) en vez de asumir que es
-segura, aunque esto pueda rechazar de más algún caso legítimo raro.
+Tampoco protege si Chromium sirve la respuesta desde caché sin una
+conexión viva (`server_addr()` devuelve None en ese caso) — se falla
+cerrado (se rechaza) en vez de asumir que es segura, aunque esto pueda
+rechazar de más algún caso legítimo raro.
+
+VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
+2026-09-26), M-8: hasta acá, lo de arriba (allowlist de dominio + IP
+real) solo se aplicaba a la NAVEGACIÓN PRINCIPAL — un dominio permitido
+podía servir una página cuyo propio JavaScript hiciera fetch()/XHR/
+cargara una imagen apuntando a 127.0.0.1 o a un servicio interno de la
+red, y ese pedido salía sin ninguna validación (Chromium lo hace por su
+cuenta, fuera del control de este código). El contenido de esa
+respuesta interna podía terminar escrito en el DOM visible y filtrarse
+al agente vía extract_text/extract_links (fuga de datos internos +
+amplificación de inyección de prompt). Fix real, no solo documentado:
+`page.route("**/*", ...)` intercepta TODO pedido de red de la page
+(navegación principal Y cada subrecurso) y lo aborta si su host
+resuelve a una IP insegura — deliberadamente NO exige que el subrecurso
+esté en `allowed_domains` (fuentes/imágenes/scripts de terceros
+públicos son comportamiento normal de cualquier sitio real; bloquearlos
+volvería la herramienta inútil para su propósito), solo bloquea el
+vector de SSRF hacia la red interna/privada.
 """
 from __future__ import annotations
 
+import socket
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -113,6 +127,39 @@ def _server_addr_ip(response) -> str | None:
     except Exception:
         return None
     return addr["ipAddress"] if addr else None
+
+
+def _make_subresource_guard():
+    """
+    M-8: handler de page.route("**/*", ...) — aborta cualquier pedido
+    de red (navegación principal o subrecurso) cuyo host resuelva a una
+    IP insegura (privada/loopback/reservada). Cache por página (no
+    global ni entre navegaciones distintas) para no re-resolver el
+    mismo host varias veces cuando una página carga muchos recursos del
+    mismo CDN, sin arriesgarse a servir una resolución ya vieja en la
+    PRÓXIMA navegación.
+    """
+    cache: dict[str, bool] = {}
+
+    def _hostname_is_unsafe(hostname: str) -> bool:
+        if hostname not in cache:
+            try:
+                ip = socket.gethostbyname(hostname)
+            except OSError:
+                cache[hostname] = True  # no se pudo resolver -> fail closed
+            else:
+                cache[hostname] = is_unsafe_ip(ip)
+        return cache[hostname]
+
+    def _guard(route) -> None:
+        hostname = urlparse(route.request.url).hostname
+        if hostname and _hostname_is_unsafe(hostname):
+            logger.warning(f"BrowserTool: pedido de red bloqueado (IP insegura): {route.request.url}")
+            route.abort()
+        else:
+            route.continue_()
+
+    return _guard
 
 
 class PlaywrightBrowserDriver:
@@ -161,6 +208,7 @@ class PlaywrightBrowserDriver:
         browser = self._ensure_browser()
         page = browser.new_page(user_agent=self.user_agent or None)
         page.set_default_timeout(self.timeout_ms)
+        page.route("**/*", _make_subresource_guard())
         return page
 
     def _run(self, fn, *args):
