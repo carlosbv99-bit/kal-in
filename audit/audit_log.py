@@ -71,6 +71,7 @@ EventType = Literal[
     "kernel_service_denied",
     "syscall_policy_violation",
     "skill_enabled",
+    "market_install_rejected",
     "skill_disabled",
     "artifact_scan_blocked",
     "vscode_extension_installed",

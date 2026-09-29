@@ -1405,6 +1405,28 @@ no tiene estado de aprobación propio (la decisión de seguridad vive en
 `verify_skill_signature()` corre en **cada** `SandboxedSkillTool.execute()` —fail-closed,
 `tampered` → error inmediato— en vez de depender de que alguien lo pida.
 
+**Y el mismo desbalance, una vez más, en `scripts/install_from_market.py` (2026-09-29).**
+De sus cinco puntos de rechazo, el script auditaba **solo el éxito**
+(`audit_skill_enable_change(..., source="market")`): se podía intentar instalar una skill
+maliciosa desde un market comprometido, el script la rechazaba correctamente por firma
+inválida, y **no quedaba ningún registro del intento**. Ahora auditan los tres rechazos
+adversariales —nombre inválido (path traversal, A-1), firma no verificada, y la segunda
+capa de defensa— con un evento `market_install_rejected`, el motivo en el `context` y
+`outcome="failure"`, mismo criterio que `rollback_tool()` con `tool_tamper_detected`. Los
+dos rechazos **operacionales** ("ya existe localmente", error de red o ref inexistente) NO
+se auditan a propósito: no son intentos adversariales y un log lleno de eso es la forma de
+que nadie lo mire. La rama de la segunda capa se marca `severidad="critica"` porque no
+debería alcanzarse nunca: llegar ahí significa que la defensa de arriba se rompió.
+
+**La lección que dejaron las tres rondas, junta.** Tres detecciones de seguridad de este
+sistema no dejaban rastro: `verify_tool_integrity()` (firma de tools), el circuit breaker
+(el reset humano, y antes la detección) y este instalador. En los tres casos el patrón fue
+idéntico —**lo que salía bien se auditaba, lo que se rechazaba no**— y en los tres el
+criterio que lo cierra es el mismo: *si el sistema decide NO hacer algo por seguridad, esa
+decisión es el evento*. El reverso también importa y quedó aplicado: los rechazos
+operacionales y los caminos felices no se auditan, porque un log que registra todo es un
+log que nadie lee. La auditoría sirve para lo que alguien va a querer investigar después.
+
 ## 3. Lo que NO se hace (y en qué fase)
 
 - **F0–F2:** nada de persistencia, nada de red, nada de puntajes numéricos

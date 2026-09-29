@@ -32,6 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from audit.audit_log import AuditEvent, audit_log
 from kernel.registry.skill_market import (
     DEFAULT_REF,
     MarketError,
@@ -59,6 +60,48 @@ def _print_available(market_url: str, ref: str) -> None:
     print(f"Skills disponibles en '{market_url}' (rama/ref '{ref}'):")
     for manifest in manifests:
         print(f"  - {manifest.name} (v{manifest.version}): {manifest.description}")
+
+
+def _audit_rechazo(
+    *,
+    reason: str,
+    detail: str,
+    skill_name: str,
+    market: str,
+    ref: str | None,
+    extra: dict | None = None,
+    critico: bool = False,
+) -> None:
+    """
+    Deja rastro de un intento de instalación RECHAZADO.
+
+    El script auditaba SOLO el éxito (`audit_skill_enable_change(...)`, línea 160):
+    alguien podía intentar instalar una skill maliciosa desde un market
+    comprometido, el script la rechazaba correctamente por firma inválida, y **no
+    quedaba ningún registro de que el intento ocurrió** (revisión, 2026-09-29).
+    Es el mismo desbalance que tenían `verify_tool_integrity()` y el circuit
+    breaker, y el criterio es el mismo que ya usa `rollback_tool()` con
+    `tool_tamper_detected`: **lo que se rechaza por seguridad se audita**.
+
+    NO se auditan los rechazos operacionales ("ya existe localmente", error de red
+    o ref inexistente): no son intentos adversariales y llenar el log de eso es la
+    forma de que nadie lo mire.
+    """
+    audit_log.record(
+        AuditEvent(
+            event_type="market_install_rejected",
+            summary=f"Instalación desde market rechazada ({reason}): {detail}",
+            context={
+                "market": market,
+                "skill_name": skill_name,
+                "ref": ref or "",
+                "reason": reason,
+                "severidad": "critica" if critico else "rechazo",
+                **(extra or {}),
+            },
+            outcome="failure",
+        )
+    )
 
 
 def main() -> None:
@@ -92,6 +135,15 @@ def main() -> None:
         name_error = validate_skill_name(args.skill_name)
         if name_error is not None:
             print(f"ERROR: {name_error}")
+            # Intento adversarial: un nombre así es un path traversal (A-1), no un
+            # error de tipeo. Se audita aunque no se haya tocado nada.
+            _audit_rechazo(
+                reason="nombre_invalido",
+                detail=name_error,
+                skill_name=args.skill_name,
+                market=args.market,
+                ref=args.ref,
+            )
             raise SystemExit(1)
 
         local_dest = DEFAULT_SKILLS_DIR / args.skill_name
@@ -109,6 +161,17 @@ def main() -> None:
                     f"ERROR: '{args.skill_name}' no tiene una firma válida en el market "
                     f"(estado: {signature_status}). Una skill remota SIEMPRE debe estar firmada "
                     "y verificar — nunca se instala sin firma o con firma alterada."
+                )
+                # El caso MÁS importante de auditar: firma ausente, desconocida o
+                # alterada es un market comprometido (o un paquete manipulado en
+                # tránsito), y el intento tiene que quedar registrado.
+                _audit_rechazo(
+                    reason="firma_no_verificada",
+                    detail=f"estado de firma: {signature_status}",
+                    skill_name=args.skill_name,
+                    market=args.market,
+                    ref=args.ref,
+                    extra={"signature_status": signature_status},
                 )
                 raise SystemExit(1)
 
@@ -153,6 +216,20 @@ def main() -> None:
             # arriba ya lo cubra estructuralmente (la regex no admite '/').
             if not local_dest.resolve().is_relative_to(DEFAULT_SKILLS_DIR.resolve()):
                 print(f"ERROR: '{args.skill_name}' resuelve fuera de skills/ — rechazado.")
+                # ESTA rama no debería alcanzarse nunca: la regex de
+                # validate_skill_name() no admite '/', así que llegar acá significa
+                # que la primera capa falló. Se audita como crítica, no como un
+                # rechazo más, para que un lector pueda distinguir "se defendió" de
+                # "la defensa de arriba se rompió".
+                _audit_rechazo(
+                    reason="segunda_capa_de_defensa",
+                    detail=f"'{args.skill_name}' resuelve fuera de skills/",
+                    skill_name=args.skill_name,
+                    market=args.market,
+                    ref=args.ref,
+                    extra={"resuelto": str(local_dest.resolve())},
+                    critico=True,
+                )
                 raise SystemExit(1)
             shutil.copytree(staging_dir, local_dest)
 

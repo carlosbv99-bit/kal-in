@@ -10792,3 +10792,63 @@ mitades de la detección de manipulación. Más la ruta sumada al barrido transv
 **Port a kal:** `kernel/registry/registry.py` y `audit/audit_log.py` son compartidos, así
 que `deactivate_tool()`, la auditoría de `verify_tool_integrity()` y el tipo
 `tool_deactivated` van en dirección kal-in → kal (los dos archivos ya divergían).
+
+
+## El instalador del market: los rechazos por seguridad tampoco dejaban rastro (2026-09-29)
+
+Última ronda del mismo barrido, y el cierre de un patrón que apareció tres veces en esta
+sesión. Revisión del mapeo de los cinco puntos de rechazo de
+`scripts/install_from_market.py`:
+
+| Punto | Tipo | ¿Auditaba? |
+|---|---|---|
+| nombre inválido (`validate_skill_name`, path traversal A-1) | **adversarial** | no |
+| la skill ya existe localmente | operacional | no (esperable) |
+| firma no verificada o manipulada | **adversarial** | **no — el más importante** |
+| segunda capa de defensa (no debería alcanzarse nunca) | **adversarial/invariante** | no |
+| `MarketError` (red, ref inexistente) | operacional | no (esperable) |
+
+El éxito **sí** quedaba registrado (`audit_skill_enable_change(..., source="market")`). O
+sea: instalar una skill legítima dejaba rastro, e intentar instalar una manipulada desde un
+market comprometido no. Alguien podía intentarlo, que el sistema lo rechazara
+correctamente por firma, y no quedar constancia de que el intento existió — contra el
+fondo de `rollback_tool()`, que en el caso análogo **sí** audita `tool_tamper_detected`.
+
+**Implementado:** `_audit_rechazo(...)` en el script, llamado en los tres puntos
+adversariales, con un evento nuevo `market_install_rejected` (agregado al `Literal` de
+tipos válidos), el motivo en el `summary`/`context` y `outcome="failure"`. La rama de la
+segunda capa se marca `severidad="critica"`: no debería alcanzarse nunca (la regex de
+`validate_skill_name` no admite `/`), así que llegar ahí no significa "se defendió" sino
+"la defensa de arriba se rompió", y el log tiene que poder distinguirlo.
+
+Los dos rechazos operacionales siguen sin auditarse, y eso también es una decisión: no son
+intentos adversariales, y un log lleno de "ya existe" es la forma de que nadie lo mire.
+
+**Un detalle técnico que condiciona el test:** `verify_skill_signature()` verifica contra
+la clave pública **embebida en el propio `skill.sig`** (es el hallazgo M-8: la firma prueba
+integridad, no autoría). Así que el caso realista no es "firmada con otra clave" sino
+**"firmada y después editada"**, y eso es lo que prueba el test: firma en el builder, se
+toca `tool.py` sin volver a firmar, `verify_skill_signature` devuelve `tampered`, el
+instalador rechaza y deja el evento.
+
+**Efecto colateral que había que atender:** el test que ya existía del path traversal
+ahora **escribe** en el audit log (antes el rechazo no auditaba nada), así que quedó
+aislado con `audit_log.path` apuntando a un archivo temporal. Verifiqué después que el
+audit log real del repo tiene **cero** entradas `market_install_rejected`: los tests no lo
+ensucian.
+
+Tests: 4 nuevos (nombre malicioso auditado, firma manipulada auditada con
+`signature_status="tampered"`, segunda capa auditada como crítica, y el rechazo
+operacional que **no** deja evento) más los 2 que ya estaban.
+
+**Port:** el script vive en `scripts/` y `check_kernel_drift.py` no lo vigila (lo confirmó
+la revisión), pero kal tiene el mismo archivo y hay que aplicarle el mismo cambio. Además,
+el tipo `market_install_rejected` va en `audit/audit_log.py`, que **sí** es compartido.
+
+**Por qué esto cierra un patrón y no es un hallazgo suelto.** Tres rondas seguidas
+encontraron lo mismo en tres lugares distintos: `verify_tool_integrity()`, el circuit
+breaker y este instalador. En los tres, **lo que salía bien se auditaba y lo que se
+rechazaba no**. El criterio que los cierra es uno solo y quedó escrito en el roadmap: *si
+el sistema decide NO hacer algo por seguridad, esa decisión es el evento* — con el reverso
+igual de importante, que los caminos felices y los rechazos operacionales no se auditan,
+porque un log que registra todo es un log que nadie lee.
