@@ -1,0 +1,53 @@
+name: epistemic_ledger
+description: >
+  Fachada ADVISORY de la capa epistémica para agentes de terceros: expone el ledger y el
+  matcher determinista (abrir preguntas, registrar hipótesis, ingerir evidencia con
+  reaperturas automáticas, consultar déficits, abstención estable) como capacidad, sobre un
+  contrato JSON de entrada/salida. NO impone el gate: una Skill no ve la ruta de salida del
+  agente que la invoca.
+version: "0.1.0"
+entry_point: "tool:EpistemicLedgerTool"
+# F2b de la capa epistémica (ver docs/ROADMAP-CAPA-EPISTEMICA.md). La lógica
+# determinista NO se duplica: `kal_epistemics/` viaja vendorizado acá adentro
+# (copia byte a byte del subpaquete portable del repo, con un test que falla si
+# las dos copias se separan) y `tool.py` es un envoltorio delgado sobre eso.
+#
+# Por qué vendorizado y no importado del host: una Skill corre en un contenedor
+# y lo único que el runner le copia es `sdk/` y su propia carpeta (ver
+# kernel/registry/sandboxed_skill.py::_collect_skill_files). Meter
+# `kal_epistemics/` en el runner sería que el kernel conozca la capa epistémica
+# del agente, que es justo lo que el diseño evita. Es además la vía que el
+# roadmap recomienda a terceros: vendorizar la librería portable es la
+# integración fuerte, y esta Skill es la vía rápida.
+#
+# Sin permisos: la fachada NO toca red ni disco. El estado entra y sale en cada
+# llamada (una Skill no persiste entre invocaciones), así que el que la adopta lo
+# guarda donde quiera. Sin `requirements`: 100% stdlib.
+enabled: true
+permissions: []
+requirements: []
+parameters_schema:
+  type: object
+  properties:
+    operacion:
+      type: string
+      enum:
+        - "estado_vacio"
+        - "reanudar"
+        - "consultar"
+        - "abrir_pregunta"
+        - "registrar_hipotesis"
+        - "ingerir_evidencia"
+        - "simular_evidencia"
+        - "abstencion"
+        - "compactar"
+      description: >
+        Qué hacer. Todas las operaciones reciben y devuelven el estado completo
+        (snapshot JSON) en `entrada.estado`: la Skill es sin estado.
+    entrada:
+      type: object
+      description: >
+        Argumentos de la operación (JSON). Las claves desconocidas se rechazan en
+        vez de ignorarse: un contrato que acepta cualquier cosa no es un contrato.
+  required:
+    - operacion

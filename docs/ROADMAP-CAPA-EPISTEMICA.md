@@ -14,7 +14,9 @@
 > pregunta** (R8). **F5 completa** (skill `claim_verifier`, de primera parte por
 > D6, firmada y con permisos de red explícitos): el sistema ya puede salir a
 > buscar evidencia exógena en vez de esperar a que pase por las herramientas
-> existentes. Pendiente: **F2b** (fachada advisory para terceros).
+> existentes. **F2b completa** (fachada advisory para terceros, con la librería
+> vendorizada adentro y sus límites declarados en cada respuesta). **Con esto el
+> roadmap de la capa queda completo**: F0–F6.
 >
 > Los dos hallazgos de la medición quedaron cerrados: D10 (el orden de las
 > condiciones dejó de importar) el mismo día, y D9 (el déficit que la tool
@@ -197,6 +199,35 @@ Consecuencia de diseño: la fachada Skill **no** duplica lógica. Es un
 envoltorio delgado sobre `kal_epistemics` (JSON de entrada/salida), y la
 lógica determinista se testea una sola vez, en el subpaquete.
 
+**Implementada en F2b (2026-09-29): `skills/epistemic_ledger/`.** Cómo se
+resolvieron las dos cosas que el boceto no decía:
+
+- **La librería viaja vendorizada adentro de la skill** (copia byte a byte de
+  `kal_epistemics/`, con un test que falla si las dos copias se separan, y la
+  firma de la skill cubriendo los 12 archivos). No es una preferencia: el runner
+  del kernel le copia a una skill solo `sdk/` y su propia carpeta, y meter
+  `kal_epistemics/` en el runner sería que el kernel conozca la capa epistémica
+  del agente. Es además la vía que este documento ya recomendaba a terceros: la
+  Skill es la integración rápida, vendorizar la librería es la fuerte.
+- **El estado entra y sale en cada llamada** (snapshot JSON): una Skill vive en un
+  contenedor efímero, así que no hay dónde recordar entre invocaciones. El
+  adoptante guarda el snapshot donde quiera.
+- **Los cuatro límites viajan declarados en CADA respuesta** (bloque `advisory`),
+  para que nadie los descubra después: el gate no se aplica desde acá; el `origen`
+  de cada evidencia lo declara el llamador y la skill no puede verificarlo; no hay
+  persistencia; y no se aplica la política de exposición del host (el saneamiento
+  vive en `agent_core/epistemics/`, que no es parte de la librería portable).
+- Operaciones: `estado_vacio`, `reanudar`, `consultar` (preguntas, déficits,
+  hipótesis con nivel y flags), `abrir_pregunta`, `registrar_hipotesis`,
+  `ingerir_evidencia` (con reaperturas automáticas), `simular_evidencia`
+  (dry-run sobre una copia), `abstencion` (texto estable entre paráfrasis) y
+  `compactar`. Las condiciones entran por el camino no confiable
+  (`from_untrusted`): marcadores, nunca patrones, porque el llamador de una Skill
+  puede estar reflejando texto no confiable.
+- **No es ingerible**, y hay test: su salida es un eco del estado que el llamador
+  ya tiene, así que ingerirla sería el lavado de origen que F2 cerró por
+  allowlist, con una vuelta más.
+
 ---
 
 ## 2. Vista de fases
@@ -206,7 +237,7 @@ lógica determinista se testea una sola vez, en el subpaquete.
 | **F0** | Contratos congelados + validación estructural | ✅ hecho | — |
 | **F1** | Matcher determinista + ledger en memoria + abstención estable | ✅ hecho | F0 |
 | **F2** | Gate real + tools + adaptador en `agent_core/epistemics/` | ✅ hecho | F1 |
-| **F2b** | Fachada Skill para terceros (advisory, sin duplicar lógica) | pendiente | F1 |
+| **F2b** | Fachada Skill para terceros (advisory, sin duplicar lógica) | ✅ hecho (2026-09-29) | F1 |
 | **F3** | Ancla de procedencia verificable | ✅ hecho (2026-09-29) | F0 |
 | **F4** | Ledger durable, dedup entre sesiones, compactación | ✅ hecho (2026-09-29) | F2, F3 |
 | **F5** | Skill `claim_verifier` | ✅ hecho (2026-09-29) | F3 |

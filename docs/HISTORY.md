@@ -9980,3 +9980,83 @@ skills, ruff `--select=E9,F` limpio, y la medición de F6 sigue consistente
 (`--verificar`: el cambio de origen de `browser` no mueve ninguna métrica, porque
 `TOOL_EXTERNAL` es igual de exógeno que `KERNEL_OBSERVED` — lo que cambia es con
 qué fuerza se puede tratar, no si cuenta).
+
+
+## F2b: la fachada para terceros, y con esto el roadmap queda completo (2026-09-29)
+
+La última fase del roadmap de la capa epistémica. F2b era "una Skill advisory para
+agentes de terceros, sin duplicar lógica", y el boceto dejaba dos cosas sin
+resolver que aparecieron al implementarla:
+
+**1. Cómo ve la librería una skill que corre en un contenedor.** El runner le
+copia a una skill solo `sdk/` y su propia carpeta (ver
+`_collect_skill_files`), así que `import kal_epistemics` no resolvería. Las
+opciones eran meter la librería en el runner —que el kernel conozca la capa
+epistémica del agente, justo lo que el diseño evita— o **vendorizarla adentro de
+la skill**, que es lo que el propio documento ya recomendaba a terceros: la Skill
+es la integración rápida, vendorizar la librería es la fuerte. Se vendorizó
+completa (copia byte a byte) y hay un test que **falla si las dos copias se
+separan**, más un test que corre la skill en un proceso limpio con `sys.path`
+apuntando solo a su carpeta y verifica que la librería que se importó es la
+vendorizada. La firma de la skill cubre los 12 archivos, así que editar la copia
+también invalida la firma hasta re-firmar.
+
+**2. Una Skill no persiste entre invocaciones.** El contenedor es efímero, así que
+el estado **entra y sale en cada llamada**: snapshot JSON de entrada, snapshot de
+salida. El adoptante lo guarda donde quiera. Eso convierte a la fachada en algo
+sin estado (no pide permisos: ni red ni disco) y hace explícito lo que antes era
+una promesa implícita.
+
+**Lo que la fachada da** (`skills/epistemic_ledger/`, firmada, `permissions: []`,
+100% stdlib): `estado_vacio`, `reanudar`, `consultar` (preguntas con sus déficits,
+hipótesis con estado/nivel/flags, déficits pendientes, evidencia exógena),
+`abrir_pregunta` (con condiciones de pago), `registrar_hipotesis` (nace `open`: el
+estado lo cambia la evidencia, no el llamador), `ingerir_evidencia` (con
+reaperturas automáticas), `simular_evidencia` (dry-run sobre una copia: dice qué
+reabriría sin tocar el estado), `abstencion` (el mismo texto para dos paráfrasis
+de la misma pregunta) y `compactar`. Las condiciones entran por el camino no
+confiable (`from_untrusted`): **marcadores, nunca patrones**, porque el llamador de
+una Skill puede estar reflejando texto no confiable — hay un test que verifica que
+un `(a+)+$` entra como substring literal y no como expresión regular.
+
+**Los cuatro límites viajan declarados en CADA respuesta** (bloque `advisory`),
+incluidas las que fallan, para que nadie compre una garantía que la pieza no
+vende:
+
+- **El gate no se aplica desde acá.** Una Skill no ve la ruta de salida del agente
+  que la invoca: da el estado epistémico, no impone que se use. El principio 3 del
+  roadmap (un gate que el modelo puede saltear no es un gate) es exactamente por
+  qué esto no puede ser de otra forma.
+- **El `origen` de cada evidencia lo declara el llamador** y la skill no puede
+  verificarlo: la librería confía en quien la llama, igual que el host confía en
+  su propio camino de código. Si un tercero le pasa texto de su modelo como
+  `kernel_observed`, el lavado de origen es suyo.
+- **No hay persistencia** (el snapshot viaja en cada respuesta).
+- **No se aplica la política de exposición del host**: el saneamiento de secretos
+  y el marcador de "dato, no instrucciones" viven en `agent_core/epistemics/`, que
+  no es parte de la librería portable.
+
+**Y no es ingerible**: su salida es un eco del estado que el llamador ya tiene, así
+que el ledger alimentándose de ella sería el lazo de lavado de origen que F2 cerró
+por allowlist, con una vuelta más. Hay dos tests: que no está en
+`OBSERVATION_TOOLS`, y que por el camino real del loop la observación vuelve al
+modelo sin entrar al ledger.
+
+**Cómo se verifica que no duplica lógica:** un test corre la misma secuencia por la
+fachada y por la librería directo, y compara el estado final de la hipótesis
+(estado, nivel, flags). Si alguien reimplementara una regla adentro del `tool.py`,
+los dos caminos podrían discrepar y ese test lo vería.
+
+Tests: **20** de F2b que corren siempre (identidad de la copia, proceso limpio,
+cada operación, no-duplicación, fail-closed del contrato, advisory, no-ingesta) más
+**1 `requires_docker`** de punta a punta — que falla en este entorno por el mismo
+problema de sandbox pre-existente que los otros 6 e2e de skills
+(`python: can't open file '/workspace/main.py'`, verificado contra el commit
+previo). `scripts/validate_skills.py` verifica las 9 skills, ruff `--select=E9,F`
+limpio, y la medición de F6 sigue consistente.
+
+**Con F2b, el roadmap de la capa epistémica queda completo (F0–F6).** Lo que queda
+afuera es explícito y por decisión: la allowlist con hash por archivo del checker
+de drift (sugerida, no bloqueante), la firma/reputación de terceros para el
+verificador (D6: de primera parte por ahora) y cualquier motor adversarial, que el
+propio roadmap prohíbe mientras no haya medición que lo justifique.
