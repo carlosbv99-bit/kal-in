@@ -10899,3 +10899,68 @@ Lección de método, que es la misma que venimos repitiendo toda la sesión y qu
 violé acá: **lo que se mide no se recuerda mal, y una afirmación sin comando detrás es una
 afirmación sin respaldo** — exactamente lo que esta capa le exige al modelo que corre
 adentro.
+
+
+## Cierre del barrido: una ronda sin hallazgos, y el patrón que buscábamos (2026-09-30)
+
+Última pasada de revisión del código completo, sin hallazgos nuevos — y eso es una señal,
+no una omisión. Alcance cubierto en esta ronda: `sqlite_store.py` (el backend de D4, que
+nunca se había revisado: parametrizado, transaccional con `with self._conn:`, WAL + lock
+coherente con `mid_term.py`, `EstadoIlegible` ante JSON ilegible), `errors.py` (jerarquía
+sin dos excepciones que signifiquen lo mismo), `abstention.py` (redacción determinista y
+marcadores que corresponden a lo que produce `_cuerpo()`), `ledger.py`, `store.py` (allowlist
+y ancla fail-closed-visible) y `diagnosis.py`.
+
+**Dos precisiones que aportó la verificación, porque las dos afirmaciones eran razonables y
+una era incorrecta en el mecanismo:**
+
+1. **El invariante más crítico NO se aplica en `Hypothesis.__post_init__`** — `Hypothesis` no
+   tiene `__post_init__` (el de la línea 465 es de `ReopenCondition`). El chequeo de
+   "`SUPPORTED` exige evidencia exógena" vive en `Hypothesis.validate(exogenous_evidence_ids=...)`,
+   que **necesita el índice de evidencia del ledger**: una hipótesis sola no puede saber si
+   la evidencia la escribió el modelo. Se aplica desde `ledger._validate()`, que corre en
+   **cada** mutación (registro, vínculo, cambio de estado, aplicación de condiciones) y en
+   `from_snapshot` al cargar. La propiedad que vale es "**el ledger nunca almacena una
+   hipótesis inválida**", no "no se puede construir una hipótesis inválida": un
+   `dataclasses.replace()` hecho fuera del ledger no pasa por ahí — y no es un hueco en
+   producción porque todas las mutaciones van por el ledger, pero la diferencia importa si
+   alguien escribe un camino nuevo.
+2. **Los `ABSTENTION_MARKERS` sí corresponden a lo que produce el render**, con una
+   precisión: la correspondencia es 1 a 1 por tipo y se sostiene bajo `casefold()` (el
+   marcador es `"no lo sé"` y el texto empieza con `"No lo sé"`). El gate consume
+   exactamente así (`texto.casefold()` antes del substring), así que la capitalización no
+   rompe nada.
+
+**Y con esto se puede cerrar el patrón que persiguió toda la sesión.** Cinco rondas
+encontraron la misma clase de defecto en once lugares distintos, y la enunciación común es
+una sola: **el sistema afirmaba algo —una detección, un metadato, una escalación, una
+garantía— que ningún camino hacía de verdad.** Los casos, agrupados:
+
+| Forma | Dónde apareció |
+|---|---|
+| **Campo sin lector** | `Evidence.recheckable`, `Question.last_reviewed_at`, `_CircuitState.first_seen` (después volvió con consumidor), `EvidenceLink.note` (duplicado de `HistoryEntry.reason`) |
+| **Número calculado sin verificar** | `CompactionReport.entradas_de_historial_quitadas` (correcto y sin un solo test) |
+| **Metadato que mentía** | `SanitizedEvidence.truncated` (en las dos direcciones) |
+| **Escalación sin camino de acción** | circuit breaker (`reset()` sin llamadores), herramientas pendientes (sin `deny`), self-modification (sin `reject`), tools activas (sin desactivar) |
+| **Detección sin rastro** | `verify_tool_integrity()`, los tres rechazos adversariales de `install_from_market.py` |
+| **Ingesta de lo que no pasó** | `run_code` rechazado en validación estática, ingerido como observación (encontrado **en vivo**, con el server y el modelo real) |
+
+Las tres preguntas que los detectan, y que sirven para la próxima: **¿quién lee esto? ¿quién
+llama a esto? ¿deja rastro cuando rechaza?** Y las tres reglas que los cierran, ya aplicadas:
+*si el sistema decide NO hacer algo por seguridad, esa decisión es el evento*; *un flag cuya
+condición no se puede alcanzar por el camino real es decoración*; *lo que sale bien no
+necesita auditoría — lo que se rechaza, sí*.
+
+**Tres lecciones de método, dos de ellas pagadas en carne propia:**
+
+- **Lo que se mide no se recuerda mal.** La afirmación falsa sobre la clasificación del
+  drift, y la tercera vez que ese par de archivos se mal-clasificaba, terminaron en un
+  comando (`check_kernel_drift.py --triage`) en vez de en un párrafo. Una afirmación sin
+  comando detrás es una afirmación sin respaldo — lo que esta capa le exige al modelo que
+  corre adentro.
+- **Un test que arma condiciones más favorables que el entorno real no prueba portabilidad**,
+  prueba que el test sabe armar el entorno: el `sys.path.insert(0, skill_dir)` del test de
+  "proceso limpio" escondía que la fachada no arrancaba en un contenedor.
+- **Los guards se ganaron el lugar, cinco veces**: la identidad de la copia vendorizada, la
+  allowlist que exige que el nombre exista, el snapshot huérfano, el diagnóstico de workdir
+  invisible y el triage de drift. Cada uno falló *justo* cuando debía.
