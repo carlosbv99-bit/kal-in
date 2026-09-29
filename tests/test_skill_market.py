@@ -55,6 +55,39 @@ def _make_market_repo(tmp_path, skill_names=("greeter",)):
     return repo_dir
 
 
+# --- B-10 (auditoría externa de kal, 2026-09-27, portado acá vía
+# scripts/check_kernel_drift.py): "--" antes de las rutas posicionales
+# en `git clone` — sin eso, un market_url que empezara con "-" podía
+# interpretarse como una OPCIÓN de git, no como el repositorio a
+# clonar ---
+
+
+def test_a_market_url_that_starts_with_a_dash_is_treated_as_a_path_not_an_option(tmp_path, monkeypatch):
+    """
+    market_url cuyo STRING empieza literalmente con "-" (ruta relativa
+    a cwd, no solo un componente intermedio — un tmp_path absoluto
+    nunca empieza con "-", por eso el chdir). Sin el separador `--`,
+    git intentaría parsear "-injected-repo" como una opción propia y
+    fallaría con un error de "unknown option", nunca llegando a
+    clonar nada.
+    """
+    parent = tmp_path / "raro"
+    parent.mkdir()
+    repo_dir = parent / "-injected-repo"
+    repo_dir.mkdir()
+    _git(repo_dir, "init", "-b", "main")
+    _git(repo_dir, "config", "user.email", "test@example.com")
+    _git(repo_dir, "config", "user.name", "Test")
+    _add_skill(repo_dir, "greeter")
+    _git(repo_dir, "add", "-A")
+    _git(repo_dir, "commit", "-m", "skill de prueba")
+
+    monkeypatch.chdir(parent)
+    manifests = list_market_skills("-injected-repo")
+
+    assert [m.name for m in manifests] == ["greeter"]
+
+
 def test_list_market_skills_returns_manifests(tmp_path):
     repo_dir = _make_market_repo(tmp_path, skill_names=("greeter", "qr_maker"))
 

@@ -465,6 +465,20 @@ class SandboxConfig(BaseModel):
     timeout_seconds: int = 30
     pids_limit: int = 64
     filesystem: str = "read_only_except_workspace"
+    # HALLAZGO REAL DE AUDITORÍA EXTERNA (B-3 en kal, 2026-09-27,
+    # portado acá vía scripts/check_kernel_drift.py): el workdir
+    # temporal de cada ejecución (ver DockerSandboxRunner.run()) usaba
+    # SIEMPRE tempfile.gettempdir() implícito, sin forma de cambiarlo.
+    # Si el daemon de Docker vive en otro mount namespace que este
+    # proceso (Docker rootless, Docker Desktop, DOCKER_HOST remoto), el
+    # bind mount apunta a un directorio que el daemon simplemente no ve
+    # — TODA ejecución falla con un error que parece un bug del código
+    # de la skill ("can't open file '/workspace/main.py'"), no lo que
+    # realmente es: un problema de topología. None = comportamiento de
+    # siempre (tempfile.gettempdir()); un operador cuyo Docker no ve el
+    # /tmp de este proceso puede apuntar esto a una ruta que sí sea
+    # visible para ambos.
+    workdir_root: str | None = None
 
 
 class ToolIntegrationConfig(BaseModel):

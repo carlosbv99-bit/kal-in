@@ -27,9 +27,13 @@ from typing import Any, Literal
 
 from utils.admin_token import get_or_create_admin_token
 from utils.correlation import get_correlation_id
+from utils.logger import get_logger
+from utils.secure_dir import ensure_private_dir
+
+logger = get_logger(__name__)
 
 AUDIT_LOG_PATH = Path("logs/audit.log")
-AUDIT_LOG_PATH.parent.mkdir(exist_ok=True)
+ensure_private_dir(AUDIT_LOG_PATH.parent)  # M-4/B-6 en kal, portado acá: 0700, no lo que dé el umask del proceso
 
 # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
 # 2026-09-26), A-10/M-12: el encadenamiento usaba SHA-256 SIN CLAVE —
@@ -59,6 +63,7 @@ EventType = Literal[
     "skill_loaded",
     "self_diagnosis_run",
     "permission_denied",
+    "tool_permission_denied",
     "kernel_service_call",
     "kernel_service_denied",
     "syscall_policy_violation",
@@ -79,6 +84,16 @@ EventType = Literal[
     "network_access_escalated",
     "android_build_completed",
     "android_build_failed",
+    # HALLAZGO REAL (encontrado en esta sesión al portar B-4/B-7 de kal
+    # vía scripts/check_kernel_drift.py, no de ninguna auditoría
+    # externa): estos tres ya se usaban en
+    # kernel/registry/sandboxed_skill.py (audit_log.record() nunca
+    # valida event_type en runtime — Literal es solo chequeo estático,
+    # así que no fallaba, pero el Literal quedaba desalineado con la
+    # realidad, perdiendo la única razón de tenerlo).
+    "skill_permission_denied",
+    "skill_execution_signature_invalid",
+    "skill_execution_socket_error",
 ]
 
 
@@ -195,7 +210,17 @@ class AuditLog:
         try:
             last_entry = json.loads(last_line)
             return last_entry["event_hash"]
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError) as e:
+            # Mejora de diagnóstico (portada de kal vía
+            # scripts/check_kernel_drift.py): antes de esto, este
+            # fallback era silencioso — el reinicio de la cadena SÍ
+            # queda detectable después por verify_chain()/
+            # diagnose_chain(), pero nadie se enteraba en el momento en
+            # que ocurrió, con la línea cruda a mano para diagnóstico.
+            logger.error(
+                f"Última línea de {AUDIT_LOG_PATH} corrupta, no se pudo leer su hash "
+                f"({e}) — se reinicia la cadena desde acá. Línea cruda: {last_line!r}"
+            )
             return "genesis"
 
     def record(self, event: AuditEvent) -> AuditEvent:

@@ -17,6 +17,19 @@ formal. Por eso tests/test_sandbox_escape_resistance.py valida que,
 incluso cuando el código llega a ejecutarse sin pasar por esta
 validación, el aislamiento de Docker (sin red, fs read-only, cap_drop
 ALL, usuario no-root, namespaces separados) sigue conteniendo el daño.
+
+OTRO HUECO CONOCIDO Y ACEPTADO (B-1 en kal, auditoría externa
+2026-09-27, verificado empíricamente, portado acá vía
+scripts/check_kernel_drift.py): renombrar un builtin prohibido a una
+nueva variable (`e = eval; e('1+1')`) evade FORBIDDEN_CALLS por
+completo — el chequeo compara el NOMBRE LITERAL en el sitio de la
+llamada (`node.func.id`) contra la lista, sin ningún análisis de flujo
+de datos/alias (qué objeto está REALMENTE atado a ese nombre). Cerrar
+esto de verdad requeriría resolución de alias real, desproporcionado
+para lo que este módulo es (un filtro barato de primera línea, no la
+garantía) — se documenta en vez de fingir una cobertura que no existe;
+ver test_ast_validator.py::test_aliasing_a_forbidden_builtin_evades_the_static_check
+y, otra vez, test_sandbox_escape_resistance.py para la garantía real.
 """
 
 # Nombres de funciones/builtins prohibidos en cualquier contexto
@@ -52,6 +65,15 @@ FORBIDDEN_IMPORTS = {
     "marshal",
     "importlib",  # permite importar cualquier módulo (incluidos os/subprocess)
                   # por nombre en runtime, evitando el chequeo de import literal
+    # HALLAZGO REAL DE AUDITORÍA EXTERNA (B-1 en kal, 2026-09-27,
+    # verificado empíricamente, portado acá vía
+    # scripts/check_kernel_drift.py): `import builtins` no estaba
+    # prohibido, y `builtins.__import__('os')`/`builtins.eval(...)` son
+    # nodos ast.Call cuyo func es un ast.Attribute (`builtins.eval`),
+    # no un ast.Name — visit_Call() solo compara node.func.id contra
+    # FORBIDDEN_CALLS para nodos ast.Name, así que esta forma de
+    # llamar a eval/exec/__import__ pasaba sin ser detectada.
+    "builtins",
     # BUG REAL ENCONTRADO EN REVISIÓN (2026-08-24): "open" está en
     # FORBIDDEN_CALLS, pero pathlib.Path(...).write_text()/.read_text()/
     # .open() da el mismo acceso a filesystem sin pasar por ese nombre

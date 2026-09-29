@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import stat
 from pathlib import Path
 from typing import Literal
 
@@ -43,6 +45,8 @@ from cryptography.hazmat.primitives.serialization import (
     PublicFormat,
 )
 
+from utils.secure_dir import ensure_private_dir
+
 SIGNATURE_FILENAME = "skill.sig"
 
 SignatureStatus = Literal["unsigned", "verified", "tampered"]
@@ -55,14 +59,36 @@ def _skill_files(skill_dir: Path) -> list[Path]:
     __pycache__/.pyc — no son contenido real, pueden variar entre
     versiones de Python sin que la skill haya cambiado) — EXCLUYE
     además el propio skill.sig, que no puede firmarse a sí mismo.
+
+    HALLAZGO REAL DE AUDITORÍA EXTERNA (B-2 en kal, 2026-09-27,
+    portado acá vía scripts/check_kernel_drift.py): usaba
+    `p.is_file()` (sigue symlinks) — el mismo patrón que A-1/K-2, que
+    ya se corrigió en `SandboxedSkillTool._collect_skill_files()` pero
+    quedó SIN corregir acá. No es lectura arbitraria de archivos del
+    host hacia el exterior (acá solo se calcula un SHA-256, nunca se
+    devuelve el contenido a nadie), pero sí significa que un symlink
+    dentro de `skills/<x>/` hace que la firma "canonice" contenido del
+    HOST que no es parte real del paquete — y que esa firma se vuelva
+    `tampered` si ese archivo externo cambia, sin que nadie tocara la
+    skill en sí. Mismo fix en dos capas que A-1/K-2: `os.lstat` +
+    descartar no-regulares + chequeo de que la ruta real resuelva
+    dentro de `skill_dir`.
     """
-    return [
-        p for p in skill_dir.rglob("*")
-        if p.is_file()
-        and "__pycache__" not in p.parts
-        and p.suffix != ".pyc"
-        and p.name != SIGNATURE_FILENAME
-    ]
+    resolved_root = skill_dir.resolve()
+    files = []
+    for p in skill_dir.rglob("*"):
+        try:
+            st = os.lstat(p)
+        except OSError:
+            continue
+        if not stat.S_ISREG(st.st_mode):
+            continue
+        if not p.resolve().is_relative_to(resolved_root):
+            continue
+        if "__pycache__" in p.parts or p.suffix == ".pyc" or p.name == SIGNATURE_FILENAME:
+            continue
+        files.append(p)
+    return files
 
 
 _MANIFEST_FILENAME = "skill.yaml"
@@ -124,7 +150,7 @@ class SkillSigner:
 
     def __init__(self, key_dir: Path | str):
         self.key_dir = Path(key_dir)
-        self.key_dir.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(self.key_dir)  # M-4/B-6: 0700, no lo que dé el umask del proceso
         self._private_key_path = self.key_dir / "skill_author_key"
         self._public_key_path = self.key_dir / "skill_author_key.pub"
         self._private_key = self._load_or_create_keypair()
@@ -204,3 +230,30 @@ def verify_skill_signature(skill_dir: Path) -> SignatureStatus:
     except InvalidSignature:
         return "tampered"
     return "verified"
+
+
+def signer_fingerprint(skill_dir: Path) -> str | None:
+    """
+    HALLAZGO REAL DE AUDITORÍA EXTERNA (M-8 en kal, 2026-09-27,
+    portado acá vía scripts/check_kernel_drift.py): "verified" prueba
+    integridad (el paquete no cambió desde que se firmó), NUNCA
+    autoría — cualquiera puede generar su propio keypair, firmar una
+    skill maliciosa, y obtener "verified" igual (verificado con un
+    PoC). El fingerprint de la clave es lo único que un humano puede
+    de verdad comparar contra lo que el autor real haya publicado en
+    otro lado (su README, un canal de confianza) — expuesto acá para
+    que los scripts de instalación/habilitación lo muestren en vez de
+    dar a entender que "verified" ya certificó al autor.
+
+    None si no hay skill.sig o si está corrupto (mismo criterio
+    fail-closed que verify_skill_signature: no reventar, solo no hay
+    fingerprint que mostrar).
+    """
+    sig_path = skill_dir / SIGNATURE_FILENAME
+    if not sig_path.exists():
+        return None
+    try:
+        data = json.loads(sig_path.read_text(encoding="utf-8"))
+        return str(data["author_public_key"])
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return None

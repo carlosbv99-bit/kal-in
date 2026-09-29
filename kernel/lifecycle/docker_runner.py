@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
+import posixpath
 import stat
 import tempfile
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import docker
 from docker.errors import APIError, DockerException, ImageNotFound
@@ -68,12 +69,110 @@ class DockerSandboxRunner:
         # llamada puntual, nunca el arranque de la aplicación.
         self._client: docker.DockerClient | None = None
         self.cfg = settings.sandbox
+        # HALLAZGO REAL DE AUDITORÍA EXTERNA (B-5 en kal, 2026-09-27,
+        # portado acá vía scripts/check_kernel_drift.py): run() fija
+        # user=f"{os.getuid()}:{os.getgid()}" (evita el chmod 0777
+        # histórico, ver _prepare_workdir) — buena decisión, PERO si el
+        # proceso de kal corre como uid 0, el contenedor sandboxeado
+        # TAMBIÉN corre como root, sin ninguna advertencia. cap_drop=ALL
+        # + no-new-privileges + read_only reducen mucho el impacto real,
+        # pero conviene que quien opera esto lo sepa explícitamente en
+        # vez de descubrirlo si algo escapa del sandbox. Una sola vez
+        # por instancia (no por ejecución, para no inundar el log).
+        if os.getuid() == 0:
+            logger.warning(
+                "DockerSandboxRunner: este proceso corre como root (uid 0) — los contenedores "
+                "sandboxeados TAMBIÉN correrán como root dentro del contenedor (user=uid:gid del "
+                "proceso), aunque con cap_drop=ALL/no-new-privileges/read_only. Correr kal como "
+                "un usuario sin privilegios es la mitigación real."
+            )
 
     @property
     def client(self) -> docker.DockerClient:
         if self._client is None:
             self._client = docker.from_env()
         return self._client
+
+    @staticmethod
+    def _join_within(base: Path, relative: str) -> Path:
+        """
+        `base / relative`, pero rechaza cualquier resultado que resuelva
+        FUERA de `base` — auditoría externa (2026-09-26, "footgun
+        latente" relacionado a A-1): tanto `workspace_files` como
+        `output_dir` aceptaban claves con `../` sin normalizar. Hoy los
+        únicos llamadores reales alimentan esto con rutas fijas de
+        primera parte (nunca explotable in situ), pero un llamador
+        futuro o un refactor podría convertir esto en escritura
+        arbitraria fuera del directorio temporal — defensa en
+        profundidad, mismo criterio que K-1/K-6 en otros módulos de
+        este mismo kernel.
+        """
+        joined = (base / relative).resolve()
+        if not joined.is_relative_to(base.resolve()):
+            raise ValueError(f"'{relative}' resuelve fuera del workdir permitido — rechazado.")
+        return joined
+
+    # Raíces de `container_path` permitidas para `extra_mounts` — ver
+    # _validate_extra_mounts(). Dos llamadores reales legítimos, cada
+    # uno con su propia raíz fija:
+    #   - SandboxedSkillTool (kernel/registry/sandboxed_skill.py):
+    #     "/workspace/.kal", el socket del Kernel Service Bus.
+    #   - agent_core/self_modification.py (kal-in únicamente — un
+    #     copia completa del proyecto propuesto, sin red, para correr
+    #     su test suite dentro del sandbox): "/project" tal cual, sin
+    #     subcarpeta. kal (kernel puro) no tiene este segundo llamador
+    #     — no confundir con /workspace, que es la raíz de una skill.
+    _ALLOWED_EXTRA_MOUNT_ROOTS = ("/workspace", "/project")
+
+    @staticmethod
+    def _validate_extra_mounts(extra_mounts: dict[str, str] | None) -> None:
+        """
+        VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (M-5 en
+        kal, 2026-09-26, portada acá vía scripts/check_kernel_drift.py):
+        `extra_mounts` montaba `host_path` -> `container_path` SIN
+        NINGUNA validación — `_join_within()` de arriba cubre
+        `workspace_files`/`output_dir` (siempre dentro del workdir
+        temporal), pero `host_path` acá es, por diseño, una ruta del
+        HOST fuera de ese workdir (los casos reales acá: el directorio
+        del socket del Kernel Service Bus, y la copia del proyecto para
+        self-modification). Se exige: `host_path` absoluto y que exista
+        de verdad (nunca una ruta relativa ni inventada), `container_path`
+        confinado a una de `_ALLOWED_EXTRA_MOUNT_ROOTS` (nunca `/`,
+        `/etc`, etc. — mismo alcance que ya usan los llamadores reales).
+
+        FIX DE M-5 CORREGIDO ACÁ (kal lo portó primero comparando
+        `PurePosixPath(container_path).is_relative_to("/workspace")`
+        directo, SIN normalizar — verificado que
+        `/workspace/../etc/passwd` pasaba ese chequeo igual, porque
+        `is_relative_to` sobre un PurePosixPath es una comparación
+        LÉXICA de segmentos, nunca resuelve `..`. `posixpath.normpath()`
+        colapsa `..`/`.` ANTES de comparar — verificado con
+        `/workspace/../etc/passwd` -> `/etc/passwd`, ya rechazado).
+
+        BUG REAL ENCONTRADO PORTANDO ESTE FIX A kal-in (2026-09-28):
+        la primera versión solo aceptaba `/workspace`, hardcodeado —
+        kal (de donde se portó) es kernel puro y no tiene
+        `agent_core/self_modification.py`, así que nunca vio este
+        segundo caso real. Rompía DE VERDAD la suite de
+        self-modification acá (`extra_mounts={root: "/project"}`),
+        detectado corriendo la suite completa antes de commitear, no
+        por una auditoría — ver docs/HISTORY.md.
+        """
+        for host_path, container_path in (extra_mounts or {}).items():
+            resolved_host = Path(host_path)
+            if not resolved_host.is_absolute() or not resolved_host.exists():
+                raise ValueError(
+                    f"extra_mounts: host_path '{host_path}' debe ser una ruta absoluta que ya exista — rechazado."
+                )
+            normalized_container = PurePosixPath(posixpath.normpath(container_path))
+            is_allowed = normalized_container.is_absolute() and any(
+                normalized_container.is_relative_to(root) for root in DockerSandboxRunner._ALLOWED_EXTRA_MOUNT_ROOTS
+            )
+            if not is_allowed:
+                allowed = ", ".join(DockerSandboxRunner._ALLOWED_EXTRA_MOUNT_ROOTS)
+                raise ValueError(
+                    f"extra_mounts: container_path '{container_path}' debe estar dentro de ({allowed}) — rechazado."
+                )
 
     @staticmethod
     def _prepare_workdir(
@@ -110,7 +209,7 @@ class DockerSandboxRunner:
         script_path.write_text(source_code, encoding="utf-8")
 
         for filename, content in (workspace_files or {}).items():
-            file_path = workdir / filename
+            file_path = DockerSandboxRunner._join_within(workdir, filename)
             file_path.parent.mkdir(parents=True, exist_ok=True)
             if isinstance(content, bytes):
                 file_path.write_bytes(content)
@@ -183,14 +282,25 @@ class DockerSandboxRunner:
         target_memory_limit_mb = memory_limit_mb or self.cfg.memory_limit_mb
         target_cpu_limit = cpu_limit or self.cfg.cpu_limit
         target_pids_limit = pids_limit or self.cfg.pids_limit
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(dir=self.cfg.workdir_root) as tmp_dir:
             workdir = Path(tmp_dir)
-            self._prepare_workdir(workdir, source_code, workspace_files)
+            try:
+                self._prepare_workdir(workdir, source_code, workspace_files)
+                self._validate_extra_mounts(extra_mounts)
 
-            output_path = None
-            if output_dir:
-                output_path = workdir / output_dir
-                output_path.mkdir(parents=True, exist_ok=True)
+                output_path = None
+                if output_dir:
+                    output_path = self._join_within(workdir, output_dir)
+                    output_path.mkdir(parents=True, exist_ok=True)
+            except ValueError as e:
+                # workspace_files/output_dir con una clave que escapa del
+                # workdir (ver _join_within), o extra_mounts inválido (ver
+                # _validate_extra_mounts) — error de programación del
+                # LLAMADOR, no de la ejecución en sí, pero se devuelve
+                # como SandboxResult igual que ImageNotFound/APIError de
+                # abajo, en vez de propagar, por consistencia.
+                logger.error(f"Ruta de workspace_files/output_dir/extra_mounts inválida: {e}")
+                return SandboxResult("error", "", str(e), None)
 
             volumes = {str(workdir): {"bind": "/workspace", "mode": "rw"}}
             for host_path, container_path in (extra_mounts or {}).items():

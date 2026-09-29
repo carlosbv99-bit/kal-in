@@ -54,6 +54,21 @@ class _DenylistVisitor(ast.NodeVisitor):
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if node.attr in FORBIDDEN_ATTRIBUTES:
             self.violations.append(f"Acceso a atributo prohibido: .{node.attr} en línea {node.lineno}")
+        # HALLAZGO REAL DE AUDITORÍA EXTERNA (B-1 en kal, 2026-09-27,
+        # verificado empíricamente, portado acá vía
+        # scripts/check_kernel_drift.py): `__builtins__.eval(...)`/
+        # `__builtins__.__import__(...)` NO pasaba por ningún chequeo —
+        # no es un import literal (`__builtins__` ya está disponible
+        # sin importar nada), ".eval"/".__import__" no están en
+        # FORBIDDEN_ATTRIBUTES (solo el NOMBRE "__builtins__" lo está,
+        # para cuando aparece como atributo DE otra cosa, p.ej.
+        # `func.__builtins__`), y el nodo Call tiene func=ast.Attribute,
+        # no ast.Name, así que FORBIDDEN_CALLS tampoco lo ve. Cualquier
+        # acceso a un atributo CUYA BASE sea el nombre `__builtins__` es
+        # en sí mismo sospechoso — se bloquea acá sin importar qué
+        # atributo puntual sea.
+        elif isinstance(node.value, ast.Name) and node.value.id == "__builtins__":
+            self.violations.append(f"Acceso a __builtins__.{node.attr} en línea {node.lineno}")
         self.generic_visit(node)
 
 

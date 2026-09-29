@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from kernel.registry.skill_signing import verify_skill_signature
+from kernel.registry.skill_signing import signer_fingerprint, verify_skill_signature
 from kernel.registry.skills import (
     MANIFEST_FILENAME,
     audit_skill_enable_change,
@@ -32,7 +32,7 @@ from kernel.registry.skills import (
 _CONFIRM_YES = {"s", "si", "sí", "y", "yes"}
 
 
-def _print_summary(manifest, signature_status: str) -> None:
+def _print_summary(manifest, signature_status: str, skill_dir: Path) -> None:
     print(f"Skill: {manifest.name} (v{manifest.version})")
     print(f"Descripción: {manifest.description}")
     print(f"Permisos: {manifest.permissions or '(ninguno)'}")
@@ -43,7 +43,20 @@ def _print_summary(manifest, signature_status: str) -> None:
         print("Paquetes de pip: (ninguno, solo librería estándar)")
     print(f"Servicios del kernel permitidos: {manifest.kernel_services or '(ninguno)'}")
     if signature_status == "verified":
-        print("Firma: verificada (el paquete no cambió desde que su autor lo firmó)")
+        # HALLAZGO REAL DE AUDITORÍA EXTERNA (M-8 en kal, 2026-09-27,
+        # portado acá vía scripts/check_kernel_drift.py): "verificada
+        # (... su autor lo firmó)" daba a entender que se verificó QUIÉN
+        # es el autor — falso. Solo prueba integridad contra la clave que
+        # sea que firmó, cualquiera puede tener una. Se muestra el
+        # fingerprint para que un humano lo compare contra lo que el
+        # autor real haya publicado en otro canal de confianza.
+        fingerprint = signer_fingerprint(skill_dir)
+        print(
+            f"Firma: integridad verificada — el paquete no cambió desde que se firmó con "
+            f"la clave {fingerprint}. Esto NO confirma quién es el autor: cualquiera puede "
+            f"firmar con su propia clave. Compará este fingerprint contra el que el autor "
+            f"real haya publicado en otro canal de confianza."
+        )
     else:
         print("Firma: SIN FIRMAR — no se puede verificar que el contenido no fue alterado desde que se escribió.")
 
@@ -83,7 +96,7 @@ def main() -> None:
         )
         raise SystemExit(1)
 
-    _print_summary(manifest, signature_status)
+    _print_summary(manifest, signature_status, args.skill_dir)
 
     if not args.yes:
         answer = input("\n¿Confirmás habilitar esta skill? [s/N]: ").strip().lower()

@@ -9,7 +9,12 @@ integridad del paquete, no autoridad del autor.
 """
 from __future__ import annotations
 
-from kernel.registry.skill_signing import SkillSigner, verify_skill_signature
+from kernel.registry.skill_signing import (
+    SkillSigner,
+    _skill_files,
+    signer_fingerprint,
+    verify_skill_signature,
+)
 from kernel.registry.skills import set_skill_enabled
 
 
@@ -171,6 +176,18 @@ def test_private_key_file_has_restrictive_permissions(tmp_path):
     assert oct(key_path.stat().st_mode)[-3:] == "600"
 
 
+def test_key_dir_has_restrictive_permissions(tmp_path):
+    """M-4/B-6 en kal (auditoría externa, 2026-09-27, portado acá vía
+    scripts/check_kernel_drift.py): el directorio en sí (no solo el
+    archivo de la clave) quedaba con lo que diera el umask del
+    proceso — otro usuario del mismo grupo podía reemplazar la clave
+    privada de un autor."""
+    key_dir = tmp_path / "keys"
+    SkillSigner(key_dir=key_dir)
+
+    assert oct(key_dir.stat().st_mode)[-3:] == "700"
+
+
 def test_signature_from_a_different_author_key_does_not_verify_someone_elses_content(tmp_path):
     """
     Dos autores distintos, cada uno con su propio keypair — la firma
@@ -191,3 +208,91 @@ def test_signature_from_a_different_author_key_does_not_verify_someone_elses_con
     sig = signer_2.sign_skill(skill_dir)
     assert sig["author_public_key"] == signer_2.public_key_hex()
     assert sig["author_public_key"] != signer_1.public_key_hex()
+
+
+# --- signer_fingerprint() (M-8 en kal, auditoría externa 2026-09-27,
+# portado acá vía scripts/check_kernel_drift.py): "verified" prueba
+# integridad, nunca autoría — el fingerprint es lo único que un
+# humano puede comparar contra lo que el autor real haya publicado ---
+
+
+def test_signer_fingerprint_matches_the_signing_key(tmp_path):
+    skill_dir = _make_skill_dir(tmp_path)
+    signer = SkillSigner(key_dir=tmp_path / "keys")
+    signer.write_signature(skill_dir)
+
+    assert signer_fingerprint(skill_dir) == signer.public_key_hex()
+
+
+def test_signer_fingerprint_is_none_for_an_unsigned_skill(tmp_path):
+    skill_dir = _make_skill_dir(tmp_path)
+
+    assert signer_fingerprint(skill_dir) is None
+
+
+def test_signer_fingerprint_is_none_for_a_corrupt_signature_file(tmp_path):
+    skill_dir = _make_skill_dir(tmp_path)
+    (skill_dir / "skill.sig").write_text("esto no es json valido", encoding="utf-8")
+
+    assert signer_fingerprint(skill_dir) is None
+
+
+def test_signer_fingerprint_identifies_a_forged_re_signature_as_a_different_key(tmp_path):
+    """Mismo escenario que M-8/A-1: alguien firma un paquete con SU
+    PROPIA clave — "verified" es cierto, pero el fingerprint expuesto
+    permite a un humano notar que NO es la clave del autor original."""
+    skill_dir = _make_skill_dir(tmp_path)
+    original_author = SkillSigner(key_dir=tmp_path / "original")
+    original_author.write_signature(skill_dir)
+    original_fingerprint = signer_fingerprint(skill_dir)
+
+    attacker = SkillSigner(key_dir=tmp_path / "attacker")
+    attacker.write_signature(skill_dir)
+
+    assert verify_skill_signature(skill_dir) == "verified"
+    assert signer_fingerprint(skill_dir) == attacker.public_key_hex()
+    assert signer_fingerprint(skill_dir) != original_fingerprint
+
+
+# --- _skill_files() (B-2 en kal, auditoría externa 2026-09-27,
+# portado acá vía scripts/check_kernel_drift.py): mismo patrón de
+# symlinks sin resolver que A-1/K-2, acá del lado de la FIRMA ---
+
+
+def test_a_symlink_inside_the_skill_dir_is_never_hashed(tmp_path):
+    """
+    Un symlink dentro de skills/<x>/ apuntando a un archivo del HOST no
+    debería "canonizarse" en la firma — ni su contenido (no debería
+    poder leerse), ni siquiera su sola presencia debería hacer que la
+    firma dependa de un archivo externo a la skill.
+    """
+    skill_dir = _make_skill_dir(tmp_path)
+    secreto = tmp_path / "secreto_del_host.txt"
+    secreto.write_bytes(b"informacion sensible del host")
+    (skill_dir / "robado.txt").symlink_to(secreto)
+
+    files = _skill_files(skill_dir)
+
+    assert not any(p.name == "robado.txt" for p in files)
+
+
+def test_signing_is_unaffected_by_a_symlink_and_by_changes_to_its_target(tmp_path):
+    """
+    Regresión de punta a punta: firmar una skill con un symlink adentro
+    da la MISMA firma que sin él (el symlink se ignora por completo), y
+    modificar el archivo del HOST al que apunta no vuelve la skill
+    'tampered' — antes del fix, sí lo hacía, porque el hash del symlink
+    seguido dependía del contenido externo.
+    """
+    skill_dir = _make_skill_dir(tmp_path)
+    secreto = tmp_path / "secreto_del_host.txt"
+    secreto.write_bytes(b"version 1")
+    (skill_dir / "robado.txt").symlink_to(secreto)
+
+    signer = SkillSigner(key_dir=tmp_path / "keys")
+    signer.write_signature(skill_dir)
+    assert verify_skill_signature(skill_dir) == "verified"
+
+    secreto.write_bytes(b"version 2, el archivo del host cambio")
+
+    assert verify_skill_signature(skill_dir) == "verified"

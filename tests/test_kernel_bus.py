@@ -124,6 +124,63 @@ def test_dispatch_leaves_non_artifact_strings_untouched(bus):
     assert result == {"received_path": "/ya/es/una/ruta/real.png"}
 
 
+# --- B-7 (auditoría externa de kal, 2026-09-27, portado acá vía
+# scripts/check_kernel_drift.py): artifact_paths scopeado por skill —
+# antes era un único dict GLOBAL, sin scoping: una skill que obtuviera
+# el URI de un artefacto de OTRA skill podía resolverlo igual. Acá SÍ
+# es explotable de verdad (a diferencia de kal, kernel puro sin
+# servicios reales registrados): kal-in registra
+# ImageService/AudioService/STTService/DownloadService de verdad ---
+
+
+def test_a_skill_cannot_resolve_an_artifact_registered_by_a_different_skill(bus):
+    bus.dispatch("test.with_artifact", {}, skill_name="skill_a")  # registra artifact://fake/1
+
+    with pytest.raises(ArtifactNotFoundError):
+        bus.dispatch("test.describe", {"path": "artifact://fake/1"}, skill_name="skill_b")
+
+
+def test_resolve_artifact_is_scoped_per_skill_name(bus):
+    bus.dispatch("test.with_artifact", {}, skill_name="skill_a")
+
+    assert bus.resolve_artifact("artifact://fake/1", skill_name="skill_a") == "/host/real/path.png"
+    assert bus.resolve_artifact("artifact://fake/1", skill_name="skill_b") is None
+    assert bus.resolve_artifact("artifact://fake/1") is None  # sin skill_name: scope "" propio, tampoco lo ve
+
+
+def test_a_skill_can_still_resolve_its_own_artifact(bus):
+    """El caso legítimo (SandboxedSkillTool._to_artifact) sigue funcionando:
+    una skill resolviendo un artefacto que ELLA MISMA registró."""
+    bus.dispatch("test.with_artifact", {}, skill_name="skill_a")
+
+    result = bus.dispatch("test.describe", {"path": "artifact://fake/1"}, skill_name="skill_a")
+
+    assert result == {"received_path": "/host/real/path.png"}
+
+
+def test_artifact_registration_is_capped_per_skill(bus):
+    """FIFO: al llegar al máximo, la entrada más vieja de ESA skill se
+    descarta antes de agregar la nueva — sin límite, un proceso de
+    larga vida acumula esto sin cota."""
+    cap = KernelServiceBus._MAX_ARTIFACTS_PER_SKILL
+
+    class _NumberedArtifactService:
+        ALLOWED_ACTIONS = frozenset({"make"})
+
+        def make(self, n):
+            return {"artifact": f"artifact://numbered/{n}", "path": f"/host/{n}.png", "metadata": {}}
+
+    bus.register("numbered", _NumberedArtifactService())
+    for i in range(cap + 5):
+        bus.dispatch("numbered.make", {"n": i}, skill_name="skill_a")
+
+    # Las primeras 5 (las más viejas) ya no están; las últimas `cap` sí.
+    for i in range(5):
+        assert bus.resolve_artifact(f"artifact://numbered/{i}", skill_name="skill_a") is None
+    for i in range(5, cap + 5):
+        assert bus.resolve_artifact(f"artifact://numbered/{i}", skill_name="skill_a") == f"/host/{i}.png"
+
+
 # --- Inyección de skill_name (agregado para DownloadService, ver
 # tool_integration/services.py — el permiso de red es por-skill, el
 # único servicio que hoy necesita saber quién lo llama) ---

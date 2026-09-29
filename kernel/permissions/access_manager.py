@@ -34,6 +34,10 @@ from typing import Literal
 from uuid import uuid4
 
 from audit.audit_log import AuditEvent, audit_log
+from utils.logger import get_logger
+from utils.secure_dir import ensure_private_dir
+
+logger = get_logger(__name__)
 
 AccessDecision = Literal["auto_allowed", "requires_approval"]
 GrantLevel = Literal["once", "session", "project", "skill"]
@@ -172,15 +176,40 @@ class AccessManager:
         raise ValueError(f"Nivel de concesión desconocido: '{level}'")
 
     def _load_persisted_grants(self) -> list[_Grant]:
+        """
+        VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (M-4 en kal,
+        2026-09-27, portada acá vía scripts/check_kernel_drift.py): sin
+        manejo de errores, un archivo de grants corrupto (disco lleno a
+        mitad de escritura, edición manual rota) o con un campo
+        extra/faltante hacía que JSONDecodeError/TypeError se
+        propagaran sin atrapar desde evaluate() — inutilizando el motor
+        de decisión ENTERO por un archivo dañado. Fail-safe, no
+        fail-silent: ante cualquier problema, se trata como "sin grants
+        persistidos" (la dirección segura — sin grants, evaluate() cae
+        a requires_approval, nunca a auto_allowed) y se audita la
+        anomalía; un grant individual con forma inválida se descarta
+        solo a él, no arrastra a los demás.
+        """
         if not self._grants_path.exists():
             return []
-        raw = json.loads(self._grants_path.read_text(encoding="utf-8"))
-        return [_Grant(**g) for g in raw]
+        try:
+            raw = json.loads(self._grants_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            logger.error(f"No se pudo leer {self._grants_path} ({type(e).__name__}: {e}) — se ignoran los grants persistidos")
+            return []
+
+        grants: list[_Grant] = []
+        for i, g in enumerate(raw if isinstance(raw, list) else []):
+            try:
+                grants.append(_Grant(**g))
+            except TypeError as e:
+                logger.error(f"Grant #{i} en {self._grants_path} con forma inválida ({e}) — descartado")
+        return grants
 
     def _persist_grant(self, grant: _Grant) -> None:
         grants = self._load_persisted_grants()
         grants.append(grant)
-        self._grants_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(self._grants_path.parent)  # M-4/B-6: 0700, no lo que dé el umask del proceso
         self._grants_path.write_text(json.dumps([g.__dict__ for g in grants], indent=2), encoding="utf-8")
 
     # --- Auditoría ---

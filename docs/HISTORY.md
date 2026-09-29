@@ -8950,3 +8950,120 @@ No se tocó `kal` (el kernel extraído) en esta sesión — el mismo gap
 probablemente existe ahí también (misma `verify_skill_signature()`,
 mismo `scripts/validate_skills.py`), queda como candidato a portar si
 hace falta.
+
+## Reconciliación completa de los 18 archivos divergentes con kal (2026-09-28)
+
+Cierre del trabajo iniciado en "Chequeo de drift kal-in ↔ kal" más
+arriba: revisados y portados, uno por uno, TODOS los archivos que
+`scripts/check_kernel_drift.py` reportaba divergentes contra `kal`,
+casi todos originados en la auditoría externa propia de `kal`
+(`docs/AUDITORIA-SEGURIDAD-2026-09-27.md` y su re-auditoría del
+2026-09-28, ninguna de las dos corrida contra este repo). Varios
+resultaron ser diferencias cosméticas/de contexto deliberadas (nombres
+de eventos, docstrings específicos de cada repo) y se dejaron como
+están — documentado acá solo lo que cambió código real:
+
+- **M-1** (`kernel/registry/registry.py`): `DynamicSandboxedTool.execute()`
+  no consultaba `permission_cascade` en absoluto — a diferencia de
+  `SandboxedSkillTool` (K-4), `network_mode` se derivaba SOLO de
+  `manifest.permissions`. `globally_denied` documentado como "pase lo
+  que pase" era falso para este wrapper.
+- **B-2 + M-8** (`kernel/registry/skill_signing.py`): mismo patrón de
+  symlink sin resolver que A-1/K-2, del lado de la firma de skills; más
+  `signer_fingerprint()` nueva (mostrada ahora en
+  `enable_skill.py`/`install_from_market.py` — "verified" prueba
+  integridad, nunca autoría).
+- **M-4** (`kernel/permissions/access_manager.py`): un archivo de
+  grants corrupto tumbaba el motor de decisión ENTERO (JSONDecodeError
+  sin atrapar en `evaluate()`) — fail-safe ahora, un grant inválido se
+  descarta solo a él.
+- **B-7** (`kernel/api/bus.py` + `kernel/registry/sandboxed_skill.py`):
+  `artifact_paths` era un dict GLOBAL sin scope por skill — una skill
+  que obtuviera el URI de un artefacto de OTRA podía resolverlo igual.
+  **Explotable de verdad acá** (a diferencia de `kal`, kernel puro sin
+  servicios reales registrados): este repo registra
+  ImageService/AudioService/STTService/DownloadService de verdad.
+- **B-4** (`kernel/registry/sandboxed_skill.py`): `tempfile.mkdtemp()`
+  y `socket_server.start()` del socket del Kernel Bus corrían ANTES
+  del try/finally — un `OSError` real (AF_UNIX path too long con un
+  TMPDIR largo) se propagaba crudo y el tempdir quedaba sin borrar.
+- **M-2** (`kernel/api/sandbox_api.py`): sin límite de tamaño de body
+  ni manejo de un `Content-Length` no numérico (`ValueError` sin
+  atrapar, alcanzable ANTES de la autenticación). Sin test alguno hasta
+  ahora — `tests/test_sandbox_api.py` es enteramente nuevo acá.
+- **M-7** (`kernel/lifecycle/Dockerfile`): el usuario `sandbox` se
+  creaba pero nunca se activaba (sin `USER sandbox`) — el único
+  servicio con acceso al Kernel Service Bus corría como root.
+  Verificado con un build real: import + `whoami` confirmando `sandbox`,
+  no root. **Divergencia deliberada** del fix de `kal`: NO se usó
+  `requirements-core.txt` tal cual (ahí es kernel puro; acá es el del
+  proyecto completo con chromadb/sklearn — hubiera inflado la imagen
+  del sandbox_runner con dependencias que nunca toca), se mantuvo la
+  lista mínima explícita. El comentario sobre `--group-add` del GID del
+  socket de Docker tampoco aplica acá: este repo ya aísla eso mejor,
+  vía `docker_socket_proxy` por TCP (ver `docker-compose.yml`).
+- **B-10** (`kernel/registry/skill_market.py`): sin el separador `--`,
+  un `market_url` que empezara con "-" podía interpretarse como una
+  opción de `git clone` en vez de como el repositorio.
+- **A-1** (`kernel/registry/skills.py` + `scripts/install_from_market.py`):
+  `_validate_skill_name` pasó a pública (`validate_skill_name`) — el
+  mismo path traversal de K-1 existía SIN CORREGIR en el instalador de
+  market (`args.skill_name` sin sanitizar armando `local_dest`).
+  `tests/test_install_from_market.py` es enteramente nuevo acá.
+- **B-1** (`code_analysis/ast_validator.py` + `denylist.py`): dos
+  evasiones cerradas (`__builtins__.eval(...)` sin import, y
+  `import builtins; builtins.eval(...)`) — parcial y documentado como
+  tal, igual que en `kal` (renombrar un builtin a una variable sigue
+  evadiendo el chequeo, análisis de alias real está fuera de alcance
+  para un filtro de primera línea).
+- **B-3 + B-5 + M-5** (`kernel/lifecycle/docker_runner.py` +
+  `utils/config.py`): `sandbox.workdir_root` configurable (topología
+  Docker rootless/remoto), warning si el proceso corre como uid 0, y
+  `extra_mounts` validado (antes sin ninguna restricción de
+  host_path/container_path).
+
+  **Bug real encontrado corrigiendo M-5, no portando ciegamente**: el
+  fix de `kal` compara
+  `PurePosixPath(container_path).is_relative_to("/workspace")`
+  directo, SIN normalizar — verificado con un PoC que
+  `/workspace/../etc/passwd` pasa ese chequeo igual (`is_relative_to`
+  sobre un `PurePosixPath` es léxico por segmentos, nunca resuelve
+  `..`). Corregido acá (y reportado/corregido también en `kal`) con
+  `posixpath.normpath()` antes de comparar.
+
+  **Segundo bug real, encontrado corriendo la suite COMPLETA antes de
+  commitear, no por ninguna auditoría**: la primera versión de
+  `_validate_extra_mounts` portada acá solo aceptaba `/workspace`,
+  hardcodeado — `kal` es kernel puro y nunca vio el segundo llamador
+  real que SÍ existe acá, `agent_core/self_modification.py`, que monta
+  la copia completa del proyecto propuesto en `/project` (sin
+  subcarpeta) para correr su test suite dentro del sandbox. Rompió DE
+  VERDAD 6 tests reales (`test_self_modification.py`,
+  `test_self_modification_versions.py`) en la primera corrida completa
+  post-cambio. `_ALLOWED_EXTRA_MOUNT_ROOTS = ("/workspace", "/project")`
+  ahora cubre ambos llamadores explícitamente, con un test de regresión
+  dedicado.
+
+**Gap real encontrado en el camino, en AMBOS repos**: `tool_permission_denied`
+(agregado en esta misma ronda de trabajo, sesión previa) y
+`skill_permission_denied`/`skill_execution_signature_invalid` ya se
+usaban en el código de los dos repos pero faltaban en el `EventType`
+Literal de `audit/audit_log.py` — `audit_log.record()` nunca valida
+`event_type` en runtime (es solo chequeo estático), así que no
+rompía nada, pero el tipo quedaba desalineado con la realidad. Corregido
+en los dos.
+
+**Verificación**: cada archivo se compiló y probó individualmente antes
+de seguir con el próximo; al final, la suite completa (1300+ tests,
+excluyendo el único test de integración con un timeout de infraestructura
+conocido — inpainting con diffusers en CPU sin GPU, ~22s/paso, no
+alcanza el presupuesto de 600s del sandbox, no relacionado a ningún
+cambio de esta sesión) pasa limpia, junto con `ruff check --select=E9,F`.
+
+Una segunda corrida completa (ya con el fix de `_ALLOWED_EXTRA_MOUNT_ROOTS`
+aplicado) encontró un fallo más,
+`test_kernel_bus_socket_server.py::test_max_requests_stops_accepting_after_the_limit`
+— test de temporización real de sockets (`idle_timeout=2s`), sensible
+a carga del sistema. Corrido aislado, pasa limpio (12/12 de su archivo)
+— flaky bajo la carga de correr la suite completa de punta a punta con
+todos los modelos multimodales, no una regresión de este trabajo.

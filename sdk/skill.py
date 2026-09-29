@@ -25,6 +25,17 @@ class ToolManifest:
     description: str
     requires_network: bool = False
     requires_filesystem_write: bool = False
+    # HALLAZGO REAL DE AUDITORÍA EXTERNA (M-6 en kal, 2026-09-27,
+    # portado acá vía scripts/check_kernel_drift.py): declarado y
+    # serializado (kernel/registry/registry.py), pero NO ENFORZADO
+    # todavía en ningún lugar — Permission.NETWORK concede
+    # network_mode="bridge" completo (todo internet, sin allowlist ni
+    # proxy de egreso), sin mirar este campo para nada. Documentado
+    # acá para que declarar esto en un manifest no dé una falsa
+    # sensación de estar restringiendo algo — hoy es solo información,
+    # no un control real. Implementarlo de verdad (proxy de egreso o
+    # iptables dentro del contenedor) es un cambio de infraestructura
+    # más grande, no una corrección puntual.
     allowed_domains: list[str] = field(default_factory=list)
     # Superconjunto explícito de permisos (modelo estilo Android). Los dos
     # booleans de arriba son la forma abreviada de declarar los dos casos

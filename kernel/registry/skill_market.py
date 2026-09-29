@@ -36,8 +36,18 @@ class MarketError(Exception):
 
 
 def _clone(market_url: str, ref: str, dest: Path) -> None:
+    # HALLAZGO REAL DE AUDITORÍA EXTERNA (B-10 en kal, 2026-09-27,
+    # portado acá vía scripts/check_kernel_drift.py): sin el separador
+    # `--`, un `market_url` que empezara con "-" (p.ej.
+    # `--upload-pack=/bin/sh -c ...`) podía ser interpretado por git
+    # como una OPCIÓN de `git clone`, no como el repositorio a clonar
+    # — no explotable hoy con el `--market` fijo por defecto (un
+    # humano lo pasa a mano por CLI), pero un primitivo real de
+    # inyección de argumentos si `market_url` llegara alguna vez de
+    # una fuente menos confiable (config, API). `--` le dice a git que
+    # todo lo que sigue es posicional, nunca una opción.
     result = subprocess.run(
-        ["git", "clone", "--depth", "1", "--branch", ref, market_url, str(dest)],
+        ["git", "clone", "--depth", "1", "--branch", ref, "--", market_url, str(dest)],
         capture_output=True, text=True, timeout=60,
         check=False,  # returncode se interpreta a mano abajo, nunca con una excepción genérica
     )

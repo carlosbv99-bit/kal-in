@@ -153,7 +153,7 @@ def parse_manifest(manifest_path: Path) -> SkillManifest:
 _VALID_SKILL_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
-def _validate_skill_name(name: str) -> str | None:
+def validate_skill_name(name: str) -> str | None:
     """
     VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
     2026-09-26), K-1: `manifest.name` (el `name` crudo de skill.yaml)
@@ -168,6 +168,14 @@ def _validate_skill_name(name: str) -> str | None:
     próximo arranque del intérprete. Devuelve el mensaje de error, o
     None si el nombre es válido — mismo patrón que
     `_validate_entry_point_reference` de abajo.
+
+    Público (sin guion bajo) a propósito, mismo motivo que
+    `is_valid_tool_name` en versioning.py: auditoría externa de kal
+    (2026-09-27, A-1, portado acá vía scripts/check_kernel_drift.py)
+    encontró el mismo path traversal en
+    scripts/install_from_market.py, que usaba `args.skill_name` sin
+    sanitizar — necesita esta misma validación, una sola fuente de
+    verdad en vez de una segunda regex.
     """
     if not _VALID_SKILL_NAME.match(name):
         return (
@@ -229,7 +237,7 @@ def load_skills(
             _audit(skill_dir.name, "invalid_manifest", detail)
             continue
 
-        name_error = _validate_skill_name(manifest.name)
+        name_error = validate_skill_name(manifest.name)
         if name_error is not None:
             logger.warning(f"Skill en {skill_dir}: {name_error}")
             results.append(SkillStatus(skill_dir=skill_dir.name, manifest=manifest, status="invalid_manifest", detail=name_error))

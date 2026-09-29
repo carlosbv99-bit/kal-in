@@ -24,19 +24,35 @@ class ArtifactNotFoundError(Exception):
 
 
 class KernelServiceBus:
+    # HALLAZGO REAL DE AUDITORÍA EXTERNA (B-7 en kal, 2026-09-27, portado
+    # acá vía scripts/check_kernel_drift.py): sin límite de entradas, un
+    # proceso de larga vida acumula un artifact_paths sin cota — ver el
+    # comentario completo en __init__ sobre el scoping por skill (la
+    # otra mitad del hallazgo).
+    _MAX_ARTIFACTS_PER_SKILL = 200
+
     def __init__(self):
         self._services: dict[str, Any] = {}
-        # Mapeo "artifact://..." -> ruta real de host. Una skill (dentro
-        # del contenedor) solo conoce la referencia opaca — nunca la
-        # ruta real del filesystem del host, que no significa nada
-        # adentro y no debería exponerse a código de terceros sin
-        # necesidad. SandboxedSkillTool._to_artifact() resuelve acá
-        # cuando la skill devuelve el mismo "artifact://" que recibió
-        # como resultado propio (ver tool_integration/services.py::ImageService.generate()).
-        # Mecanismo deliberadamente mínimo — no un sistema de artefactos
-        # completo (eso es la visión más grande de "Proyectos", no
-        # construida todavía).
-        self.artifact_paths: dict[str, str] = {}
+        # HALLAZGO REAL DE AUDITORÍA EXTERNA (B-7 en kal, 2026-09-27,
+        # portado acá vía scripts/check_kernel_drift.py): antes, un
+        # único dict PLANO ("artifact://..." -> ruta real), global al
+        # proceso, sin scoping por skill y sin límite de tamaño. Una
+        # skill que adivinara o de algún modo obtuviera el UUID de un
+        # artefacto generado por OTRA skill (o por una ejecución previa
+        # de sí misma, horas antes) podía pasarlo como parámetro de un
+        # método propio en su manifiesto y `_resolve_input_artifacts()`
+        # se lo resolvía igual, entregándole la ruta real de host de un
+        # artefacto que no le pertenece — sí explotable acá: kal-in
+        # registra ImageService/AudioService/STTService/DownloadService
+        # de verdad (ver kernel/registry/registry.py::_register_static_tools()),
+        # a diferencia de kal (kernel puro, ALLOWED_ACTIONS vacío en
+        # todo el árbol). Ahora scopeado: dict[skill_name, dict[uri,
+        # ruta]] — una skill solo puede resolver artefactos que ELLA
+        # MISMA registró (ver dispatch()/resolve_artifact() de abajo).
+        # skill_name=None (sin contexto de skill, p.ej. algún test que
+        # llama dispatch() directo) cae en su propio scope "" — sigue
+        # aislado del resto, nunca mezclado con el de una skill real.
+        self._artifacts_by_skill: dict[str, dict[str, str]] = {}
 
     def register(self, name: str, service: Any) -> None:
         self._services[name] = service
@@ -65,7 +81,7 @@ class KernelServiceBus:
         if action is None or not callable(action):
             raise ActionNotFoundError(f"acción desconocida: '{method}'")
 
-        params = self._resolve_input_artifacts(params)
+        params = self._resolve_input_artifacts(params, skill_name)
         # Único caso hoy que necesita saber QUIÉN llama (DownloadService,
         # el permiso de red es por-skill) — inyectado solo si la propia
         # acción lo declara como parámetro, así ImageService/AudioService/
@@ -78,18 +94,24 @@ class KernelServiceBus:
         # "path" es un detalle de host — nunca cruza al otro lado del
         # socket (una skill no necesita ni debería ver rutas reales del
         # filesystem del host). Se registra acá para poder resolver el
-        # "artifact://" de vuelta más tarde (ver resolve_artifact()).
+        # "artifact://" de vuelta más tarde (ver resolve_artifact()),
+        # scopeado a ESTA skill (B-7) y con un tope de tamaño (FIFO: si
+        # se llega al máximo, se descarta la entrada más vieja de esta
+        # skill antes de agregar la nueva).
         artifact_uri = result.get("artifact")
         real_path = result.pop("path", None)
         if artifact_uri and real_path:
-            self.artifact_paths[artifact_uri] = real_path
+            scope = self._artifacts_by_skill.setdefault(skill_name or "", {})
+            if len(scope) >= self._MAX_ARTIFACTS_PER_SKILL:
+                scope.pop(next(iter(scope)))
+            scope[artifact_uri] = real_path
 
         return result
 
-    def resolve_artifact(self, uri: str) -> str | None:
-        return self.artifact_paths.get(uri)
+    def resolve_artifact(self, uri: str, skill_name: str | None = None) -> str | None:
+        return self._artifacts_by_skill.get(skill_name or "", {}).get(uri)
 
-    def _resolve_input_artifacts(self, params: dict[str, Any]) -> dict[str, Any]:
+    def _resolve_input_artifacts(self, params: dict[str, Any], skill_name: str | None) -> dict[str, Any]:
         """
         Resolución de artefactos de ENTRADA — contraparte de la resolución
         de salida de arriba. `image.generate`/`audio.synthesize` nunca
@@ -99,12 +121,15 @@ class KernelServiceBus:
         ejecución de la skill). Cualquier valor de `params` que sea un
         `"artifact://..."` se reemplaza acá por la ruta real de host —
         la skill sigue sin ver nunca esa ruta, solo la referencia opaca
-        que ya tenía de un resultado anterior.
+        que ya tenía de un resultado anterior. Solo dentro del scope de
+        ESTA skill (B-7) — un artefacto de otra skill se trata igual que
+        uno que no existe, nunca se resuelve por error.
         """
+        scope = self._artifacts_by_skill.get(skill_name or "", {})
         resolved = {}
         for key, value in params.items():
             if isinstance(value, str) and value.startswith("artifact://"):
-                real_path = self.artifact_paths.get(value)
+                real_path = scope.get(value)
                 if real_path is None:
                     raise ArtifactNotFoundError(f"artefacto desconocido: '{value}'")
                 resolved[key] = real_path

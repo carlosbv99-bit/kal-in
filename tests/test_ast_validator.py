@@ -70,6 +70,48 @@ def test_pathlib_file_io_bypass_is_blocked():
     assert not result.is_safe
 
 
+def test_calling_a_forbidden_builtin_via_the_builtins_module_is_blocked():
+    """
+    `builtins.__import__('os')`: el nodo Call tiene func=ast.Attribute
+    (`builtins.__import__`), no ast.Name — visit_Call() solo compara
+    node.func.id para nodos Name, así que esta forma pasaba sin ser
+    detectada (B-1 en kal, auditoría externa 2026-09-27, portado acá
+    vía scripts/check_kernel_drift.py). Cerrado agregando "builtins" a
+    FORBIDDEN_IMPORTS (sin poder importar el módulo, no se puede
+    llegar a su atributo).
+    """
+    result = validate_code("import builtins\nbuiltins.__import__('os')")
+    assert not result.is_safe
+
+
+def test_calling_a_forbidden_builtin_via_bare_dunder_builtins_is_blocked():
+    """
+    `__builtins__.eval(...)`: disponible SIN ningún import (es el
+    namespace global implícito), así que bloquear "builtins" como
+    import no alcanza acá — el propio nombre __builtins__ como BASE de
+    un atributo ahora se bloquea sin importar qué atributo puntual sea.
+    """
+    result = validate_code("__builtins__.eval('1+1')")
+    assert not result.is_safe
+
+    result2 = validate_code("__builtins__.__import__('os')")
+    assert not result2.is_safe
+
+
+def test_aliasing_a_forbidden_builtin_evades_the_static_check():
+    """
+    Hueco documentado, NO corregido (ver denylist.py): `e = eval;
+    e('1+1')` evade FORBIDDEN_CALLS porque el chequeo compara el
+    nombre literal en el sitio de la llamada, sin resolver a qué
+    objeto está atado ese nombre — resolverlo de verdad requeriría
+    análisis de alias real, desproporcionado para un filtro barato de
+    primera línea. La garantía real es Docker (ver
+    test_sandbox_escape_resistance.py), no este validador.
+    """
+    result = validate_code("e = eval\ne('1+1')")
+    assert result.is_safe  # documentado como hueco conocido, no un bypass "corregido"
+
+
 def test_known_residual_gap_documented_not_silently_fixed():
     """
     Este test documenta (no oculta) un hueco conocido: el chequeo actual

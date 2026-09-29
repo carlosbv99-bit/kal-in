@@ -13,6 +13,7 @@ patrón que tests/test_tool_registry.py::FakeSandboxExecutor. Los
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -118,7 +119,7 @@ def test_path_traversal_in_manifest_name_is_rejected(tmp_path):
     "../../../../tmp/pwned" hacía que el propio proceso del agente
     creara directorios FUERA de la raíz de artefactos. Esta es la
     segunda capa de defensa (la primera, kernel/registry/skills.py::
-    _validate_skill_name, rechaza esto antes de llegar acá al cargar
+    validate_skill_name, rechaza esto antes de llegar acá al cargar
     una skill real) — protege a cualquier otro llamador que construya
     SandboxedSkillTool directamente.
     """
@@ -598,6 +599,63 @@ def test_no_kernel_services_means_no_extra_mounts(tool):
     skill_tool, fake = tool
     skill_tool.execute()
     assert fake.calls[0]["extra_mounts"] is None
+
+
+def test_socket_setup_failure_is_an_error_artifact_not_a_crash_and_cleans_up(tmp_path, manifest, monkeypatch):
+    """
+    B-4 (auditoría externa de kal, 2026-09-27, portado acá vía
+    scripts/check_kernel_drift.py): tempfile.mkdtemp() y
+    socket_server.start() corrían ANTES del try/finally — un OSError
+    real de start() (típicamente "AF_UNIX path too long" con un TMPDIR
+    largo, verificado por separado con un path de 137 bytes) se
+    propagaba crudo fuera de execute() en vez de convertirse en un
+    Artifact de error, Y el tempdir recién creado quedaba sin borrar.
+    """
+    import tempfile as tempfile_module
+
+    from audit.audit_log import audit_log
+    from kernel.api.socket_server import KernelBusSocketServer
+
+    monkeypatch.setattr(audit_log, "path", tmp_path / "audit.log")
+
+    created_tempdir = {}
+    real_mkdtemp = tempfile_module.mkdtemp
+
+    def _tracking_mkdtemp(*args, **kwargs):
+        path = real_mkdtemp(*args, **kwargs)
+        created_tempdir["path"] = path
+        return path
+
+    monkeypatch.setattr(tempfile_module, "mkdtemp", _tracking_mkdtemp)
+
+    def _boom(self):
+        raise OSError("AF_UNIX path too long")
+
+    monkeypatch.setattr(KernelBusSocketServer, "start", _boom)
+
+    skill_dir = tmp_path / "s"
+    skill_dir.mkdir()
+    (skill_dir / "tool.py").write_text("", encoding="utf-8")
+    fake = FakeSandboxExecutor(_ok_result())
+    skill_tool = SandboxedSkillTool(
+        manifest=manifest, skill_dir=skill_dir, entry_point="tool:X",
+        image="img", sandbox=fake, artifacts_root=tmp_path / "artifacts",
+        kernel_services=["image.generate"],
+    )
+
+    artifact = skill_tool.execute()
+
+    assert artifact.metadata["status"] == "error"
+    assert "path too long" in artifact.metadata["stderr"]
+    # El sandbox nunca se llegó a invocar — el fallo fue antes de eso.
+    assert fake.calls == []
+    # El tempdir del socket se creó (mkdtemp real, no mockeado) pero se
+    # limpió igual, aunque start() haya reventado.
+    assert "path" in created_tempdir
+    assert not Path(created_tempdir["path"]).exists()
+
+    entries = audit_log.tail(1)
+    assert entries[0]["event_type"] == "skill_execution_socket_error"
 
 
 @requires_docker

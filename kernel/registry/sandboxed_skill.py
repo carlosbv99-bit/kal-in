@@ -124,7 +124,7 @@ class SandboxedSkillTool(Tool):
         # DEFENSA EN PROFUNDIDAD (K-1, auditoría externa Likay-OS
         # 2026-09-26): kernel/registry/skills.py::load_skills() ya
         # rechaza un manifest.name inválido ANTES de instanciar este
-        # Tool (_validate_skill_name) — este chequeo es la segunda capa,
+        # Tool (validate_skill_name) — este chequeo es la segunda capa,
         # para cualquier otro llamador que construya SandboxedSkillTool
         # directamente (tests, un futuro path de carga distinto) sin
         # pasar por esa validación. containment_root.mkdir() va ANTES
@@ -210,23 +210,36 @@ class SandboxedSkillTool(Tool):
         socket_server: KernelBusSocketServer | None = None
         socket_tempdir: str | None = None
         extra_mounts: dict[str, str] | None = None
-        if self.kernel_services:
-            socket_tempdir = tempfile.mkdtemp(prefix="kal-kernel-bus-")
-            socket_server = KernelBusSocketServer(
-                bus=self.kernel_bus,
-                allowed_methods=self.kernel_services,
-                socket_path=Path(socket_tempdir) / "kernel.sock",
-                skill_name=self.manifest.name,
-                # Capturado ACÁ (mismo thread que originó el pedido HTTP) y
-                # pasado explícito — el socket sirve en un thread de
-                # background propio (ver KernelBusSocketServer.start()) al
-                # que un contextvar nunca cruza automáticamente.
-                correlation_id=get_correlation_id(),
-            )
-            socket_server.start()
-            extra_mounts = {socket_tempdir: _KERNEL_SOCKET_CONTAINER_DIR}
 
         try:
+            if self.kernel_services:
+                # HALLAZGO REAL DE AUDITORÍA EXTERNA (B-4 en kal,
+                # 2026-09-27, portado acá vía scripts/check_kernel_drift.py):
+                # tempfile.mkdtemp() y socket_server.start() corrían ANTES
+                # de este try — si el path del socket superaba el límite
+                # de sockaddr_un (108 bytes en Linux, alcanzable con un
+                # TMPDIR largo: verificado con un path de 137 bytes),
+                # bind() lanzaba OSError SIN capturar, que se propagaba
+                # cruda fuera de execute() (nunca se convertía en un
+                # Artifact de error) Y el tempdir recién creado quedaba
+                # sin borrar (el finally de abajo nunca se alcanzaba).
+                # Moviendo la creación DENTRO del try, el finally que ya
+                # existe se encarga de la limpieza en cualquier caso.
+                socket_tempdir = tempfile.mkdtemp(prefix="kal-kernel-bus-")
+                socket_server = KernelBusSocketServer(
+                    bus=self.kernel_bus,
+                    allowed_methods=self.kernel_services,
+                    socket_path=Path(socket_tempdir) / "kernel.sock",
+                    skill_name=self.manifest.name,
+                    # Capturado ACÁ (mismo thread que originó el pedido HTTP) y
+                    # pasado explícito — el socket sirve en un thread de
+                    # background propio (ver KernelBusSocketServer.start()) al
+                    # que un contextvar nunca cruza automáticamente.
+                    correlation_id=get_correlation_id(),
+                )
+                socket_server.start()
+                extra_mounts = {socket_tempdir: _KERNEL_SOCKET_CONTAINER_DIR}
+
             result = self.sandbox.execute_trusted(
                 _RUNNER_PATH.read_text(encoding="utf-8"),
                 workspace_files=workspace_files,
@@ -238,6 +251,16 @@ class SandboxedSkillTool(Tool):
                 extra_mounts=extra_mounts,
                 timeout_seconds=_KERNEL_SERVICE_TIMEOUT_SECONDS if self.kernel_services else None,
             )
+        except OSError as e:
+            # B-4: típicamente "AF_UNIX path too long" de
+            # socket_server.start() de arriba, si TMPDIR es largo — pero
+            # cualquier OSError acá (permisos, disco lleno al crear el
+            # tempdir) se trata igual: nunca se propaga cruda, se
+            # devuelve como Artifact de error, auditado, como cualquier
+            # otro rechazo de este método.
+            detail = f"No se pudo preparar el socket del Kernel Service Bus para '{self.manifest.name}': {e}"
+            self._audit_socket_error(detail)
+            return self._error(detail)
         finally:
             # Pase lo que pase adentro del contenedor, el socket nunca
             # debe sobrevivir más allá de ESTA ejecución.
@@ -345,8 +368,11 @@ class SandboxedSkillTool(Tool):
             # "artifact://image/<uuid>" de ImageService.generate(), ver
             # kernel/api/bus.py) — el archivo real ya existe en el host
             # (lo generó el servicio, no la skill), solo hace falta
-            # resolver la referencia a la ruta real.
-            resolved = self.kernel_bus.resolve_artifact(uri)
+            # resolver la referencia a la ruta real. skill_name explícito
+            # (B-7 en kal, portado acá): resolve_artifact() ahora scopea
+            # por skill, y esta skill solo puede resolver lo que ELLA
+            # MISMA registró.
+            resolved = self.kernel_bus.resolve_artifact(uri, skill_name=self.manifest.name)
             if resolved is not None:
                 uri = resolved
 
@@ -381,6 +407,16 @@ class SandboxedSkillTool(Tool):
         audit_log.record(
             AuditEvent(
                 event_type="skill_execution_signature_invalid",
+                summary=detail,
+                context={"skill": self.manifest.name},
+                outcome="failure",
+            )
+        )
+
+    def _audit_socket_error(self, detail: str) -> None:
+        audit_log.record(
+            AuditEvent(
+                event_type="skill_execution_socket_error",
                 summary=detail,
                 context={"skill": self.manifest.name},
                 outcome="failure",

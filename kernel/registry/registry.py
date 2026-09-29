@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from audit.audit_log import AuditEvent, audit_log
 from code_analysis.ast_validator import validate_code
 from kernel.lifecycle.executor import SandboxExecutor
+from kernel.permissions.permission_cascade import permission_cascade
 from kernel.registry.signing import ToolSigner, tool_signer
 from kernel.registry.versioning import (
     ToolVersionStore,
@@ -106,6 +107,41 @@ class DynamicSandboxedTool(Tool):
         self.signature = signature
 
     def execute(self, **kwargs) -> Artifact:
+        # VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (kal, M-1,
+        # 2026-09-27 — detectada por scripts/check_kernel_drift.py, no
+        # tenía equivalente propio en la auditoría de este repo):
+        # SandboxedSkillTool.execute() SÍ exige la cascada de permisos
+        # (K-4, kernel/registry/sandboxed_skill.py), pero este wrapper
+        # — el OTRO consumidor real de la cascada, tier "agent" — nunca
+        # la consultaba: network_mode se derivaba SOLO de
+        # manifest.permissions, sin pasar por
+        # permission_cascade.missing_permissions() en absoluto.
+        # config.yaml documenta globally_denied como "techo del sistema
+        # entero... pase lo que pase" — para una herramienta dinámica
+        # eso era falso hasta este fix (p.ej. A-5 de la auditoría
+        # Likay-OS de este repo: docker/cámara/micrófono/portapapeles
+        # denegados globalmente, pero sin efecto real acá). Tier
+        # hardcodeado a "agent" (nunca trust_tier_for(self), mismo
+        # motivo que en sandboxed_skill.py: un DynamicSandboxedTool ES,
+        # estructuralmente, siempre tier "agent").
+        missing = permission_cascade.missing_permissions(self.manifest.permissions, "agent")
+        if missing:
+            detail = (
+                f"Permisos {sorted(p.value for p in missing)} rechazados por la cascada del "
+                f"kernel (tier 'agent') — el manifiesto de la herramienta los pide, pero ningún "
+                f"nivel se los otorga a este tier de confianza."
+            )
+            audit_log.record(
+                AuditEvent(
+                    event_type="tool_permission_denied",
+                    summary=detail,
+                    context={"tool_name": self.manifest.name},
+                    outcome="failure",
+                )
+            )
+            logger.warning(detail)
+            return Artifact(modality="text", uri="", metadata={"status": "error", "stderr": detail})
+
         network_mode = "bridge" if Permission.NETWORK in self.manifest.permissions else None
         result = self.sandbox.execute(
             self.source_code,
