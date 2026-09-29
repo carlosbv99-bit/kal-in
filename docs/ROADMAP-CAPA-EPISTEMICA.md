@@ -1303,6 +1303,42 @@ copia del vínculo no la leía ninguna vista (la trayectoria se arma desde el hi
 Ahora el motivo vive solo en el historial, y `EvidenceLink.note` queda para lo que sí
 es suyo: la anotación que pasa un llamador por `link_evidence(note=...)`.
 
+### Escalación sin camino de acción (2026-09-29)
+
+Revisión del circuit breaker (`error_handling/circuit_breaker.py`), que tenía **cero
+tests** pese a bloquear un camino de recuperación. Se encontraron dos cosas:
+
+1. **`_CircuitState.first_seen`: campo muerto, eliminado.** Se seteaba al crear el
+   estado y no se leía en ningún lado. Su forma —"cuándo se vio por primera vez"— es la
+   de un campo pensado para reabrir el circuito tras N horas que nunca se conectó. **No
+   se conecta**, y la decisión es explícita: el diseño del módulo es escalar a un
+   humano en vez de reintentar, y el alcance del bloqueo es acotado (una firma de error,
+   solo el camino de auto-reparación; la ejecución y el resto de las firmas siguen
+   igual). Si alguna vez se quiere reapertura por tiempo, **no alcanza con un campo**:
+   hace falta semántica *half-open* (dejar pasar UN intento de prueba tras el
+   enfriamiento y cerrar solo si sale bien), que es una decisión de diseño.
+
+2. **`reset()` —el camino humano— no lo llama nadie.** El breaker audita
+   `human_escalation` ("Error requiere intervención humana", outcome `pending`) y
+   `open_circuit_breakers` se publica en `/status` para el frontend, pero no hay
+   endpoint, CLI ni acción de UI que llame a `reset()`. O sea: la escalación es
+   **visible y no accionable**; hoy la única forma de reabrir una firma es reiniciar el
+   proceso. Es la misma clase que los campos sin consumidor —el sistema afirma un
+   camino que no existe como mecanismo— con una diferencia: acá el estado es en
+   memoria y se pierde solo, así que no es peligroso, es incompleto.
+
+   **Decisión pendiente** (dos opciones, ninguna construida):
+   - (a) exponer el camino: `GET /error-handling/circuit-breakers` (firma + intentos) y
+     `POST .../{signature}/reset`, sobre `open_circuit_count()` y `reset()` que ya
+     existen. Es la opción coherente con que la escalación ya se audita y se cuenta;
+   - (b) mantener el reinicio como única intervención y **decirlo** en el evento de
+     auditoría, para que el texto no prometa una acción que no existe como endpoint.
+
+Además quedaron **5 tests** (antes: ninguno) que fijan el contrato: N fallos de la misma
+firma abren el circuito, abierto significa `allow_attempt` False, el bloqueo es por
+firma, un éxito resetea el contador, la apertura audita los dos eventos, y `reset()`
+vuelve a habilitar.
+
 ## 3. Lo que NO se hace (y en qué fase)
 
 - **F0–F2:** nada de persistencia, nada de red, nada de puntajes numéricos

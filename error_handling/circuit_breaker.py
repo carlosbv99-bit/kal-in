@@ -7,8 +7,7 @@ escala a un humano en vez de seguir reintentando.
 from __future__ import annotations
 
 import hashlib
-import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from audit.audit_log import AuditEvent, audit_log
 from utils.config import settings
@@ -26,8 +25,22 @@ def error_signature(error_type: str, error_message: str, location: str) -> str:
 
 @dataclass
 class _CircuitState:
+    """
+    Estado de una firma de error. A propósito NO guarda "cuándo se vio por
+    primera vez": una versión anterior tenía un `first_seen` que se seteaba y no
+    se leía en ningún lado (revisión, 2026-09-29) — la firma de un campo pensado
+    para "reabrir solo después de N horas" que nunca se conectó.
+
+    No se conecta porque **no es el diseño**: el módulo escala a un humano en vez
+    de reintentar, y el alcance del bloqueo es acotado (una firma, solo el camino
+    de auto-reparación; la ejecución y el resto de las firmas siguen igual). Si
+    alguna vez se quiere una reapertura por tiempo, no alcanza con un campo:
+    hace falta semántica *half-open* —dejar pasar UN intento de prueba tras el
+    enfriamiento y cerrar el circuito solo si ese intento sale bien—, que es una
+    decisión de diseño y no un `first_seen` que nadie lee.
+    """
+
     attempts: int = 0
-    first_seen: float = field(default_factory=time.time)
     open: bool = False
 
 

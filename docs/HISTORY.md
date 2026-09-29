@@ -10568,3 +10568,63 @@ Los tres primeros son la misma lección que `validity_conditions`: un campo del 
 sin consumidor no es peligroso, pero **parece** que el sistema hace algo que no hace.
 La diferencia con aquel es que estos quedaron marcados antes de que alguien confiara en
 ellos.
+
+
+## Revisión de campos, ronda 2: un muerto más, un camino sin cablear, y negativos (2026-09-29)
+
+Mismo método que la ronda anterior (buscar lo que se calcula y nadie lee), esta vez
+sobre `error_handling/` y el kernel. Un hallazgo nuevo, un hallazgo más profundo que
+apareció al verificarlo, y cuatro falsas alarmas descartadas.
+
+**1. `_CircuitState.first_seen`: muerto, eliminado.** Se seteaba con
+`field(default_factory=time.time)` al crear el estado y **no se leía en ningún lado**
+del archivo — ni en `record_attempt()`, ni en `allow_attempt()`, ni en
+`open_circuit_count()`. Verificado con grep: una sola aparición en todo el codebase.
+Tiene la forma de un campo para "reabrir solo después de N horas" que nunca se conectó,
+igual que `recheckable`.
+
+Se eliminó, y **la decisión quedó escrita en el código**: no se conecta porque no es el
+diseño. El módulo escala a un humano en vez de reintentar, y el alcance del bloqueo es
+acotado —una firma de error (hash de tipo+ubicación+mensaje), solo el camino de
+auto-reparación—. Si algún día se quiere reapertura por tiempo, no alcanza con el
+campo: hace falta semántica *half-open* (dejar pasar UN intento de prueba tras el
+enfriamiento y cerrar solo si sale bien), que es una decisión de diseño.
+
+**2. Lo más interesante apareció al verificar el alcance: `reset()` no lo llama nadie.**
+El razonamiento que lleva a `first_seen` es "un circuito abierto queda abierto para
+siempre salvo `reset()` a mano"; al ir a ver quién usa ese `reset()`: **cero llamadores
+en producción** (ni endpoint, ni CLI, ni acción de UI; grep vacío). Y el circuito
+**bloquea** (`allow_attempt` → False → `handle()` devuelve `circuit_breaker_open` → la
+tarea se marca ESCALATED), así que el único intento que podría resetearlo por éxito no
+llega a ocurrir.
+
+O sea: el breaker audita `human_escalation` ("Error requiere intervención humana") y
+publica `open_circuit_breakers` en `/status` para el frontend, pero **no hay mecanismo
+para que el humano intervenga**: la escalación es visible y no accionable, y la única
+forma real de reabrir una firma es reiniciar el proceso. Es la misma clase que los
+campos sin consumidor —el sistema afirma un camino que no existe como mecanismo— con la
+diferencia de que acá el estado es en memoria y se pierde solo: no es peligroso, es
+incompleto. Las dos salidas (exponer el endpoint, o dejar el reinicio y que el texto lo
+diga) quedaron en el roadmap esperando decisión.
+
+**3. El breaker no tenía NINGÚN test.** Es un componente que bloquea un camino de
+recuperación, y su contrato no estaba fijado en ningún lado. Ahora hay cinco que lo
+fijan: N fallos de la misma firma abren el circuito; abierto significa `allow_attempt`
+False; el bloqueo es por firma (otro error no paga el de otro); un éxito resetea el
+contador; la apertura audita `circuit_breaker_triggered` **y** `human_escalation`; y
+`reset()` vuelve a habilitar. El test de `reset()` documenta la limitación del punto 2
+en vez de disimularla.
+
+**4. Falsas alarmas descartadas — verificadas con grep propio, no de oídas:**
+
+| Campo | Veredicto | Evidencia |
+|---|---|---|
+| `PendingAccessRequest.status` | **vivo** | `access_manager.py:131` filtra por `"pending_approval"`; 135 y 146 lo mutan |
+| firma de versión (`versioning.py:107`) | **vivo, cadena completa** | la escribe `versioning.py`; la **leen y verifican** `registry.py:369` (`verify_tool_integrity`) y `registry.py:329-333` (`rollback_tool`, que audita `tool_tamper_detected`); expuesta como `signature_valid` en `agent_core/routers/tools.py:65` |
+| `TestRunResult.errors` | **vivo** | `is_clean` (`self_modification.py:116`) y la comparación baseline-vs-candidato (265, 276-277) |
+| `SelfModProposal.backup_path` | **vivo** | se asigna del backup real (307-312), va al contexto de auditoría (316) y **se lee en el rollback** (337) |
+
+Una corrección chica de atribución, que anoto porque me costó dos greps: el chequeo de la
+firma **no está en `versioning.py`** (ahí solo se escribe), sino en `registry.py`. El
+veredicto no cambia; la ubicación sí, y quien busque el chequeo en el archivo del
+`signature` no lo va a encontrar.
