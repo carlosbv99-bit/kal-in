@@ -172,32 +172,11 @@ EXTERNAL_TEXT_TOOLS: frozenset[str] = frozenset(
 fuentes candidatas que se le pasan; `browser` navega páginas reales dentro de su
 allowlist de dominios. Las dos son observaciones ingeribles, con origen distinto."""
 
-TOOLS_DONDE_EL_FALLO_NO_ES_EVIDENCIA: frozenset[str] = frozenset(
-    {
-        # F5: si la verificación no llegó a traer nada (el sandbox no arrancó, el
-        # entry point falló), el mensaje del runner NO es una observación del
-        # mundo: ingerirlo fabricaría un dato a partir de un marcador de estado —
-        # el mismo error que F2 encontró con las herramientas asíncronas, cuyo
-        # "pending" parecía un dato. Peor acá: un "ERROR (...)" que mencione, por
-        # ejemplo, un timeout, podría reabrir una hipótesis por una falla de
-        # infraestructura y no por evidencia.
-        #
-        # Es una política POR HERRAMIENTA y no una regla general a propósito: la
-        # convención `ERROR (<status>): ...` también la usa `run_code`, donde el
-        # stderr de un comando que SÍ corrió es una observación legítima (y el
-        # corpus de F6 la usa como evidencia). Distinguir "el runner se negó" de
-        # "la herramienta corrió y falló" requiere que el artefacto lo declare
-        # (una clave de metadata en `SandboxedSkillTool`, que es código COMPARTIDO
-        # con kal): queda anotado como el arreglo general, y mientras tanto la
-        # lista es explícita y fail-closed.
-        "claim_verifier",
-    }
-)
-"""Herramientas cuyo fallo del runner NO se ingiere como evidencia."""
-
-_MARCADOR_DE_FALLO_DEL_RUNNER = "ERROR ("
-"""Convención de `_artifact_to_observation` cuando una Tool devuelve un artefacto
-con `status` de error (ver agent_core/llm/agent_loop.py)."""
+# NOTA DE F7: acá vivía `TOOLS_DONDE_EL_FALLO_NO_ES_EVIDENCIA`, una lista de
+# nombres de herramientas cuyo mensaje de error no debía ingerirse. Se fue: la
+# decisión se mudó al camino que SÍ sabe qué pasó (`_dispatch_tool`, con el tier
+# y el `status` del artefacto), y una lista de nombres se pudre en silencio — la
+# herramienta nueva no está y nadie se entera.
 
 _TOOLS_QUE_MUTAN_EL_LEDGER: frozenset[str] = frozenset(
     {"open_question", "record_hypothesis"}
@@ -349,16 +328,6 @@ class EpistemicStore:
             return Ingestion()
         if not observation or not observation.strip():
             return Ingestion()
-        if tool_name in TOOLS_DONDE_EL_FALLO_NO_ES_EVIDENCIA and observation.lstrip().startswith(
-            _MARCADOR_DE_FALLO_DEL_RUNNER
-        ):
-            logger.info(
-                "Observación de '%s' descartada: es el fallo del runner, no una "
-                "observación del mundo.", tool_name,
-            )
-            self._persistir_si_mutó(tool_name)
-            return Ingestion()
-
         ledger = self.ledger(session_id)
         recortada = len(observation) > _MAX_OBSERVATION_CHARS
         contenido = observation[:_MAX_OBSERVATION_CHARS]

@@ -10060,3 +10060,106 @@ afuera es explícito y por decisión: la allowlist con hash por archivo del chec
 de drift (sugerida, no bloqueante), la firma/reputación de terceros para el
 verificador (D6: de primera parte por ahora) y cualquier motor adversarial, que el
 propio roadmap prohíbe mientras no haya medición que lo justifique.
+
+
+## F7: la costura entre seguridad del contenedor e integridad epistémica (2026-09-29)
+
+Nace de una observación de revisión, que cito porque ordena todo lo demás: *"la
+arquitectura epistemológica ya está empezando a comportarse como una arquitectura
+de seguridad… una alucinación puede ser completamente válida desde el punto de
+vista del software"*. Es cierto, y este proyecto ya tenía el dato: los dos huecos
+medidos en F6 (A10, A12) son exactamente eso — software-válido y epistémicamente
+insostenible. Lo que faltaba era probar las propiedades que existen **porque las
+dos capas se tocan**, que es donde aparecen los bugs que ninguna suite ve sola.
+
+**La prueba de que el problema es real ya la teníamos, y salió de F5.** La skill
+`claim_verifier` declara `network`; la cascada del kernel la rechaza por defecto.
+Del lado de seguridad, perfecto: nada corrió. Del lado epistémico, el texto
+`"ERROR (error): ..."` que volvía al modelo entraba al ledger como observación
+externa, porque la herramienta estaba en la allowlist de ingestión. Un dato
+fabricado a partir de un marcador de estado, y encima un error que mencionara un
+timeout podía reabrir una hipótesis por una falla de infraestructura. La suite del
+kernel no mira el ledger; la epistémica usaba dobles que nunca pasaban por la
+cascada. **El bug vivía en la costura.**
+
+**El arreglo general (F7), que reemplaza el parche de F5.** F5 lo había tapado con
+una lista de nombres (`TOOLS_DONDE_EL_FALLO_NO_ES_EVIDENCIA`) — se pudre: la
+herramienta nueva no está y nadie se entera. Ahora la decisión vive en el camino
+que sabe qué pasó, `_dispatch_tool`, y usa dos datos que no se pueden
+auto-declarar:
+
+- el **tier** del wrapper (`"skill"`), que la cascada calcula por TIPO y nunca
+  leyendo el manifiesto — el campo que una skill sí controla;
+- el **`status` del artefacto**, que es lo que el runner sabe de verdad.
+
+Nada de heurística sobre el texto del mensaje: un `run_code` que corre y falla
+sigue ingresando su stderr como observación, porque ahí el error ES el dato. La
+asimetría es deliberada y quedó escrita en el código.
+
+**Las seis propiedades que se prueban** (`tests/test_epistemic_seam.py`, con el
+wrapper de skill REAL y el sandbox guionado, así que la costura que se mira es la
+de verdad):
+
+1. una observación que pasó el contenedor entra como `TOOL_EXTERNAL` (exógena, no
+   verdad) y con ancla real — "limpio de seguridad ≠ creíble", en código;
+2. un ancla *escrita en el texto* no se convierte en ancla: la procedencia la
+   produce el kernel, no el contenido;
+3. contenido hostil se guarda como DATO, viaja con el marcador de contenido
+   externo no confiable, y no mueve el estado salvo por una condición declarada de
+   antemano (y con esa condición, el mismo texto sí reabre: la diferencia es una
+   sola cosa, y es el contrato);
+4. una invocación que no produjo contenido no produce evidencia;
+5. el contenido externo no puede llegar al matcher como patrón (un texto con forma
+   de ReDoS catastrófico se compara como substring, y una condición del camino no
+   confiable no tiene por dónde llevar un patrón);
+6. el ancla encadena con la entrada anterior del log encadenado por HMAC.
+
+**El encuadre que rescato de la observación, y que quedó en el roadmap:**
+
+- **Es una arquitectura de integridad, no de seguridad.** Una arquitectura de
+  seguridad protege al host de un adversario; esta protege al usuario de las
+  afirmaciones que el sistema no puede sostener (y, en otro eje, del contenido
+  adversarial que entra por un canal legítimo). Comparte la gramática —fail-closed,
+  capacidad restringida, defensa en profundidad— porque la integridad se construye
+  igual, pero el modelo de amenazas es distinto, y confundirlos lleva a pedirle
+  garantías que no puede dar.
+- **"Sin necesitar confiar", no "sin confiar".** No hay detector de confianza ni
+  lo va a haber: lo que hay es procedencia obligatoria y ninguna vía para promover
+  creencia por repetición, antigüedad o supervivencia. La diferencia importa
+  porque "sin confiar" sugiere que alguien evalúa.
+- **El ancla es el puente, y no es una metáfora.** `anchor_kind:
+  audit_event_hash` prueba a la vez "esto corrió bajo mediación del kernel"
+  (seguridad) y "esta procedencia no se puede fabricar" (epistémico), porque el
+  modelo no puede escribir en el log encadenado por HMAC. Un solo token, dos
+  lecturas.
+- **F7 no vuelve detectable la alucinación.** A10 y A12 siguen medidos y abiertos.
+  Lo que gana el sistema es más modesto y más sólido: que lo que entra al ledger
+  sea lo que de verdad pasó, y que guardar lo que el modelo piensa no lo convierta
+  en creíble.
+- **No se duplica la suite del kernel.** Escape de sandbox, hardening y
+  aislamiento de red ya están probados del otro lado; repetirlos acá sería
+  duplicación que se pudre. La suite de costura tiene seis propiedades y ninguna
+  más.
+
+**Validación inesperada, y vale la pena contarla.** En este entorno el sandbox
+está roto (el problema pre-existente que hace fallar los e2e de skills), así que
+correr la skill real termina en "el contenedor no arrancó". Es el escenario exacto
+del bug: la skill no trajo nada y el modelo ve un error. Con el arreglo de F7, la
+guarda registra "el artefacto declara status=error (no produjo contenido)" y el
+ledger queda **vacío**. Sin el arreglo, ese texto habría entrado como evidencia
+externa. La misma corrida que antes fabricaba un dato ahora no fabrica ninguno: es
+la costura funcionando en el peor caso disponible.
+
+**Dónde iría el arreglo ideal.** La señal "esto no llegó a ejecutarse" la conoce el
+kernel: lo correcto a futuro es que el artefacto la declare desde
+`SandboxedSkillTool` (una clave en la metadata, junto a `status`). Ese archivo es
+COMPARTIDO con kal, así que va por el proceso de sincronización documentado y no
+de prepo; mientras tanto la regla vive en el host, que es donde ya vive la política
+de ingestión (la allowlist). Queda anotado como el próximo cambio que merece los
+dos repos a la vez.
+
+Tests: **10** de costura (9 sin Docker —wrapper de skill real, sandbox guionado— y
+1 `requires_docker` de punta a punta, que en este entorno falla por el sandbox
+roto, igual que los otros e2e de skills). La suite epistémica completa en verde
+salvo esos e2e, ruff `--select=E9,F` limpio, `validate_skills.py` verificando las 9
+skills y la medición de F6 consistente.

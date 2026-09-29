@@ -919,6 +919,35 @@ class AgentLoop:
             logger.exception(f"Fallo inesperado ejecutando herramienta '{name}'")
             return f"ERROR inesperado ejecutando '{name}': {e}"
 
+        # F7 (costura seguridad ↔ epistemología): una skill que NO produjo
+        # contenido —la cascada la rechazó, la firma no verificaba, o falló
+        # adentro del sandbox— no produjo ninguna observación del mundo. Ingerir
+        # su mensaje de error sería fabricar un dato a partir de un marcador de
+        # estado (el error que F2 ya encontró con las herramientas asíncronas), y
+        # encima un error que mencione un timeout podría reabrir una hipótesis por
+        # una falla de infraestructura.
+        #
+        # La decisión NO usa una lista de nombres de herramientas (se pudre: la
+        # herramienta nueva no está y nadie se entera) ni el texto del mensaje
+        # (una convención de string): usa el TIER del wrapper —que la cascada ya
+        # calcula por TIPO, nunca leyendo el manifiesto autodeclarado— y el
+        # `status` del artefacto, que es lo que el runner sabe de verdad.
+        #
+        # El artefacto sigue volviendo al modelo tal cual: el modelo tiene que
+        # saber que la verificación no trajo nada. Lo que no hace es entrar al
+        # ledger como evidencia.
+        artefacto = getattr(tool, "last_artifact", None)
+        if (
+            getattr(tool, "trust_tier", "") == "skill"
+            and artefacto is not None
+            and artefacto.metadata.get("status") == "error"
+        ):
+            logger.info(
+                "Observación de la skill '%s' descartada: el artefacto declara status=error "
+                "(no produjo contenido), así que no es una observación del mundo.", name,
+            )
+            return observacion
+
         # Ingesta epistémica (ver agent_core/epistemics/store.py). Este es el
         # ÚNICO punto donde se decide que una observación es una observación:
         # el origen lo fija este camino de código, que efectivamente ejecutó la

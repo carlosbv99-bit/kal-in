@@ -485,30 +485,60 @@ def test_fail_closed_si_el_permiso_de_red_no_esta_otorgado():
 
 def test_el_fallo_del_runner_no_se_ingiere_como_evidencia():
     """
-    Si la verificación no llegó a traer nada (el sandbox no arrancó, el entry
-    point falló), el mensaje del runner NO es una observación del mundo. Ingerirlo
-    sería fabricar un dato a partir de un marcador de estado — y peor: un error
-    que mencione, por ejemplo, un timeout, podría reabrir una hipótesis por una
-    falla de infraestructura.
-    """
-    store = EpistemicStore(clock=lambda: 1000.0)
+    Si la verificación no llegó a traer nada (el sandbox falló, el entry point
+    explotó), el mensaje del runner NO es una observación del mundo: ingerirlo
+    sería fabricar un dato a partir de un marcador de estado, y un error que
+    mencione un timeout podría reabrir una hipótesis por una falla de
+    infraestructura.
 
-    ingesta = store.ingest_tool_result(
-        session_id="s", tool_name="claim_verifier",
-        observation="ERROR (error): el sandbox no pudo arrancar (timeout)",
+    F7 mudó esta decisión al camino que SÍ sabe qué pasó (`_dispatch_tool`): usa
+    el tier del wrapper y el `status` del artefacto, no una lista de nombres de
+    herramientas ni el texto del mensaje. Por eso el test se hace por ahí y no
+    contra el store: el store confía en su llamador (y hay un test abajo que fija
+    esa división de responsabilidades).
+    """
+    import tempfile
+    from pathlib import Path as _Path
+
+    from agent_core.llm.agent_loop import AgentLoop, _agent_tool_from_tool
+    from kernel.lifecycle.docker_runner import SandboxResult
+    from kernel.registry.sandboxed_skill import SandboxedSkillTool
+    from sdk.skill import ToolManifest
+
+    class SandboxQueFalla:
+        def execute_trusted(self, source_code, **kw):
+            return SandboxResult(status="error", stdout="", stderr="timeout del contenedor", exit_code=1)
+
+    tmp = _Path(tempfile.mkdtemp())
+    (tmp / "tool.py").write_text("", encoding="utf-8")
+    skill = SandboxedSkillTool(
+        manifest=ToolManifest(name="claim_verifier", description="d", created_by="system"),
+        skill_dir=tmp, entry_point="tool:X", image="img",
+        sandbox=SandboxQueFalla(), artifacts_root=tmp / "art",
+    )
+    store = EpistemicStore(clock=lambda: 1000.0)
+    loop = AgentLoop(llm_client=object(), task_executor=object(), memory=object(), epistemics=store)
+
+    salida = loop._dispatch_tool(
+        "claim_verifier", {}, {"claim_verifier": _agent_tool_from_tool("claim_verifier", skill)},
+        session_id="s",
     )
 
-    assert ingesta.evidence is None
+    # El modelo SÍ ve que la verificación no trajo nada (eso es información)…
+    assert salida.startswith("ERROR (error)")
+    assert "timeout" in salida
+    # …pero eso no entra al ledger como evidencia.
     assert store.ledger("s").exogenous_evidence_ids() == frozenset()
 
 
-def test_la_misma_convencion_en_run_code_sigue_ingiriendo():
+def test_el_store_no_hace_heuristica_de_texto():
     """
-    La contracara, para que la regla no se generalice de más: en `run_code` el
-    stderr de un comando que SÍ corrió es una observación legítima (el corpus de
-    F6 la usa como evidencia). Distinguir "el runner se negó" de "la herramienta
-    corrió y falló" necesita una clave de metadata que hoy no existe; mientras
-    tanto la política es por herramienta y explícita.
+    División de responsabilidades de F7: el store confía en su llamador —el
+    camino que sabe si la herramienta corrió— y NO adivina mirando el texto. Un
+    `ingest_tool_result` con un mensaje que PARECE un error ingiere igual: si
+    filtrara por texto, estaría adivinando, y una herramienta legítima que
+    devuelve "ERROR (...)" como parte de su salida real (un log, un stderr de un
+    comando que SÍ corrió) perdería evidencia en silencio.
     """
     store = EpistemicStore(clock=lambda: 1000.0)
 
@@ -517,20 +547,14 @@ def test_la_misma_convencion_en_run_code_sigue_ingiriendo():
     )
 
     assert ingesta.evidence is not None
-    assert ingesta.evidence.origin is EvidenceOrigin.KERNEL_OBSERVED
 
 
 def test_los_conjuntos_de_herramientas_son_coherentes():
     """Un nombre en la lista de ingeribles tiene que existir (typo = falla
-    silenciosa), y la política de "el fallo no es evidencia" tiene que ser un
-    subconjunto de lo ingerible: si no, no haría nada."""
-    from agent_core.epistemics import (
-        EXTERNAL_TEXT_TOOLS,
-        OBSERVATION_TOOLS,
-        TOOLS_DONDE_EL_FALLO_NO_ES_EVIDENCIA,
-    )
+    silenciosa) y el conjunto de texto externo tiene que ser un subconjunto de lo
+    ingerible: si no, la distinción de origen no serviría para nada."""
+    from agent_core.epistemics import EXTERNAL_TEXT_TOOLS, OBSERVATION_TOOLS
 
-    assert TOOLS_DONDE_EL_FALLO_NO_ES_EVIDENCIA <= OBSERVATION_TOOLS
     assert EXTERNAL_TEXT_TOOLS <= OBSERVATION_TOOLS
     assert "claim_verifier" in OBSERVATION_TOOLS
     assert "claim_verifier" in EXTERNAL_TEXT_TOOLS

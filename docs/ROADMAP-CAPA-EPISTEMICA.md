@@ -15,8 +15,10 @@
 > D6, firmada y con permisos de red explícitos): el sistema ya puede salir a
 > buscar evidencia exógena en vez de esperar a que pase por las herramientas
 > existentes. **F2b completa** (fachada advisory para terceros, con la librería
-> vendorizada adentro y sus límites declarados en cada respuesta). **Con esto el
-> roadmap de la capa queda completo**: F0–F6.
+> vendorizada adentro y sus límites declarados en cada respuesta) y **F7 completa**
+> (la costura entre seguridad del contenedor e integridad epistemológica, con el
+> arreglo general del bug de composición que encontró F5). **Con esto el
+> roadmap de la capa queda completo**: F0–F7.
 >
 > Los dos hallazgos de la medición quedaron cerrados: D10 (el orden de las
 > condiciones dejó de importar) el mismo día, y D9 (el déficit que la tool
@@ -242,6 +244,7 @@ resolvieron las dos cosas que el boceto no decía:
 | **F4** | Ledger durable, dedup entre sesiones, compactación | ✅ hecho (2026-09-29) | F2, F3 |
 | **F5** | Skill `claim_verifier` | ✅ hecho (2026-09-29) | F3 |
 | **F6** | Suite de medición y calibración | ✅ hecho (2026-09-29) | F2 |
+| **F7** | Costura seguridad ↔ epistemología | ✅ hecho (2026-09-29) | F5, F6 |
 
 El orden importa más que las estimaciones. F2 antes de F4 es deliberado: ver
 §5, riesgo R1.
@@ -939,6 +942,80 @@ de F4):
   reaperturas se consume una vez por evidencia. El reporte lo mide en los dos
   órdenes de declaración: `orden_independiente: true`, mismos dos vínculos,
   mismo `Flag.CONTRADICTED`, mismo estado (`refuted`).
+
+---
+
+## F7 — Costura seguridad ↔ epistemología ✅ *hecho*
+
+**Objetivo:** probar las propiedades que existen **porque las dos capas se
+tocan**, y nada más que esas. Nace de una observación de revisión: *"la
+arquitectura epistemológica ya está empezando a comportarse como una arquitectura
+de seguridad… una alucinación puede ser completamente válida desde el punto de
+vista del software"*. Es correcto, y este proyecto ya tiene el dato: los dos
+huecos medidos de F6 (A10, A12) son exactamente eso — software-válido y
+epistémicamente insostenible.
+
+**Encuadre, porque de él depende qué se puede prometer.** No es una arquitectura
+de *seguridad* (esa protege al host de un adversario: confidencialidad,
+autorización, aislamiento) sino de **integridad**: protege al usuario de las
+afirmaciones que el sistema no puede sostener, y —en otro eje— del contenido
+adversarial que entra por un canal legítimo. Comparte la gramática (fail-closed,
+capacidad restringida, defensa en profundidad) porque la integridad se construye
+igual, pero el modelo de amenazas no es el mismo. Y la frase que mejor la
+describe no es "guardar lo que el modelo piensa sin confiar en el modelo" sino
+**guardarlo sin necesitar confiar**: no hay detector de confianza ni lo habrá —
+lo que hay es procedencia obligatoria y ninguna forma de promover creencia por
+repetición, antigüedad o supervivencia.
+
+**El puente, en una pieza de código:** el ancla de auditoría. `anchor_kind:
+audit_event_hash` prueba a la vez "esto corrió bajo mediación del kernel"
+(seguridad) y "esta procedencia no se puede fabricar" (epistémico), porque el
+modelo no puede escribir en el log encadenado por HMAC. No es una analogía entre
+las dos arquitecturas: es un solo token con dos lecturas.
+
+**Qué se probó** (`tests/test_epistemic_seam.py`, 9 sin Docker + 1 con Docker):
+
+| Propiedad | Qué la hace de la costura |
+|---|---|
+| Una observación que pasó el contenedor entra como `TOOL_EXTERNAL` y con ancla real | "Limpio de seguridad ≠ creíble", en código |
+| Un ancla escrita en el texto NO se convierte en ancla | El contenedor no puede fabricar procedencia (principio 2) |
+| Contenido hostil se guarda como DATO y no mueve el estado salvo por una condición declarada | Une inyección (seguridad) con reapertura (epistémico) |
+| Una invocación que no produjo contenido no produce evidencia | El bug de composición que encontró F5, como test permanente |
+| El contenido externo no puede llegar al matcher como patrón | Une ReDoS (seguridad) con el matcher (epistémico) |
+| El ancla encadena con la entrada anterior del log | El mismo token prueba las dos cosas |
+
+**El arreglo general que salió de acá.** F5 había parcheado el bug con una lista
+de nombres de herramientas (`TOOLS_DONDE_EL_FALLO_NO_ES_EVIDENCIA`). F7 la
+eliminó: la decisión se mudó al camino que sabe qué pasó (`_dispatch_tool`), y
+usa el **tier** del wrapper (que la cascada calcula por TIPO, nunca leyendo el
+manifiesto autodeclarado) y el **`status` del artefacto** (que es lo que el
+runner sabe de verdad). Sin listas que se pudren y sin heurística sobre el texto
+del mensaje: un `run_code` que corre y falla sigue ingresando su stderr como
+observación, porque ahí el error ES el dato.
+
+**Cautelas, escritas en la suite y no solo acá:**
+
+- **No se duplica la suite del kernel.** Escape de sandbox, hardening de imagen y
+  aislamiento de red ya están probados del otro lado; repetirlos acá sería
+  duplicación que se pudre (la lección del drift entre kal-in y kal). Solo se
+  prueban las seis propiedades de arriba.
+- **No vuelve detectable la alucinación.** A10 y A12 siguen medidos y abiertos: el
+  gate no juzga verdad, y F7 no cambia eso.
+- **La verificación de punta a punta necesita sandbox sano.** El e2e está marcado
+  `requires_docker` y en el entorno actual falla por el problema pre-existente
+  (`python: can't open file '/workspace/main.py'`, el mismo de los otros e2e de
+  skills). Con dobles fieles del lado del kernel —wrapper real, sandbox
+  guionado— las propiedades quedan verificadas; lo que falta cuando el sandbox no
+  corre es la confirmación con contenedor de verdad, y eso está dicho en el
+  docstring de la suite en vez de disimulado.
+
+**Dónde iría el arreglo ideal, y por qué no está acá.** La señal de "esto no
+llegó a ejecutarse" la conoce el kernel: lo correcto a futuro es que el artefacto
+lo declare desde `SandboxedSkillTool` (una clave en la metadata, junto a
+`status`). Eso es un archivo COMPARTIDO con kal
+(`kernel/registry/sandboxed_skill.py`), así que va por el proceso de
+sincronización documentado y no de prepo: mientras tanto la regla vive en el
+host, que es donde ya vive la política de ingestión.
 
 ---
 
