@@ -159,3 +159,64 @@ def test_el_bloque_no_cita_evidencia_propia_como_respaldo():
     bloque = store.context_block("s", provider=_LOCAL)
 
     assert "evidencia:" not in bloque
+
+
+def test_truncated_no_se_marca_si_la_redaccion_dejo_el_texto_bajo_el_limite():
+    """
+    Hallazgo cosmético reportado en revisión (2026-09-29): el flag comparaba el
+    largo ORIGINAL contra el límite, pero el texto que vuelve al modelo es el
+    REDACTADO, que puede ser mucho más corto. Una evidencia larga con una clave
+    privada de cientos de caracteres no llega nunca al límite después de
+    `redact()`, y el metadato decía `truncated=True`.
+    """
+    clave = "-----BEGIN RSA PRIVATE KEY-----\n" + "M" * 400 + "\n-----END RSA PRIVATE KEY-----"
+    ev = _evidencia(content=clave)
+
+    saneada = sanitize_for_context(ev, provider=_LOCAL)
+
+    assert "[REDACTED:private_key_block]" in saneada.text
+    assert saneada.redacted is True
+    assert saneada.truncated is False, "el texto redactado nunca llegó al límite"
+    assert "…" not in saneada.text
+
+
+def test_truncated_se_marca_si_la_redaccion_ESTIRO_el_texto_mas_alla_del_limite():
+    """
+    La dirección inversa, que es la que importa: un secreto cuyo MARCADOR es más
+    largo que el secreto (token mínimo de 15 caracteres -> `[REDACTED:slack_token]`,
+    22) hace que el texto redactado supere el límite aunque el original estuviera
+    por debajo. El texto SÍ se corta, así que el metadato tiene que decirlo —
+    negarlo sería una vista parcial silenciosa.
+    """
+    contenido = "xoxb-0123456789 " + "x" * (300 - 16)
+    assert len(contenido) == 300  # el original NO supera el límite
+    ev = _evidencia(content=contenido)
+
+    saneada = sanitize_for_context(ev, provider=_LOCAL)
+
+    assert saneada.redacted is True
+    assert saneada.truncated is True, "el texto redactado sí superó el límite"
+    assert saneada.text.endswith("…")
+
+
+def test_el_flag_de_truncado_siempre_coincide_con_el_corte_real():
+    """
+    El invariante que hace útil el campo: `truncated` es exactamente "el texto
+    que volvió termina con el marcador de corte". Se prueba sobre los cuatro
+    casos que lo rompían (secreto grande, secreto que alarga, largo sin secretos,
+    corto sin secretos).
+    """
+    casos = [
+        "-----BEGIN RSA PRIVATE KEY-----\n" + "M" * 400 + "\n-----END RSA PRIVATE KEY-----",
+        "xoxb-0123456789 " + "x" * (300 - 16),
+        "y" * 400,
+        "y" * 50,
+        _SECRETO,
+    ]
+
+    for contenido in casos:
+        saneada = sanitize_for_context(_evidencia(content=contenido), provider=_LOCAL)
+        assert saneada is not None
+        assert saneada.truncated == saneada.text.endswith("…"), (
+            f"metadato inexacto para un contenido de {len(contenido)} caracteres"
+        )

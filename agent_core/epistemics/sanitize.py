@@ -56,6 +56,27 @@ _MARKERS: dict[EvidenceOrigin, str] = {
 
 @dataclass(frozen=True)
 class SanitizedEvidence:
+    """
+    Proyección de una evidencia hacia el contexto.
+
+    `truncated` significa "el LÍMITE recortó texto que si no habría vuelto al
+    modelo", y se computa sobre el texto YA REDACTADO, que es el que de verdad se
+    trunca. Compararlo contra `evidence.content` (el original) era inexacto en las
+    DOS direcciones, medido:
+
+    - falso POSITIVO: una evidencia larga con un secreto que `redact()` encoge
+      mucho (una clave privada de 400 caracteres -> `[REDACTED:...]`) no llega
+      nunca al límite, y el flag decía `True`;
+    - falso NEGATIVO: contenido apenas por debajo del límite con un secreto cuyo
+      marcador es MÁS LARGO que el secreto (un token mínimo de 15 caracteres ->
+      `[REDACTED:slack_token]`, 22) pasa el límite al redactarse, se corta de
+      verdad, y el flag decía `False` — o sea, vista parcial con metadato que
+      niega el corte.
+
+    Hoy NINGÚN camino de producción lee este campo (el único lector es un test):
+    el arreglo es exactitud barata, no un cambio de comportamiento.
+    """
+
     evidence_id: str
     origin: EvidenceOrigin
     text: str
@@ -69,6 +90,26 @@ def active_provider() -> str:
     return settings.llm.provider
 
 
+def _sanitizar(text: str, *, provider: str, max_chars: int) -> tuple[str | None, bool]:
+    """
+    Redacta (si hace falta) y trunca, devolviendo además si TRUNCÓ.
+
+    Es la única fuente de verdad de las dos cosas a la vez —quien corta, reporta
+    el corte—: calcular el flag por separado, mirando el texto original, es lo que
+    lo hacía inexacto en las dos direcciones (ver `SanitizedEvidence.truncated`).
+    """
+    if not text or not text.strip():
+        return None, False
+    if classify(text) is MemoryClassification.SECRET:
+        if is_cloud_provider(provider):
+            return None, False
+        text = redact(text)
+    text = text.strip()
+    if len(text) > max_chars:
+        return text[:max_chars] + "…", True
+    return text, False
+
+
 def sanitize_text(text: str, *, provider: str, max_chars: int = _MAX_TEXT) -> str | None:
     """
     Devuelve el texto apto para volver al contexto, o `None` si no debe volver.
@@ -76,16 +117,7 @@ def sanitize_text(text: str, *, provider: str, max_chars: int = _MAX_TEXT) -> st
     `None` significa "no lo mandes", no "está vacío" — y es la respuesta
     fail-closed para un secreto cuando el proveedor está en la nube.
     """
-    if not text or not text.strip():
-        return None
-    if classify(text) is MemoryClassification.SECRET:
-        if is_cloud_provider(provider):
-            return None
-        text = redact(text)
-    text = text.strip()
-    if len(text) > max_chars:
-        return text[:max_chars] + "…"
-    return text
+    return _sanitizar(text, provider=provider, max_chars=max_chars)[0]
 
 
 def sanitize_for_context(evidence: Evidence, *, provider: str) -> SanitizedEvidence | None:
@@ -99,7 +131,7 @@ def sanitize_for_context(evidence: Evidence, *, provider: str) -> SanitizedEvide
         return None
 
     era_secreto = classify(evidence.content) is MemoryClassification.SECRET
-    texto = sanitize_text(evidence.content, provider=provider, max_chars=_MAX_EVIDENCE_SNIPPET)
+    texto, truncado = _sanitizar(evidence.content, provider=provider, max_chars=_MAX_EVIDENCE_SNIPPET)
     if texto is None:
         return None
 
@@ -109,5 +141,5 @@ def sanitize_for_context(evidence: Evidence, *, provider: str) -> SanitizedEvide
         origin=evidence.origin,
         text=f"{marcador} {texto}",
         redacted=era_secreto,
-        truncated=len(evidence.content) > _MAX_EVIDENCE_SNIPPET,
+        truncated=truncado,
     )

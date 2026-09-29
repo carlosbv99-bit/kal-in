@@ -811,7 +811,10 @@ def test_dos_alternativas_respaldadas_son_un_conflicto_nombrable():
 
     pares = led.conflictos_de_sostén()
 
-    assert pares == ((primera.id, segunda.id),)
+    # El par vuelve ordenado por id (no en el orden en que se crearon las
+    # hipótesis): los ids son aleatorios, así que comparar contra el orden de
+    # creación hacía este test flaky — medido, fallaba ~1 de cada 3 corridas.
+    assert pares == (tuple(sorted((primera.id, segunda.id))),)
     assert Flag.CONFLICTING_SUPPORT in led.flags(primera.id)
     assert Flag.CONFLICTING_SUPPORT in led.flags(segunda.id), "el flag es de las dos, no de una"
 

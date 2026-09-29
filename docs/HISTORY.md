@@ -10485,3 +10485,40 @@ compartido con kal, así que el cambio va por el proceso de sincronización —y
 donde el hallazgo está fichado—, así que hay port pendiente en esa dirección. B-4
 (path AF_UNIX largo) está al revés: el fix vive en kal-in (portado en F3) y su
 verificación con un `TMPDIR` de 151 caracteres es la que el note reporta.
+
+
+## `truncated` decía la verdad a medias, en las dos direcciones (2026-09-29)
+
+Hallazgo chico reportado en revisión (cosmético, no de seguridad): en
+`sanitize_for_context()` el flag `truncated` comparaba `len(evidence.content)` —el
+largo ORIGINAL— contra `_MAX_EVIDENCE_SNIPPET`, pero el texto que de verdad vuelve al
+modelo es el que sale de `sanitize_text()`, que **redacta antes de truncar**. O sea
+que el metadato hablaba de un texto que no es el que se corta.
+
+Reproducido, y resultó ser inexacto en las DOS direcciones:
+
+- **Falso positivo** (el reportado): una evidencia de 462 caracteres con una clave
+  privada de 400 se redacta a `[REDACTED:private_key_block]`, nunca llega al límite de
+  300, y el flag decía `truncated=True`.
+- **Falso negativo**, que es la dirección que importa: con el original en 299
+  caracteres y un secreto cuyo MARCADOR es más largo que el secreto (un token de Slack
+  mínimo, 15 caracteres, se reemplaza por `[REDACTED:slack_token]`, 22), el texto
+  redactado pasa a 306, **se corta de verdad**, y el flag decía `False` — el modelo
+  recibe una vista parcial y el metadato niega el corte.
+
+**Peso aguas abajo: ninguno.** `truncated` no lo lee ningún camino de producción: el
+único lector era un test. Así que no había fuga ni comportamiento afectado, y el
+arreglo es exactitud barata: ahora hay UNA sola fuente de verdad —`_sanitizar()`
+devuelve el texto y si truncó, y `sanitize_text()` es un envoltorio suyo— porque quien
+corta es quien tiene que reportar el corte. Calcular la bandera por separado, mirando
+otro texto, es exactamente lo que la hacía mentir.
+
+Tests: tres nuevos (el falso positivo, el falso negativo, y el invariante que los
+resume: `truncated == texto.endswith("…")` sobre los cinco casos), 14/14 en el archivo
+y 311 en las suites epistémicas.
+
+De paso, un test propio que resultó flaky y se arregló: el que verifica el conflicto
+entre alternativas comparaba el par de ids contra el orden de CREACIÓN, pero
+`conflictos_de_sostén()` los devuelve ordenados por id y los ids son aleatorios — fallaba
+aproximadamente una de cada tres corridas. Se comparan ordenados, con la nota del
+motivo para que nadie lo "simplifique" de vuelta.
