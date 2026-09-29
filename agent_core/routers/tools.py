@@ -22,6 +22,13 @@ class ToolDenyRequest(BaseModel):
     )
 
 
+class ToolDeactivateRequest(BaseModel):
+    deactivated_by: str = Field(
+        default="", description="Identidad de quien retira la herramienta (auditado)."
+    )
+    reason: str = Field(default="", description="Motivo del retiro (auditado).")
+
+
 class ToolRollbackRequest(BaseModel):
     to_version: int = Field(description="Versión firmada a la que revertir.")
     approved_by: str = Field(description="Identidad de quien aprueba (auditado, no verificado por este endpoint).")
@@ -61,6 +68,23 @@ def deny_tool(name: str, req: ToolDenyRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"name": name, "status": "denied"}
+
+
+@router.post(
+    "/tools/{name}/deactivate",
+    dependencies=[Depends(require_admin_token)],
+    summary="Retirar una herramienta dinámica de circulación (sin reemplazarla)",
+)
+def deactivate_tool(name: str, req: ToolDeactivateRequest):
+    """
+    Apagado inmediato: deja de ofrecerse al modelo y no se puede invocar. Es el
+    equivalente para tools dinámicas de `--disable` en las Skills.
+    """
+    try:
+        orchestrator.tools.deactivate_tool(name, deactivated_by=req.deactivated_by, reason=req.reason)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"name": name, "status": "deactivated"}
 
 
 @router.get("/skills", summary="Listar Skills instaladas")

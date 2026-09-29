@@ -1369,6 +1369,42 @@ en el listado, `reset()` con su retorno y su auditoría — más 5 de los endpoi
 listado, reset real y auditado, 404 honesto) y las dos rutas sumadas al barrido
 transversal de `test_orchestrator_admin_auth.py`.
 
+**Herramientas dinámicas: los dos huecos que siguieron (2026-09-29).** El barrido de
+intervenciones humanas llegó hasta las tools y dejó dos hallazgos; el segundo es el más
+serio de la ronda.
+
+1. **No había forma de apagar una herramienta.** `_active_tools` solo se escribía
+   (registro, activación, rollback): lo único posible era **reemplazarla** por otra versión
+   con `rollback_tool()`. Para una herramienta comprometida o simplemente obsoleta, "no se
+   puede retirar" es un hueco real — y el contraste lo hace evidente: las Skills tenían el
+   par completo (`set_skill_enabled()` + `scripts/enable_skill.py --disable`, auditado con
+   `skill_enabled`/`skill_disabled`) y las tools dinámicas nunca recibieron el equivalente.
+   Ahora `deactivate_tool(name, deactivated_by, reason)` +
+   `POST /tools/{name}/deactivate`: borra la entrada del registro —que es lo que la apaga
+   de verdad, porque `get()`/`active_tools()` resuelven contra ese dict y el catálogo del
+   LLM se arma por turno desde ahí—, rechaza las estáticas con un mensaje explícito, y
+   audita `tool_deactivated` con quién y por qué. Consecuencia deliberada y documentada:
+   como `rollback_tool()` exige que la herramienta esté activa, una desactivada no se
+   reactiva con un rollback; volver a ponerla en circulación es el camino normal (proponer
+   y aprobar de nuevo). Un `reactivate` explícito que restaure una versión del historial
+   sería una decisión aparte.
+
+2. **`verify_tool_integrity()` detectaba manipulación y no lo auditaba.** Devolvía
+   True/False en silencio, mientras que `rollback_tool()` —su hermano directo— sí audita
+   `tool_tamper_detected` cuando una versión no verifica. Era **la única detección de
+   manipulación del sistema sin rastro**, contra un fondo donde todas las demás lo dejan
+   (firmas de skills, cadena de auditoría, permisos denegados). Y es on-demand
+   (`GET /tools/{name}/verify`): nadie la sondea, así que una edición en disco del
+   `source_code` de la versión activa solo se veía si alguien pensaba en preguntar a mano.
+   Ahora audita el mismo evento con `detected_by: "verify_tool_integrity"` y la versión. El
+   camino feliz NO audita: un log lleno de "todo bien" es la forma de que nadie lo mire.
+
+**Lo que NO tiene el problema, verificado:** `skill_market.py` es puramente fetch/clone y
+no tiene estado de aprobación propio (la decisión de seguridad vive en
+`install_from_market.py`), y su chequeo análogo está en mejor forma que el de las tools:
+`verify_skill_signature()` corre en **cada** `SandboxedSkillTool.execute()` —fail-closed,
+`tampered` → error inmediato— en vez de depender de que alguien lo pida.
+
 ## 3. Lo que NO se hace (y en qué fase)
 
 - **F0–F2:** nada de persistencia, nada de red, nada de puntajes numéricos

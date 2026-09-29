@@ -69,6 +69,7 @@ _GATED_REQUESTS = [
     # escalación ya se audita como algo que "requiere intervención humana", así que
     # el lugar donde esa intervención ocurre tiene el mismo gate que el resto.
     ("POST", "/tools/no-existe-esta-herramienta/deny", {"denied_by": "alguien"}),
+    ("POST", "/tools/no-existe-esta-herramienta/deactivate", {"deactivated_by": "alguien"}),
     ("POST", "/self-modification/reject", {"proposal_id": "no-existe", "rejected_by": "alguien"}),
     ("GET", "/error-handling/circuit-breakers", None),
     ("POST", "/error-handling/circuit-breakers/no-existe/reset", None),

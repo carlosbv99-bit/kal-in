@@ -10730,3 +10730,65 @@ De paso quedó explicado un detalle del checker de drift: pasó de reportar 18 a
 `sys.path.append()` de hoy—, que difiere entre repos **solo en el texto del comentario**
 (código idéntico). Es la misma categoría que los 12 que ya eran solo
 comentarios/docstrings, así que la reconciliación es cosmética.
+
+
+## Herramientas dinámicas: no se podían apagar, y la manipulación no se auditaba (2026-09-29)
+
+El barrido de intervenciones humanas siguió hasta las tools, y dejó dos hallazgos —el
+segundo, el más serio de la ronda.
+
+**1. `_active_tools` solo se escribía.** Había registro, activación y `rollback_tool()`,
+pero **ninguna forma de apagar** una herramienta: lo único posible era reemplazarla por
+otra versión. Para una herramienta comprometida o simplemente obsoleta, "no hay forma de
+retirarla sin reemplazo" es un hueco de verdad. El contraste que lo hace evidente: las
+Skills tienen el par completo desde hace tiempo (`set_skill_enabled()` +
+`scripts/enable_skill.py --disable`, auditado con `skill_enabled`/`skill_disabled`), y las
+tools dinámicas nunca recibieron el equivalente.
+
+Implementado `deactivate_tool(name, deactivated_by, reason)` + `POST /tools/{name}/deactivate`:
+
+- **borra la entrada del registro**, que es lo que la apaga de verdad: `get()` y
+  `active_tools()` resuelven contra ese dict, y el catálogo de herramientas del LLM se
+  arma por turno desde ahí, así que deja de ofrecerse y no hay forma de invocarla;
+- **rechaza las estáticas** con un mensaje explícito (son del sistema, no se retiran por
+  acá);
+- audita `tool_deactivated` con quién y por qué, con el mismo `require_admin_token` que el
+  resto.
+
+Consecuencia deliberada, documentada en el código: como `rollback_tool()` exige que la
+herramienta esté activa, una herramienta desactivada **no** se reactiva con un rollback.
+Volver a ponerla en circulación es el camino normal: proponerla y aprobarla de nuevo. Si
+alguna vez se quiere un `reactivate` explícito que restaure una versión del historial, es
+una decisión aparte y no la tomé solo.
+
+**2. `verify_tool_integrity()` no auditaba la manipulación que detectaba.** Este es el
+hallazgo serio. Su cuerpo devolvía True/False en silencio, mientras que `rollback_tool()`
+—su hermano directo— sí audita `tool_tamper_detected` cuando la versión destino no
+verifica. O sea: era **la única detección de manipulación del sistema que no dejaba
+rastro**, contra un fondo donde todas las demás sí (firmas de skills, cadena de auditoría,
+denegaciones de permisos). Y encima es on-demand: se llama desde
+`GET /tools/{name}/verify` y nadie la sondea periódicamente, así que una edición en disco
+del `source_code` de la versión activa solo se veía si alguien pensaba en preguntar a
+mano. Ahora audita el mismo evento, con `detected_by: "verify_tool_integrity"` y el
+número de versión, y loguea el error.
+
+El camino feliz **no** audita, y es deliberado: cuando la firma verifica no hay nada que
+reportar, y llenar el log de "todo bien" es la forma de que nadie lo mire. Hay un test
+para cada mitad.
+
+**Lo verificado como correcto, para que quede como negativo real:**
+
+| Módulo | Veredicto |
+|---|---|
+| `skill_market.py` | **sin el problema, y por buen motivo**: es puramente fetch/clone, no tiene estado de aprobación propio (la decisión de seguridad vive en `scripts/install_from_market.py`) |
+| firma de skills | **mejor que la de las tools**: `verify_skill_signature()` corre en CADA `SandboxedSkillTool.execute()` —fail-closed, `tampered` → error inmediato— en vez de depender de que alguien la pida |
+
+Tests: `tests/test_tool_deactivation.py` (9) cubren que desactivar saque la herramienta de
+`get()` y de `active_tools()`, el rechazo de las estáticas, el 400 de negocio, el gate sin
+token (y que sin token no se toca nada), la auditoría con quién y por qué, y las dos
+mitades de la detección de manipulación. Más la ruta sumada al barrido transversal de
+`test_orchestrator_admin_auth.py`.
+
+**Port a kal:** `kernel/registry/registry.py` y `audit/audit_log.py` son compartidos, así
+que `deactivate_tool()`, la auditoría de `verify_tool_integrity()` y el tipo
+`tool_deactivated` van en dirección kal-in → kal (los dos archivos ya divergían).
