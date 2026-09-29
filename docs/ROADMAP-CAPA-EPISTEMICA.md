@@ -532,6 +532,23 @@ ambos repos en su `origin/main` y sin commits locales. `audit/audit_log.py`
 seguridad y uno es el audit log. `scripts/check_kernel_drift.py` existe
 exactamente para detectar esto: hoy reporta los dieciocho.
 
+**Triage: ahora es un comando, no un párrafo** (2026-09-30). `scripts/check_kernel_drift.py
+--triage --kal-repo <ruta>` clasifica cada archivo divergente comparando el **AST sin
+docstrings** y lo imprime en tres clases: `CODIGO` (decisión humana), `NO_COMPARABLE` (no es
+Python) y `SOLO_COMENTARIOS` (reconciliación cosmética). Corrido hoy: **12 solo
+comentarios, 6 código real, 1 Dockerfile**.
+
+Existe porque la clasificación vivía **solo en este párrafo**, y el 2026-09-30 alguien (yo)
+afirmó de memoria que `kernel/permissions/access_manager.py` y `network_safety.py` tenían
+código divergente —cuando este mismo triage los lista entre los de solo comentarios—. Fue
+la **tercera** vez que ese par se mal-clasificaba: el párrafo de abajo ya documenta dos
+intentos anteriores. Lo que se puede correr no se recuerda mal.
+
+> Corrección de conteo al 2026-09-30: los `CODIGO` son **6**, no 5. El sexto es
+> `kernel/registry/registry.py`, y entró por trabajo de esta sesión (`deny_pending_tool`,
+> `deactivate_tool` y la auditoría de `verify_tool_integrity`), no por una divergencia
+> preexistente. Los 5 originales siguen siendo los mismos.
+
 **Triage automático** (comparación de AST ignorando docstrings, 2026-09-29):
 **12 de los 18 son solo comentarios/docstrings** — código idéntico, así que la
 reconciliación es trivial y sin cambio de comportamiento; **1 es el

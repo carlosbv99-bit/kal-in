@@ -10852,3 +10852,50 @@ rechazaba no**. El criterio que los cierra es uno solo y quedó escrito en el ro
 el sistema decide NO hacer algo por seguridad, esa decisión es el evento* — con el reverso
 igual de importante, que los caminos felices y los rechazos operacionales no se auditan,
 porque un log que registra todo es un log que nadie lee.
+
+
+## Una afirmación mía sin medir, y el triage que la vuelve medible (2026-09-30)
+
+Afirmé en una respuesta que `kernel/permissions/access_manager.py` y
+`kernel/permissions/network_safety.py` estaban "entre los cinco archivos con código
+realmente divergente". **Es falso, y la revisión lo demostró con el diff y con el AST.**
+Medido:
+
+- `diff` de los dos archivos: la única diferencia en `access_manager.py` es la frase de
+  atribución del fix M-4 en un comentario; en `network_safety.py`, el docstring del módulo
+  (kal dice "sin llamadores en este repo", kal-in dice "con consumidores reales" — cada uno
+  es cierto para su repo). Cero código distinto.
+- Comparación de **AST sin docstrings**: `IDÉNTICO` en los dos.
+
+Y lo peor no es el error sino de dónde salió: la clasificación autorizada —**12 solo
+comentarios, 5 código real, 1 Dockerfile**— estaba escrita en el roadmap, que yo mismo había
+citado esa sesión. Afirmé de memoria en vez de leer, y dije lo contrario de la fuente.
+Encima este par de archivos ya había sido mal-clasificado **dos veces** antes: el propio
+roadmap lo documenta ("medido dos veces mal antes de medirlo bien"). La mía fue la tercera.
+
+**El arreglo no es tener más cuidado, es que la clasificación se pueda correr.**
+`scripts/check_kernel_drift.py` tiene ahora `--triage`, que compara el AST sin docstrings de
+cada archivo divergente y lo clasifica en `CODIGO` / `NO_COMPARABLE` /
+`SOLO_COMENTARIOS` (más `FALTA_EN_KAL_IN`). Corrido hoy:
+
+| Clase | Archivos |
+|---|---|
+| **CÓDIGO (6)** | `sandbox_api.py`, `socket_server.py`, `docker_runner.py`, `registry.py`, `skill_market.py`, `audit_log.py` |
+| NO_COMPARABLE (1) | `Dockerfile` |
+| SOLO_COMENTARIOS (12) | incluye `access_manager.py`, `network_safety.py` y `skill_runner.py` |
+
+**El sexto `CODIGO` es nuevo y es mío**: `kernel/registry/registry.py` entró por el trabajo
+de esta sesión (`deny_pending_tool`, `deactivate_tool`, la auditoría de
+`verify_tool_integrity`). Los 5 originales no cambiaron. Es un dato que importa para el
+port: la lista de archivos compartidos que kal-in modifica creció, y ahora hay una forma de
+verlo en un comando en vez de en un párrafo.
+
+Tests: 3 nuevos en `tests/test_check_kernel_drift.py` que fijan las tres categorías (mismo
+código con docstrings distintos → `SOLO_COMENTARIOS`; código distinto → `CODIGO`; no-Python
+→ `NO_COMPARABLE`), más los casos de "un comentario `#` distinto en el cuerpo NO es cambio de
+código" y "un archivo que falta tiene su propia clase".
+
+Lección de método, que es la misma que venimos repitiendo toda la sesión y que yo mismo
+violé acá: **lo que se mide no se recuerda mal, y una afirmación sin comando detrás es una
+afirmación sin respaldo** — exactamente lo que esta capa le exige al modelo que corre
+adentro.

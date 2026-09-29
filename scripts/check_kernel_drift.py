@@ -23,6 +23,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import ast
 import filecmp
 import subprocess
 import sys
@@ -105,11 +106,76 @@ def check_drift(kal_in_root: Path, kal_root: Path) -> list[str]:
     return problems
 
 
+def _cuerpo_sin_docstrings(ruta: Path) -> str | None:
+    """
+    AST del archivo con los docstrings de módulo/clase/función quitados, como texto
+    comparable. `None` si no es Python o no parsea (un archivo que no parsea es, por
+    definición, algo que hay que mirar a mano).
+    """
+    try:
+        arbol = ast.parse(ruta.read_text(encoding="utf-8"))
+    except (SyntaxError, UnicodeDecodeError, OSError):
+        return None
+    for nodo in ast.walk(arbol):
+        if isinstance(
+            nodo, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        ):
+            cuerpo = nodo.body
+            if (
+                cuerpo
+                and isinstance(cuerpo[0], ast.Expr)
+                and isinstance(cuerpo[0].value, ast.Constant)
+                and isinstance(cuerpo[0].value.value, str)
+            ):
+                nodo.body = cuerpo[1:] or [ast.Pass()]
+    return ast.dump(arbol)
+
+
+def clasificar_drift(kal_in_root: Path, kal_root: Path) -> dict[str, list[str]]:
+    """
+    Clasifica cada archivo que difiere, comparando el **AST sin docstrings**:
+
+    - `SOLO_COMENTARIOS`: el cuerpo del código es idéntico; la diferencia es prosa
+      (docstrings y/o comentarios). Reconciliación cosmética, sin cambio de
+      comportamiento.
+    - `CODIGO`: hay código distinto de verdad. Es lo que necesita decisión humana.
+    - `NO_COMPARABLE`: no es Python (o no parsea): mirar a mano.
+
+    Existe porque la clasificación vivía **solo como prosa en el roadmap**, y en esta
+    sesión alguien (yo) afirmó de memoria que dos archivos de `kernel/permissions/`
+    tenían código divergente cuando el triage decía lo contrario — la tercera vez que
+    ese mismo par de archivos se mal-clasificaba. Lo que se puede correr no se
+    recuerda mal; se corre.
+    """
+    clases: dict[str, list[str]] = {"SOLO_COMENTARIOS": [], "CODIGO": [], "NO_COMPARABLE": []}
+    for linea in check_drift(kal_in_root, kal_root):
+        if not linea.startswith("DIFIERE de kal: "):
+            clases.setdefault("FALTA_EN_KAL_IN", []).append(linea)
+            continue
+        rel = linea.removeprefix("DIFIERE de kal: ")
+        a = _cuerpo_sin_docstrings(kal_in_root / rel)
+        b = _cuerpo_sin_docstrings(kal_root / rel)
+        if a is None or b is None:
+            clases["NO_COMPARABLE"].append(rel)
+        elif a == b:
+            clases["SOLO_COMENTARIOS"].append(rel)
+        else:
+            clases["CODIGO"].append(rel)
+    return clases
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         "--kal-repo", type=Path, default=None,
         help="Ruta local a un clon de kal ya existente (si no se pasa, se clona fresco a un directorio temporal)",
+    )
+    parser.add_argument(
+        "--triage", action="store_true",
+        help=(
+            "Clasifica cada archivo divergente como SOLO_COMENTARIOS / CODIGO / "
+            "NO_COMPARABLE comparando el AST sin docstrings, en vez de solo listarlos"
+        ),
     )
     args = parser.parse_args()
 
@@ -123,6 +189,30 @@ def main() -> int:
             print(f"Clonando {KAL_REPO_URL}...")
             _clone_kal(kal_root)
             problems = check_drift(kal_in_root, kal_root)
+
+    if args.triage:
+        # Se recalcula desde el repo (una sola pasada por archivo, no hace falta
+        # volver a clonar: check_drift ya leyó los dos árboles).
+        clases = clasificar_drift(kal_in_root, args.kal_repo) if args.kal_repo is not None else None
+        if clases is None:
+            print("--triage necesita --kal-repo (un clon local): el triage compara archivo por archivo.", file=sys.stderr)
+            return 2
+        print("Triage de la divergencia (AST sin docstrings):")
+        for clase in ("CODIGO", "NO_COMPARABLE", "SOLO_COMENTARIOS"):
+            archivos = clases.get(clase, [])
+            print(f"\n  {clase} ({len(archivos)}):")
+            for rel in archivos:
+                print(f"    - {rel}")
+        otros = {k: v for k, v in clases.items() if k in ("FALTA_EN_KAL_IN",) and v}
+        for clase, archivos in otros.items():
+            print(f"\n  {clase} ({len(archivos)}):")
+            for linea in archivos:
+                print(f"    - {linea}")
+        print(
+            "\n  Solo CODIGO necesita decisión humana; SOLO_COMENTARIOS es reconciliación "
+            "cosmética."
+        )
+        return 1 if (clases.get("CODIGO") or clases.get("NO_COMPARABLE")) else 0
 
     if not problems:
         print("Sin divergencia: la copia embebida del kernel coincide con kal.")

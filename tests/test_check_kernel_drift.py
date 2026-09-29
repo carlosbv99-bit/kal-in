@@ -114,3 +114,69 @@ def test_shared_dirs_covers_the_documented_pure_kernel_boundary():
     directorio nuevo a "mecanismo puro", este chequeo debería crecer con él."""
     assert set(SHARED_DIRS) == {"kernel", "sdk", "audit", "code_analysis"}
 
+
+
+# --- triage: comentarios vs código (2026-09-30) -----------------------------
+#
+# Por qué existe este modo y este test: la clasificación de los archivos
+# divergentes ("12 son solo docstrings, 5 son código real") vivía SOLO como prosa en
+# el roadmap, y en la sesión del 2026-09-29/30 alguien afirmó de memoria que
+# `kernel/permissions/access_manager.py` y `network_safety.py` tenían código divergente
+# cuando el triage decía lo contrario — la TERCERA vez que ese mismo par se
+# mal-clasificaba (el roadmap ya documenta dos anteriores). Lo que se puede correr no se
+# recuerda mal: este test fija las tres categorías.
+
+
+def test_el_triage_separa_comentarios_de_codigo(tmp_path):
+    from scripts.check_kernel_drift import clasificar_drift
+
+    kal_in = tmp_path / "kal_in"
+    kal = tmp_path / "kal"
+    _make_repo(kal_in, {
+        # mismo código, docstring distinto -> SOLO_COMENTARIOS
+        "kernel/prosa.py": '"""docstring de kal-in"""\n\ndef f():\n    """otro"""\n    return 1\n',
+        # código distinto de verdad -> CODIGO
+        "kernel/real.py": "def f():\n    return 1\n",
+        # no es Python -> NO_COMPARABLE
+        "kernel/Dockerfile": "FROM python:3.11\n",
+    })
+    _make_repo(kal, {
+        "kernel/prosa.py": '"""docstring de kal, más largo y con historia"""\n\ndef f():\n    """otro distinto"""\n    return 1\n',
+        "kernel/real.py": "def f():\n    return 2  # fix real\n",
+        "kernel/Dockerfile": "FROM python:3.12\n",
+    })
+
+    clases = clasificar_drift(kal_in, kal)
+
+    assert clases["SOLO_COMENTARIOS"] == ["kernel/prosa.py"]
+    assert clases["CODIGO"] == ["kernel/real.py"]
+    assert clases["NO_COMPARABLE"] == ["kernel/Dockerfile"]
+
+
+def test_el_triage_no_se_deja_enganar_por_un_comentario_en_el_codigo(tmp_path):
+    """Un `#` distinto en medio del cuerpo NO es cambio de código: no debe figurar como CODIGO."""
+    from scripts.check_kernel_drift import clasificar_drift
+
+    kal_in = tmp_path / "kal_in"
+    kal = tmp_path / "kal"
+    _make_repo(kal_in, {"kernel/x.py": "def f():\n    # comentario de acá\n    return 1\n"})
+    _make_repo(kal, {"kernel/x.py": "def f():\n    # comentario de allá, distinto\n    return 1\n"})
+
+    clases = clasificar_drift(kal_in, kal)
+
+    assert clases["SOLO_COMENTARIOS"] == ["kernel/x.py"]
+    assert clases["CODIGO"] == []
+
+
+def test_el_triage_cuenta_lo_que_falta_como_su_propia_clase(tmp_path):
+    from scripts.check_kernel_drift import clasificar_drift
+
+    kal_in = tmp_path / "kal_in"
+    kal = tmp_path / "kal"
+    _make_repo(kal_in, {})
+    _make_repo(kal, {"kernel/foo.py": "x = 1\n"})
+
+    clases = clasificar_drift(kal_in, kal)
+
+    assert clases["FALTA_EN_KAL_IN"], "un archivo que falta no es 'solo comentarios'"
+    assert clases["SOLO_COMENTARIOS"] == []
