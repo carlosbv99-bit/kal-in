@@ -65,6 +65,11 @@ _GATED_REQUESTS = [
     ("POST", "/network-access/no-existe/deny", {}),
     ("POST", "/skill-proposals/no-existe/approve", {"approved_by": "alguien"}),
     ("POST", "/skill-proposals/no-existe/reject", {}),
+    # Intervención humana sobre el circuit breaker (ver circuit_breakers.py): la
+    # escalación ya se audita como algo que "requiere intervención humana", así que
+    # el lugar donde esa intervención ocurre tiene el mismo gate que el resto.
+    ("GET", "/error-handling/circuit-breakers", None),
+    ("POST", "/error-handling/circuit-breakers/no-existe/reset", None),
 ]
 
 

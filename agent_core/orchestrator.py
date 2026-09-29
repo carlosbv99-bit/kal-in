@@ -491,6 +491,7 @@ from agent_core.routers import (
     android_build,
     audit,
     chat,
+    circuit_breakers,
     diagnostics,
     health,
     llm_settings,
@@ -506,7 +507,7 @@ from agent_core.routers import (
 for _router_module in (
     health, llm_settings, chat, tasks, tools, memory,
     self_modification, permissions, diagnostics, vscode_integration, audit,
-    skill_creator, android_build,
+    skill_creator, android_build, circuit_breakers,
 ):
     app.include_router(_router_module.router)
 

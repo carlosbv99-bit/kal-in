@@ -56,6 +56,7 @@ EventType = Literal[
     "self_modification_applied",
     "self_modification_rolled_back",
     "circuit_breaker_triggered",
+    "circuit_breaker_reset",
     "human_escalation",
     "tool_rolled_back",
     "tool_tamper_detected",

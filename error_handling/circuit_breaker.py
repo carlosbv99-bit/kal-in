@@ -7,7 +7,9 @@ escala a un humano en vez de seguir reintentando.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
+from typing import Any
 
 from audit.audit_log import AuditEvent, audit_log
 from utils.config import settings
@@ -26,21 +28,24 @@ def error_signature(error_type: str, error_message: str, location: str) -> str:
 @dataclass
 class _CircuitState:
     """
-    Estado de una firma de error. A propósito NO guarda "cuándo se vio por
-    primera vez": una versión anterior tenía un `first_seen` que se seteaba y no
-    se leía en ningún lado (revisión, 2026-09-29) — la firma de un campo pensado
-    para "reabrir solo después de N horas" que nunca se conectó.
+    Estado de una firma de error.
 
-    No se conecta porque **no es el diseño**: el módulo escala a un humano en vez
-    de reintentar, y el alcance del bloqueo es acotado (una firma, solo el camino
-    de auto-reparación; la ejecución y el resto de las firmas siguen igual). Si
-    alguna vez se quiere una reapertura por tiempo, no alcanza con un campo:
-    hace falta semántica *half-open* —dejar pasar UN intento de prueba tras el
-    enfriamiento y cerrar el circuito solo si ese intento sale bien—, que es una
-    decisión de diseño y no un `first_seen` que nadie lee.
+    `first_seen` es **desde cuándo viene fallando la racha actual**: un éxito
+    reemplaza el estado entero, así que NO significa "la primera vez en la vida
+    del proceso". Su consumidor es el listado de circuitos abiertos que expone el
+    endpoint de intervención humana (`open_circuits()`): quien va a reabrir un
+    circuito necesita saber desde cuándo está trabado y cuántos intentos lleva.
+
+    Historia de este campo, porque explica la regla: se había sacado por no tener
+    ningún lector (revisión, 2026-09-29), y volvió **cuando tuvo uno** — el
+    listado. No es un campo "para después": si algún día se quiere reapertura
+    automática por tiempo, no alcanza con leerlo, hace falta semántica *half-open*
+    (dejar pasar UN intento de prueba tras el enfriamiento y cerrar solo si sale
+    bien), que es una decisión de diseño.
     """
 
     attempts: int = 0
+    first_seen: float = field(default_factory=time.time)
     open: bool = False
 
 
@@ -89,9 +94,57 @@ class CircuitBreaker:
                 )
             )
 
-    def reset(self, signature: str) -> None:
-        """Permite a un humano reabrir manualmente el circuito tras revisar."""
-        self._states.pop(signature, None)
+    def open_circuits(self) -> tuple[dict[str, Any], ...]:
+        """
+        Las firmas con el circuito abierto, de la más vieja a la más nueva, con lo
+        que hace falta para decidir una intervención: cuántos intentos fallidos y
+        desde cuándo. Es el consumidor de `first_seen`.
+        """
+        abiertos = [(firma, st) for firma, st in self._states.items() if st.open]
+        abiertos.sort(key=lambda par: (par[1].first_seen, par[0]))
+        ahora = time.time()
+        return tuple(
+            {
+                "signature": firma,
+                "attempts": st.attempts,
+                "first_seen": st.first_seen,
+                "first_seen_ago_seconds": max(0.0, ahora - st.first_seen),
+            }
+            for firma, st in abiertos
+        )
+
+    def reset(self, signature: str, *, approved_by: str = "") -> int | None:
+        """
+        Reabre el circuito de una firma tras una revisión humana. Devuelve cuántos
+        intentos fallidos había acumulado, o `None` si esa firma no estaba abierta
+        (para que el llamador pueda distinguir "listo" de "no había nada que
+        reabrir" en vez de mentir con un éxito).
+
+        La reapertura se AUDITA: el sistema registra la apertura como algo que
+        "requiere intervención humana", así que la intervención también tiene que
+        quedar registrada — quién y sobre qué firma.
+        """
+        estado = self._states.get(signature)
+        if estado is None or not estado.open:
+            return None
+        del self._states[signature]
+        logger.warning(
+            f"Circuito REABIERTO a mano para {signature} tras {estado.attempts} intentos"
+            + (f" (por {approved_by})" if approved_by else "")
+        )
+        audit_log.record(
+            AuditEvent(
+                event_type="circuit_breaker_reset",
+                summary=f"Circuito reabierto manualmente tras {estado.attempts} intentos fallidos",
+                context={
+                    "error_signature": signature,
+                    "attempts": estado.attempts,
+                    "approved_by": approved_by,
+                },
+                outcome="success",
+            )
+        )
+        return estado.attempts
 
 
 circuit_breaker = CircuitBreaker()

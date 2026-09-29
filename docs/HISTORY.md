@@ -10628,3 +10628,45 @@ Una corrección chica de atribución, que anoto porque me costó dos greps: el c
 firma **no está en `versioning.py`** (ahí solo se escribe), sino en `registry.py`. El
 veredicto no cambia; la ubicación sí, y quien busque el chequeo en el archivo del
 `signature` no lo va a encontrar.
+
+
+## El camino humano del circuit breaker, cableado (2026-09-29)
+
+La revisión anterior había dejado dos hallazgos y una decisión abierta. Se decidió
+exponer el camino (opción a), con un argumento que cambia el peso de la alternativa:
+**`SessionManager` es puramente en memoria** (`agent_core/sessions.py`: "Estado en
+memoria del proceso — no persiste a disco"), así que "reiniciar el proceso" para
+destrabar UNA firma de error no es un costo chico: tira todas las sesiones activas.
+O sea que la opción (b) no era "dejar el reinicio como intervención", era **convertir
+cualquier circuito atascado en un incidente para todas las conversaciones en curso**.
+
+**Los dos hallazgos se resuelven con el mismo endpoint.** `first_seen` había sido
+eliminado por no tener lector; vuelve **con un consumidor real**: el listado de
+circuitos abiertos, donde significa "desde cuándo viene fallando la racha actual" (un
+éxito reemplaza el estado, así que no es "la primera vez en la vida del proceso"). Y el
+`reset()` que no llamaba nadie ahora es una acción de API.
+
+**Implementado** (`agent_core/routers/circuit_breakers.py`), reusando el gate que ya
+existe (`require_admin_token`, el mismo de `/memory/consolidate` y `/audit`):
+
+- `GET /error-handling/circuit-breakers` → `{count, open: [{signature, attempts,
+  first_seen, first_seen_ago_seconds}]}`, ordenado de la firma más vieja a la más nueva.
+  Sin esto, quien mira la escalación no sabe si el circuito se abrió hace un minuto o
+  hace tres días.
+- `POST /error-handling/circuit-breakers/{signature}/reset` → 404 si esa firma no estaba
+  abierta, 200 con los intentos acumulados si reabrió. El 404 es deliberado: entre que
+  un humano mira el listado y hace clic, el circuito pudo cerrarse solo (un intento
+  posterior tuvo éxito) y confirmar "reabierto" ahí sería una confirmación falsa. La
+  reapertura se audita como `circuit_breaker_reset` con firma, intentos y quién — la
+  apertura se registra como algo que "requiere intervención humana", así que la
+  intervención también tiene que quedar registrada.
+
+Tests: **8** en el breaker (antes: **0**), 5 de los endpoints, y las dos rutas sumadas
+al barrido transversal de `test_orchestrator_admin_auth.py` (que verifica 401 sin token,
+401 con token incorrecto y que con el token correcto la request llegue a la lógica real).
+
+Un detalle que vale contar: el primer test que escribí para `reset()` falló porque yo
+esperaba `attempts == 1` con `max_attempts=2` — o sea, le pedía al breaker que reabriera
+un circuito que no estaba abierto. El código tenía razón y el test estaba mal; el
+`reset()` devolviendo `None` en ese caso es exactamente la semántica que el endpoint
+necesita para no confirmar algo que no pasó.

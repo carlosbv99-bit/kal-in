@@ -1303,41 +1303,46 @@ copia del vínculo no la leía ninguna vista (la trayectoria se arma desde el hi
 Ahora el motivo vive solo en el historial, y `EvidenceLink.note` queda para lo que sí
 es suyo: la anotación que pasa un llamador por `link_evidence(note=...)`.
 
-### Escalación sin camino de acción (2026-09-29)
+### Escalación del circuit breaker: el camino, cableado (2026-09-29)
 
 Revisión del circuit breaker (`error_handling/circuit_breaker.py`), que tenía **cero
-tests** pese a bloquear un camino de recuperación. Se encontraron dos cosas:
+tests** pese a bloquear un camino de recuperación. Se encontraron dos cosas y las dos
+quedaron resueltas:
 
-1. **`_CircuitState.first_seen`: campo muerto, eliminado.** Se seteaba al crear el
-   estado y no se leía en ningún lado. Su forma —"cuándo se vio por primera vez"— es la
-   de un campo pensado para reabrir el circuito tras N horas que nunca se conectó. **No
-   se conecta**, y la decisión es explícita: el diseño del módulo es escalar a un
-   humano en vez de reintentar, y el alcance del bloqueo es acotado (una firma de error,
-   solo el camino de auto-reparación; la ejecución y el resto de las firmas siguen
-   igual). Si alguna vez se quiere reapertura por tiempo, **no alcanza con un campo**:
-   hace falta semántica *half-open* (dejar pasar UN intento de prueba tras el
-   enfriamiento y cerrar solo si sale bien), que es una decisión de diseño.
+1. **`_CircuitState.first_seen` no tenía lector.** Se seteaba y no se leía en ningún
+   lado. Tenía la forma de un campo para "reabrir tras N horas" que nunca se conectó, y
+   **no se conecta así**: el diseño del módulo es escalar a un humano, y una reapertura
+   automática por tiempo necesitaría semántica *half-open* (dejar pasar UN intento de
+   prueba tras el enfriamiento y cerrar solo si sale bien), que es una decisión de
+   diseño. Pero **volvió con un consumidor real**: el listado de circuitos abiertos. Ahora
+   significa "desde cuándo viene fallando la racha actual" (un éxito reemplaza el
+   estado) y es lo que un humano mira antes de intervenir.
 
-2. **`reset()` —el camino humano— no lo llama nadie.** El breaker audita
-   `human_escalation` ("Error requiere intervención humana", outcome `pending`) y
-   `open_circuit_breakers` se publica en `/status` para el frontend, pero no hay
-   endpoint, CLI ni acción de UI que llame a `reset()`. O sea: la escalación es
-   **visible y no accionable**; hoy la única forma de reabrir una firma es reiniciar el
-   proceso. Es la misma clase que los campos sin consumidor —el sistema afirma un
-   camino que no existe como mecanismo— con una diferencia: acá el estado es en
-   memoria y se pierde solo, así que no es peligroso, es incompleto.
+2. **`reset()` —el camino humano— no lo llamaba nadie.** El breaker auditaba
+   `human_escalation` y publicaba `open_circuit_breakers` en `/status`, pero no había
+   endpoint, CLI ni acción de UI: la escalación era *visible y no accionable*. Y la
+   alternativa "reiniciar el proceso" **no es barata**: `SessionManager` es puramente en
+   memoria (`agent_core/sessions.py`), así que reiniciar para destrabar UNA firma tira
+   todas las sesiones activas — convertía cualquier circuito atascado en un incidente
+   para todas las conversaciones en curso.
 
-   **Decisión pendiente** (dos opciones, ninguna construida):
-   - (a) exponer el camino: `GET /error-handling/circuit-breakers` (firma + intentos) y
-     `POST .../{signature}/reset`, sobre `open_circuit_count()` y `reset()` que ya
-     existen. Es la opción coherente con que la escalación ya se audita y se cuenta;
-   - (b) mantener el reinicio como única intervención y **decirlo** en el evento de
-     auditoría, para que el texto no prometa una acción que no existe como endpoint.
+**Implementado** (`agent_core/routers/circuit_breakers.py`), con el gate que ya existía
+(`require_admin_token`, el mismo de `/memory/consolidate` y `/audit` — no es una decisión
+de auth nueva):
 
-Además quedaron **5 tests** (antes: ninguno) que fijan el contrato: N fallos de la misma
-firma abren el circuito, abierto significa `allow_attempt` False, el bloqueo es por
-firma, un éxito resetea el contador, la apertura audita los dos eventos, y `reset()`
-vuelve a habilitar.
+- `GET /error-handling/circuit-breakers` → `{count, open: [{signature, attempts,
+  first_seen, first_seen_ago_seconds}]}`, de la firma más vieja a la más nueva.
+- `POST /error-handling/circuit-breakers/{signature}/reset` (con `approved_by` opcional)
+  → 404 si esa firma no estaba abierta (entre mirar el listado y hacer clic el circuito
+  pudo cerrarse solo; confirmar "reabierto" ahí sería una confirmación falsa), 200 con
+  los intentos que había si reabrió de verdad. La reapertura se **audita**
+  (`circuit_breaker_reset`, con firma, intentos y quién): si la apertura se registra como
+  algo que requiere intervención humana, la intervención también.
+
+Tests: 8 en el breaker (antes: 0) — contrato de apertura por firma, conteo, `first_seen`
+en el listado, `reset()` con su retorno y su auditoría — más 5 de los endpoints (gate,
+listado, reset real y auditado, 404 honesto) y las dos rutas sumadas al barrido
+transversal de `test_orchestrator_admin_auth.py`.
 
 ## 3. Lo que NO se hace (y en qué fase)
 

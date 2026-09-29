@@ -104,3 +104,64 @@ def test_reset_vuelve_a_habilitar_la_firma_y_es_el_unico_camino(breaker):
 
     assert breaker.allow_attempt(firma) is True
     assert breaker.open_circuit_count() == 0
+
+
+def test_open_circuits_expone_lo_que_un_humano_necesita_para_decidir(breaker, monkeypatch):
+    """
+    Es el consumidor de `first_seen`: quien va a reabrir un circuito necesita saber
+    desde cuándo está trabado y cuántos intentos lleva. Sin esto, la escalación
+    era visible (auditoría + contador en /status) pero no accionable.
+    """
+    from error_handling import circuit_breaker as modulo
+
+    monkeypatch.setattr(modulo.audit_log, "record", lambda evento: None)
+    vieja, nueva = _firma("primera"), _firma("segunda")
+    breaker.record_attempt(vieja, success=False, context={})
+    breaker.record_attempt(vieja, success=False, context={})
+    breaker.record_attempt(nueva, success=False, context={})
+    breaker.record_attempt(nueva, success=False, context={})
+
+    abiertos = breaker.open_circuits()
+
+    assert [c["signature"] for c in abiertos] == [vieja, nueva], "de la más vieja a la más nueva"
+    assert all(c["attempts"] == 2 for c in abiertos)
+    assert all(c["first_seen"] > 0 for c in abiertos)
+    assert all(c["first_seen_ago_seconds"] >= 0 for c in abiertos)
+
+
+def test_open_circuits_no_lista_los_cerrados(breaker):
+    firma = _firma()
+    breaker.record_attempt(firma, success=False, context={})
+
+    assert breaker.open_circuits() == ()
+
+
+def test_reset_devuelve_lo_que_hizo_y_queda_auditado(breaker, monkeypatch):
+    """
+    `reset()` devuelve los intentos acumulados (o None si no había nada abierto) para
+    que el endpoint pueda distinguir "listo" de "esa firma no estaba abierta" en vez
+    de confirmar algo que no pasó. Y se audita con quién lo hizo: la apertura se
+    registra como algo que requiere intervención humana, así que la intervención
+    también tiene que quedar registrada.
+    """
+    from error_handling import circuit_breaker as modulo
+
+    eventos = []
+    monkeypatch.setattr(modulo.audit_log, "record", lambda evento: eventos.append(evento))
+    firma = _firma()
+    breaker.record_attempt(firma, success=False, context={})
+    breaker.record_attempt(firma, success=False, context={})  # max_attempts=2 en el fixture
+
+    assert breaker.reset("no-existe") is None
+    assert breaker.reset("no-abierta") is None
+
+    intentos = breaker.reset(firma, approved_by="kalin")
+
+    assert intentos == 2
+    assert breaker.allow_attempt(firma) is True
+    assert breaker.open_circuits() == ()
+    reset_evento = next(e for e in eventos if e.event_type == "circuit_breaker_reset")
+    assert reset_evento.context["error_signature"] == firma
+    assert reset_evento.context["approved_by"] == "kalin"
+    # Y la segunda vez ya no hay nada que reabrir.
+    assert breaker.reset(firma) is None
