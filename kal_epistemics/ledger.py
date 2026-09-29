@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, replace
-from typing import Any, Callable, Iterable, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping
 
 from kal_epistemics.compaction import (
     CompactionReport,
@@ -99,7 +99,7 @@ from kal_epistemics.models import (
     new_id,
 )
 
-_PRECEDENCIA_DE_ACCIONES: tuple[ReopenAction, ...] = (
+PRECEDENCIA_DE_ACCIONES: tuple[ReopenAction, ...] = (
     ReopenAction.REFUTE,
     ReopenAction.WEAKEN,
     ReopenAction.REOPEN,
@@ -128,6 +128,9 @@ def _detalle(**kwargs: object) -> tuple[tuple[str, str], ...]:
     return tuple(sorted((k, str(v)) for k, v in kwargs.items()))
 
 
+if TYPE_CHECKING:  # pragma: no cover - solo para anotaciones
+    from .diagnosis import Trayectoria
+
 @dataclass(frozen=True)
 class InvalidationReport:
     """
@@ -154,7 +157,7 @@ class HypothesisLedger:
         # (condición, clave de dedup) ya aplicadas, por hipótesis. La clave
         # incluye la CONDICIÓN a propósito: sin eso, la segunda condición que
         # matchea la misma evidencia se descarta como si fuera una repetición
-        # (ver `consider()` y `_PRECEDENCIA_DE_ACCIONES`).
+        # (ver `consider()` y `PRECEDENCIA_DE_ACCIONES`).
         self._applied: dict[str, set[tuple[str, str]]] = {}
         self._applied_requests: dict[str, set[str]] = {}
         self._reopen_count: dict[str, int] = {}
@@ -717,7 +720,7 @@ class HypothesisLedger:
            refuerza), pero sí puede disparar otra condición distinta: eso no es
            una repetición, es otra lectura del mismo dato.
         2. **Precedencia explícita** entre acciones que matchean la misma
-           evidencia (`_PRECEDENCIA_DE_ACCIONES`): gana la más cauta, y los
+           evidencia (`PRECEDENCIA_DE_ACCIONES`): gana la más cauta, y los
            vínculos de todas se registran igual.
         3. **Dos presupuestos**: por hipótesis y por pregunta. El segundo se
            evalúa con los contadores ya actualizados por las aplicaciones de
@@ -829,6 +832,25 @@ class HypothesisLedger:
         self.hypothesis(hypothesis_id)
         return frozenset(clave for _, clave in self._applied.get(hypothesis_id, set()))
 
+    def claves_deficit_satisfecho(self, request_id: str) -> frozenset[str]:
+        """
+        Claves de dedup con las que se saldó un déficit. Es el equivalente de
+        `applied_evidence()` para los déficits: permite verificar (diagnosis.py)
+        que lo saldado se apoya en una evidencia que existe.
+        """
+        self.request(request_id)
+        return frozenset(self._applied_requests.get(request_id, set()))
+
+    def trayectoria_de(self, hypothesis_id: str) -> "Trayectoria":
+        """
+        La biografía de una hipótesis, derivada de su historial: qué pasó, en qué
+        orden y por qué. Es una vista, no un campo guardado — el estado actual es
+        una foto, y una foto no puede mostrar que volvió de una refutación.
+        """
+        from kal_epistemics.diagnosis import trayectoria_de as _trayectoria_de
+
+        return _trayectoria_de(self.hypothesis(hypothesis_id), self)
+
     def _aplicar(
         self,
         hypothesis_id: str,
@@ -852,7 +874,7 @@ class HypothesisLedger:
         """
         h = self.hypothesis(hypothesis_id)
         acciones = {decision.action for _, decision in coincidencias}
-        accion = next(a for a in _PRECEDENCIA_DE_ACCIONES if a in acciones)
+        accion = next(a for a in PRECEDENCIA_DE_ACCIONES if a in acciones)
         nuevo_estado = {
             ReopenAction.REOPEN: HypothesisStatus.REACTIVATED,
             ReopenAction.WEAKEN: HypothesisStatus.WEAKENED,

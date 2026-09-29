@@ -18,7 +18,9 @@
 > vendorizada adentro y sus límites declarados en cada respuesta) y **F7 completa**
 > (la costura entre seguridad del contenedor e integridad epistemológica, con el
 > arreglo general del bug de composición que encontró F5). **Con esto el
-> roadmap de la capa queda completo**: F0–F7.
+> roadmap de la capa queda completo**: F0–F7. **F8** (introspección y
+> trayectoria) llegó después, rescatada de una revisión de literatura: A y B
+> hechas, C y D esperando decisión.
 >
 > Los dos hallazgos de la medición quedaron cerrados: D10 (el orden de las
 > condiciones dejó de importar) el mismo día, y D9 (el déficit que la tool
@@ -245,6 +247,7 @@ resolvieron las dos cosas que el boceto no decía:
 | **F5** | Skill `claim_verifier` | ✅ hecho (2026-09-29) | F3 |
 | **F6** | Suite de medición y calibración | ✅ hecho (2026-09-29) | F2 |
 | **F7** | Costura seguridad ↔ epistemología | ✅ hecho (2026-09-29) | F5, F6 |
+| **F8** | Introspección y trayectoria | ✅ A y B hechas; C y D esperan decisión | F4, F7 |
 
 El orden importa más que las estimaciones. F2 antes de F4 es deliberado: ver
 §5, riesgo R1.
@@ -1016,6 +1019,169 @@ lo declare desde `SandboxedSkillTool` (una clave en la metadata, junto a
 (`kernel/registry/sandboxed_skill.py`), así que va por el proceso de
 sincronización documentado y no de prepo: mientras tanto la regla vive en el
 host, que es donde ya vive la política de ingestión.
+
+---
+
+## F8 — Introspección y trayectoria ✅ *A y B hechas* · C y D esperan decisión
+
+**De dónde sale.** De una revisión de literatura que buscaba qué existe ya
+construido en esta dirección. Se verificaron las nueve referencias: siete existen
+con el título y el venue citados, dos no se pudieron confirmar (ver
+"Antecedentes" abajo). De todo eso se rescataron dos ideas implementables y se
+descartó lo demás con motivo. El criterio de selección fue uno solo: **¿se puede
+hacer sin inventar números que nadie puede computar?** Tres de los trabajos son
+bayesianos (posteriors, Noisy-OR, grados de creencia) y quedaron afuera por eso,
+no por novedad: nuestro §0 ya prohíbe `confidence: float`, y F6 midió qué pasa
+cuando un umbral no está calibrado con datos reales.
+
+### A. Monitores introspectivos ✅ *hecho*
+
+De Herd, Kelly y Stolle, *Temporal Monitoring of Agent Beliefs Under Uncertainty
+with Subjective LTL* (AAAI-SS 2026): la idea de monitores que supervisan la
+evolución de las creencias propias. Se trajo la pregunta, no el formalismo.
+
+`kal_epistemics/diagnosis.py::diagnosticar()` chequea **lo que la carga de un
+snapshot NO chequea**. `from_snapshot` valida estructura (referencias, esquema,
+claves canónicas) y `validate()` impide los estados sin respaldo exógeno, pero un
+estado estructuralmente impecable puede afirmar que una hipótesis se reabrió siete
+veces sin historial que lo explique — y el contador de reaperturas es justamente
+lo que acota el ruido (R8). Cinco invariantes: `reaperturas_vs_historial`,
+`estado_declarado`, `aplicado_coherente`, `deficit_saldado`,
+`techo_de_reaperturas`.
+
+Tres decisiones de diseño que importan más que la lista:
+
+- **No re-chequea las reglas de escritura.** Si lo hiciera, habría dos dueños de
+  la misma regla y el día que cambie una, la otra miente.
+- **"No verificable" no es "roto".** Con el historial podado por compactación, los
+  invariantes que dependen del detalle se reportan como no verificables **con su
+  motivo**, y el ledger sigue siendo sano. Confundir "no lo sé" con "está roto" es
+  el error que esta capa existe para no cometer.
+- **Reporta, no rechaza.** Un ledger 99% sano sirve; lo que no se hace es
+  gobernar en silencio. El ledger durable diagnostica al abrir, el host lo loguea
+  como `WARNING`, y la fachada lo devuelve junto con `reanudar`.
+
+**Un bug real que apareció escribiendo los tests, y del mismo tipo que D10.** Una
+primera versión derivaba el estado leyendo las entradas del historial en orden.
+Cuando la misma evidencia dispara dos condiciones, `_aplicar()` deja **una entrada
+por lectura** y el estado lo decide la precedencia, así que con las condiciones
+declaradas en el orden inverso el monitor derivaba `reactivated` donde el ledger
+dice `refuted` y **acusaba al ledger de un problema del monitor**. La derivación
+ahora agrupa por aplicación y usa `PRECEDENCIA_DE_ACCIONES` (que pasó a ser
+pública: es una regla del contrato, y quien la lee tiene que leer la misma fuente
+que quien la aplica). Hay un test que fija que las dos declaraciones dan el mismo
+resultado.
+
+### B. Trayectoria ✅ *hecho*
+
+`ledger.trayectoria_de(hid)` deriva la biografía de una hipótesis del historial ya
+grabado: transiciones con `desde`/`hacia`, motivo, evidencia, condición y las
+**lecturas** de una misma evidencia. Una hipótesis `reactivated` puede haber
+pasado por `refuted` y vuelto, y esconderlo detrás del estado actual es la forma
+más fácil de que parezca más firme de lo que es. Si el historial fue podado, la
+trayectoria lo dice (`historial_podado`, `entradas_omitidas`): una trayectoria
+incompleta no puede leerse como si fuera completa. No toca el expediente del host,
+así que la medición de F6 no se mueve.
+
+### C. Exclusión mutua entre alternativas — *propuesta, requiere decisión*
+
+De BeliefMem (arXiv 2605.05583), cuyo mecanismo central es que las candidatas
+sigan visibles juntas. Nosotros ya mostramos todas las hipótesis de una pregunta,
+pero **no tenemos la relación "H1 y H2 son alternativas excluyentes"**, y sin ella
+no podemos nombrar el estado que más debería alarmarnos: dos hipótesis
+incompatibles **ambas respaldadas por evidencia exógena**. Hoy cada una se ve bien
+por separado, y `UNDETERMINABLE` no lo cubre (eso es falta de evidencia, no
+contradicción entre dos respaldos).
+
+- Qué se agrega: `Hypothesis.excludes` (simétrico) o un "como mucho una" por
+  pregunta, `Flag.CONFLICTING_SUPPORT`, y el conflicto visible en el expediente.
+- **El consumidor tiene que venir incluido.** Sin la superficie en el gate y el
+  expediente, esto sería infraestructura especulativa, que es lo que el proyecto
+  prohíbe. O sea: el costo real no es el campo, es el camino completo más un ítem
+  de corpus que ejercite el conflicto, más volver a correr la medición para
+  mostrar que los umbrales no se mueven en un corpus sin conflictos.
+
+### D. Validez temporal evaluable — *propuesta, requiere decisión*
+
+De ARTEM (AAAI-40) y del monitoreo temporal. **Auditando el código, acá estamos
+más atrás de lo que una tabla comparativa sugiere**: `validity_conditions` es una
+tupla de strings que se registra, se persiste, se compara al compactar y **nadie
+evalúa** (grep: cero evaluadores, un solo fixture de test). O sea que hoy no
+tenemos condiciones temporales: tenemos un gancho.
+
+- Qué se agrega: validez estructurada (`valido_desde`, `valido_hasta`) + un flag
+  derivado (`EXPIRED`) visible donde ya se ven los flags.
+- **D1 (recomendado): el vencimiento MARCA, no cambia el estado.** El ledger solo
+  cambia estado por las reglas declaradas; que un dato envejezca no es una
+  observación nueva. El flag se ve, el gate decide, y no hay movimiento silencioso.
+- **D2: el vencimiento dispara una acción declarada** (como una condición más).
+  Más potente y más caro: hay que integrarlo al presupuesto de reaperturas (R8) y
+  a la precedencia, y decidir si el tiempo puede consumir presupuesto.
+- **Alcance espacial: no todavía.** Mapear "alcance" a los ámbitos de D5
+  confundiría dos cosas distintas (dónde se guarda el estado vs. dónde vale una
+  proposición). Primero el tiempo, que es mecánico y testeable; el alcance
+  necesita su propio concepto, no un reuso.
+
+### El costo compartido: el bump de `schema_version`
+
+C y D agregan campos al snapshot, así que las dos suben `SCHEMA_VERSION` (1 → 2).
+`from_snapshot` **falla cerrado** ante una versión distinta, así que un bump sin
+plan de lectura significa que los ledgers guardados (SQLite, JSON) dejan de
+cargarse. Tres opciones:
+
+| Opción | Qué implica |
+|---|---|
+| (a) Script de migración `v1 → v2` | Funciona, pero agrega una pieza que hay que mantener y testear por cada bump futuro |
+| (b) Aceptarlo y perder los ledgers viejos | Inaceptable si hay estado real: el ledger ES el activo |
+| (c) **Leer v1 y v2, escribir v2** | El patrón estándar. `from_dict` deja los campos nuevos en su default; la versión se chequea como rango (`1 ≤ v ≤ 2`) y **v3+ sigue rechazándose fail-closed** |
+
+Recomendación: **(c)**, con un test que cargue un snapshot v1 real y verifique que
+se re-guarda como v2 sin perder nada. La promesa de fallar cerrado se mantiene
+donde importa —una versión FUTURA que no sabemos leer— y no se usa como excusa para
+tirar datos que sí sabemos leer.
+
+**Hacer C y D juntas paga UN solo bump**; por separado, dos. Si hay que elegir una
+sola, C (el conflicto entre alternativas respaldadas) es la que nombra un estado
+que hoy no podemos ni mencionar; D cierra un gancho vacío y es más barata de
+justificar en uso real.
+
+### Antecedentes verificados (2026-09-29)
+
+Verificados (título y venue coinciden): [Belief Memory](https://huggingface.co/papers/2605.05583)
+(arXiv 2605.05583 — memoria probabilística, Noisy-OR, candidatas múltiples),
+[Belief-State Engine](https://arxiv.org/abs/2609.10036) (arXiv 2609.10036 —
+posterior bayesiano externo, **solo el posterior al LLM, nunca el historial**),
+[Temporal Monitoring… Subjective LTL](https://ojs.aaai.org/index.php/AAAI-SS/article/view/42574)
+(AAAI-SS 2026), [ARTEM](https://ojs.aaai.org/index.php/AAAI/article/view/39773)
+(AAAI-40, memoria episódica espacio-temporal),
+[Bayesian-Agent](https://huggingface.co/papers/2606.08348) (arXiv 2606.08348 —
+skills como hipótesis; su motivación es que reusar éxitos y fracasos "as if counts
+alone were reliable belief" es un error: es nuestro principio 4, con benchmark), y
+*Towards a Belief-Based World Model* (arXiv 2609.00455). AgentCore Episodic Memory
+es una feature real de AWS.
+
+**No verificados** (marcados como tales para que nadie los cite de oídas): `SAVeR`
+no existe con ese nombre —lo que existe y coincide con la descripción es
+[*Verify Before You Commit*](https://aclanthology.org/2026.acl-long.1440/) (ACL
+2026)— y la encuesta *From Memory to Belief* (sep 2026) no apareció en ninguna
+búsqueda con ese título. Buscando esa encuesta apareció algo **más cercano
+nuestro** que varios de los citados:
+[*Graph-Native Cognitive Memory for AI Agents: Formal Belief Revision Semantics for
+Versioned Memory Architectures*](https://ar5iv.labs.arxiv.org/html/2603.17244)
+(arXiv 2603.17244), que es la zona de F1/F4 y merece lectura.
+
+Dos correcciones de encuadre que dejó la revisión:
+
+- **Somos una arquitectura de integridad, no de seguridad** (protege al usuario de
+  las afirmaciones que el sistema no puede sostener, no al host de un adversario),
+  y la frase correcta no es "sin confiar en el modelo" sino **"sin necesitar
+  confiar"**: no hay detector de confianza ni lo habrá.
+- **Las tablas comparativas hechas por quien diseñó un lado inflan ese lado.** En
+  la que motivó esta fase, kal-in aparecía con ✅ en "condiciones
+  espacio-temporales" (son strings sin evaluador), "actualización bayesiana" (no
+  existe, y no debe existir) y "motor adversarial" (hay precedencia y falsadores,
+  no un motor). La columna honesta tiene tres valores: existe / existe parcial /
+  **no existe a propósito**.
 
 ---
 

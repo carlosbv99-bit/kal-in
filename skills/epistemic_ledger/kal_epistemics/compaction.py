@@ -58,7 +58,11 @@ ESTADOS_TERMINALES: frozenset[HypothesisStatus] = frozenset(
 """Estados que ya no son una deuda abierta. `REFUTED` está acá y sigue siendo
 reabrible (tiene condiciones de reapertura): terminar no es desaparecer."""
 
-_KIND_MARCA = "compacted"
+# Pública porque hay OTRO módulo (diagnosis.py) que necesita reconocer la marca
+# para saber si el historial fue podado: sin eso confundiría "no lo sé" con
+# "está roto" — el error que esta capa existe para no cometer.
+KIND_MARCA_DE_COMPACTACION = "compacted"
+_KIND_MARCA = KIND_MARCA_DE_COMPACTACION
 
 
 @dataclass(frozen=True)

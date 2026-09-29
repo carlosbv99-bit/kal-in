@@ -490,3 +490,98 @@ def test_end_to_end_en_el_sandbox_real(tmp_path):
     )
     assert abierto["ok"] is True, abierto.get("error")
     assert abierto["resultado"]["creada"] is True
+
+
+# --------------------------------------------------------------------------
+# 7. Introspección por la fachada: trayectoria y monitores
+# --------------------------------------------------------------------------
+
+
+def _hasta_una_reapertura(facade):
+    estado = _correr(facade, "estado_vacio")["estado"]
+    abierto = _correr(
+        facade, "abrir_pregunta", estado=estado,
+        pregunta="¿por qué se cayó el servicio?", reabrir_con=["deploy"],
+    )
+    registrado = _correr(
+        facade, "registrar_hipotesis", estado=abierto["estado"],
+        pregunta_id=abierto["resultado"]["pregunta_id"], claim="fue el deploy",
+        reabrir_con=["deploy"],
+    )
+    ingerido = _correr(
+        facade, "ingerir_evidencia", estado=registrado["estado"],
+        contenido="el deploy de las 03:12 rompió el esquema", origen="kernel_observed",
+        fuente="run_code", ancla="f" * 64, ancla_tipo="audit_event_hash",
+    )
+    return ingerido["estado"], registrado["resultado"]["hipotesis_id"]
+
+
+def test_la_fachada_expone_la_trayectoria(facade):
+    """
+    Un tercero que guarda el snapshot puede reconstruir la biografía de una
+    hipótesis, no solo su estado actual: es lo que hace visible que una
+    `reactivated` pudo haber estado refutada antes.
+    """
+    estado, hid = _hasta_una_reapertura(facade)
+
+    r = _correr(facade, "trayectoria", estado=estado, hipotesis_id=hid)
+
+    assert r["ok"] is True
+    cambios = [t for t in r["resultado"]["transiciones"] if t["cambia_estado"]]
+    assert [t["hacia"] for t in cambios] == ["open", "reactivated"]
+    assert r["resultado"]["estado"] == "reactivated"
+    assert r["resultado"]["historial_podado"] is False
+
+
+def test_la_trayectoria_se_puede_acotar_y_exige_hipotesis(facade):
+    estado, hid = _hasta_una_reapertura(facade)
+
+    acotada = _correr(facade, "trayectoria", estado=estado, hipotesis_id=hid, limite=1)
+    sin_id = _correr(facade, "trayectoria", estado=estado)
+
+    assert len(acotada["resultado"]["transiciones"]) == 1
+    assert sin_id["ok"] is False
+    assert "'hipotesis_id' es obligatorio" in sin_id["error"]
+
+
+def test_la_fachada_expone_los_monitores(facade):
+    """
+    El caso de uso central de la mejora A del lado de un tercero: auditar el
+    estado que le llegó ANTES de confiar en él. La carga valida estructura; los
+    monitores miran si la historia tiene sentido.
+    """
+    estado, hid = _hasta_una_reapertura(facade)
+
+    sano = _correr(facade, "diagnosticar", estado=estado)
+
+    assert sano["ok"] is True
+    assert sano["resultado"]["sano"] is True
+    assert len(sano["resultado"]["verificados"]) == 5
+
+    # Un estado estructuralmente válido y absurdamente falso: 5 reaperturas
+    # contadas que su historial no registra.
+    roto = dict(estado)
+    roto["reopen_count"] = [[hid, 5]]
+    d = _correr(facade, "diagnosticar", estado=roto)
+
+    assert d["resultado"]["sano"] is False
+    assert "reaperturas_vs_historial" in {
+        h["invariante"] for h in d["resultado"]["hallazgos"]
+    }
+
+
+def test_reanudar_un_estado_guardado_viene_con_su_diagnostico(facade):
+    """
+    Reanudar es exactamente el momento de mirar: si el diagnóstico no viajara con
+    la respuesta, un snapshot absurdo se descubriría tres días después.
+    """
+    estado, hid = _hasta_una_reapertura(facade)
+
+    limpio = _correr(facade, "reanudar", estado=estado)
+    roto = dict(estado)
+    roto["reopen_count"] = [[hid, 5]]
+    sucio = _correr(facade, "reanudar", estado=roto)
+
+    assert limpio["resultado"]["diagnostico"]["sano"] is True
+    assert sucio["resultado"]["diagnostico"]["sano"] is False
+    assert sucio["ok"] is True, "un estado absurdo se reporta, no se rechaza"

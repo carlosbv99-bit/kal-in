@@ -53,6 +53,7 @@ from sdk.skill import Tool
 
 from kal_epistemics import (
     Evidence,
+    diagnosticar,
     EvidenceOrigin,
     HypothesisLedger,
     InvalidCondition,
@@ -73,6 +74,8 @@ _OPERACIONES = (
     "simular_evidencia",
     "abstencion",
     "compactar",
+    "trayectoria",
+    "diagnosticar",
 )
 
 _CLAVES_POR_OPERACION: dict[str, frozenset[str]] = {
@@ -100,6 +103,8 @@ _CLAVES_POR_OPERACION: dict[str, frozenset[str]] = {
             "max_entradas_de_historial",
         }
     ),
+    "trayectoria": frozenset({"estado", "hipotesis_id", "limite"}),
+    "diagnosticar": frozenset({"estado"}),
 }
 
 _ADVISORY: dict[str, object] = {
@@ -218,7 +223,15 @@ def _operar(operacion: str, entrada: dict) -> tuple[dict, HypothesisLedger]:
 
     if operacion == "reanudar":
         ledger = _estado(entrada)  # valida el snapshot: si está roto, levanta
-        return {"reanudado": True, "resumen": _resumen_estado(ledger, 20)}, ledger
+        return {
+            "reanudado": True,
+            "resumen": _resumen_estado(ledger, 20),
+            # Reanudar un estado guardado es EXACTAMENTE el momento en que hay que
+            # mirarlo: la carga valida estructura, no sentido. El diagnóstico
+            # viaja con la respuesta para que un snapshot absurdo se vea al
+            # abrirlo y no tres días después.
+            "diagnostico": diagnosticar(ledger).to_dict(),
+        }, ledger
 
     if operacion == "consultar":
         ledger = _estado(entrada)
@@ -354,6 +367,26 @@ def _operar(operacion: str, entrada: dict) -> tuple[dict, HypothesisLedger]:
                 "dos paráfrasis de la misma pregunta rinden la MISMA abstención."
             ),
         }, ledger
+
+    if operacion == "trayectoria":
+        ledger = _estado(entrada)
+        hid = str(entrada.get("hipotesis_id") or "")
+        if not hid:
+            raise _ErrorDeContrato("'hipotesis_id' es obligatorio")
+        datos = ledger.trayectoria_de(hid).to_dict()
+        limite = entrada.get("limite")
+        if limite:
+            datos["transiciones"] = datos["transiciones"][-max(1, int(limite)):]
+        return datos, ledger
+
+    if operacion == "diagnosticar":
+        ledger = _estado(entrada)
+        # Los monitores de la historia (mejora A): verifican lo que la carga de un
+        # snapshot no verifica — que los contadores de reapertura correspondan a
+        # lo que pasó, que el estado sea el que la historia produce, que ninguna
+        # clave de dedup quede huérfana. Sirve para auditar un estado que llegó de
+        # afuera antes de confiar en él.
+        return diagnosticar(ledger).to_dict(), ledger
 
     if operacion == "compactar":
         ledger = _estado(entrada)

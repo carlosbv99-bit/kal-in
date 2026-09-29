@@ -52,6 +52,16 @@ from kal_epistemics.compaction import (
     planificar,
 )
 from kal_epistemics.conditions import ReopenDecision, should_reopen
+from kal_epistemics.diagnosis import (
+    INCONSISTENCIA,
+    NO_VERIFICABLE,
+    Diagnostico,
+    Hallazgo,
+    Transicion,
+    Trayectoria,
+    diagnosticar,
+    trayectoria_de,
+)
 from kal_epistemics.durable import (
     AMBITO_POR_DEFECTO,
     AlmacenDurable,
@@ -144,4 +154,12 @@ __all__ = [
     "planificar",
     "render_abstention",
     "should_reopen",
+    "Diagnostico",
+    "Hallazgo",
+    "INCONSISTENCIA",
+    "NO_VERIFICABLE",
+    "Transicion",
+    "Trayectoria",
+    "diagnosticar",
+    "trayectoria_de",
 ]

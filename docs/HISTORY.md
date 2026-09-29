@@ -10163,3 +10163,95 @@ Tests: **10** de costura (9 sin Docker —wrapper de skill real, sandbox guionad
 roto, igual que los otros e2e de skills). La suite epistémica completa en verde
 salvo esos e2e, ruff `--select=E9,F` limpio, `validate_skills.py` verificando las 9
 skills y la medición de F6 consistente.
+
+
+## F8: monitores introspectivos y trayectoria (2026-09-29)
+
+Viene de revisar literatura para saber qué existe ya construido en esta dirección.
+Se verificaron las nueve referencias de la revisión que motivó el trabajo: **siete
+existen** con el título y el venue citados, **dos no se pudieron confirmar** (el
+`SAVeR` citado no existe con ese nombre —lo que coincide con la descripción es
+*Verify Before You Commit*, ACL 2026— y la encuesta *From Memory to Belief* de
+septiembre 2026, que no apareció en ninguna búsqueda). Buscando esa encuesta
+apareció algo más cercano a F1/F4 que varios de los citados: *Graph-Native
+Cognitive Memory for AI Agents: Formal Belief Revision Semantics for Versioned
+Memory Architectures* (arXiv 2603.17244). Queda anotado en el roadmap como lectura
+pendiente.
+
+De todo eso se rescataron dos ideas y se descartó lo demás **con motivo**. El
+criterio fue uno: se puede hacer sin inventar números que nadie puede computar.
+Tres de los trabajos son bayesianos (posteriors, Noisy-OR, grados de creencia) y
+quedaron afuera por eso — nuestro §0 ya prohíbe `confidence: float` y F6 midió qué
+pasa cuando un umbral no está calibrado con datos reales. Bayesian-Agent, de hecho,
+**nos da la razón por escrito**: su motivación es que reusar éxitos y fracasos "as
+if counts alone were reliable belief" es un error, que es nuestro principio 4.
+
+**A. Monitores introspectivos** (`kal_epistemics/diagnosis.py`), de *Temporal
+Monitoring of Agent Beliefs Under Uncertainty with Subjective LTL* (AAAI-SS 2026).
+Se trajo la pregunta, no el formalismo. `diagnosticar()` chequea lo que la CARGA de
+un snapshot no chequea: `from_snapshot` valida estructura y `validate()` impide
+estados sin respaldo exógeno, pero un estado estructuralmente impecable puede
+afirmar que una hipótesis se reabrió siete veces sin historial que lo explique — y
+ese contador es lo que acota el ruido (R8). Cinco invariantes: reaperturas
+contra historial, estado declarado contra la historia, claves de dedup contra
+evidencia/vínculos/historial, déficits saldados contra evidencia, y techos de
+reapertura por hipótesis y por pregunta.
+
+Tres decisiones que importan más que la lista:
+
+- **No re-chequea las reglas de escritura.** Dos dueños de la misma regla es un
+  dueño de más: el día que cambie una, la otra miente.
+- **"No verificable" no es "roto".** Con el historial podado por compactación, los
+  invariantes que dependen del detalle se reportan como no verificables **con su
+  motivo** y el ledger sigue sano. Hay un test que fija esa distinción y otro que
+  fija que un historial sin entradas de estado no se adivina.
+- **Reporta, no rechaza.** Un ledger 99% sano sirve. El ledger durable diagnostica
+  al abrir y expone `diagnostico_en_la_carga`, el host lo loguea como WARNING, y la
+  fachada lo devuelve junto con `reanudar` — que es exactamente el momento de
+  mirarlo.
+
+**Un bug real, encontrado escribiendo los tests, y del mismo tipo que D10.** La
+primera versión derivaba el estado leyendo las entradas del historial en orden.
+Cuando la misma evidencia dispara dos condiciones, `_aplicar()` deja UNA ENTRADA
+POR LECTURA y el estado lo decide la precedencia; con las condiciones declaradas
+al revés, el monitor derivaba `reactivated` donde el ledger dice `refuted` y
+**acusaba al ledger de un problema del monitor**. Ahora la derivación agrupa por
+aplicación y usa `PRECEDENCIA_DE_ACCIONES`, que pasó a ser pública justamente para
+que quien la lee lea la misma fuente que quien la aplica. Hay un test que fija que
+las dos declaraciones dan el mismo resultado. Es la segunda vez en esta capa que el
+orden de declaración muerde: D10 en el ledger, esto en la lectura del ledger.
+
+**B. Trayectoria** (`ledger.trayectoria_de`), de la misma línea y de ARTEM. Deriva
+del historial ya grabado la biografía de una hipótesis —transiciones con
+desde/hacia, motivo, evidencia, condición y las lecturas de una misma evidencia—.
+Una `reactivated` puede haber pasado por `refuted` y vuelto; esconderlo detrás del
+estado actual es la forma más fácil de que parezca más firme de lo que es. Si el
+historial fue podado, la trayectoria lo dice con `historial_podado` y
+`entradas_omitidas`: una trayectoria incompleta no se puede leer como completa. No
+toca el expediente del host, así que la medición de F6 no se movió (verificado con
+`--verificar`).
+
+Ambas se exponen también por la fachada `epistemic_ledger` (operaciones
+`trayectoria` y `diagnosticar`, y el diagnóstico dentro de `reanudar`), con la
+copia vendorizada re-sincronizada y la skill re-firmada.
+
+**Lo que quedó propuesto y espera decisión** (detalle y costos en el roadmap):
+
+- **C. Exclusión mutua entre alternativas** (de BeliefMem): hoy no podemos nombrar
+  el estado que más debería alarmarnos —dos hipótesis incompatibles, las dos
+  respaldadas por evidencia exógena—. Cuesta un campo, un flag, la superficie en
+  gate y expediente, y un ítem de corpus que ejercite el conflicto.
+- **D. Validez temporal evaluable**: auditando el código, acá estamos más atrás de
+  lo que sugería la tabla comparativa de la revisión. `validity_conditions` es una
+  tupla de strings que se registra, se persiste, se compara al compactar y **nadie
+  evalúa**: no tenemos condiciones temporales, tenemos un gancho.
+- Las dos suben `SCHEMA_VERSION` (1 → 2), y `from_snapshot` falla cerrado ante una
+  versión distinta, así que el bump necesita plan de lectura. La opción recomendada
+  es leer v1 y v2 y escribir v2, con v3+ igual de rechazada que hoy.
+
+Tests: **21** de diagnosis y trayectoria (cada invariante con un caso que lo
+dispara, pasado por el loader real; el caso de historial podado sin falso positivo;
+orden de condiciones; y la división con las reglas de escritura) más **4** en la
+fachada. 560 passed en el conjunto tocado con los 5 fallos de siempre (todos e2e de
+skills por el sandbox roto de este entorno), ruff `--select=E9,F` limpio,
+`validate_skills.py` verificando las 9 skills y la medición de F6 consistente.

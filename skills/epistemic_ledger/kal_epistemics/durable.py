@@ -52,6 +52,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
 from kal_epistemics.compaction import CompactionReport, PresupuestoDeCompactacion
+from kal_epistemics.diagnosis import Diagnostico, diagnosticar
 from kal_epistemics.ledger import HypothesisLedger
 
 AMBITO_POR_DEFECTO = "instalacion"
@@ -138,16 +139,34 @@ class LedgerDurable:
     presupuesto: PresupuestoDeCompactacion = field(default_factory=PresupuestoDeCompactacion)
 
     def __post_init__(self) -> None:
+        self._diagnostico: Diagnostico = Diagnostico()
         self._ledger: HypothesisLedger = self._abrir()
         self._huella_guardada: str = self._huella()
 
     def _abrir(self) -> HypothesisLedger:
         snapshot = self.almacen.cargar(self.ambito)
         if snapshot is None:
+            self._diagnostico = diagnosticar(HypothesisLedger(clock=self.clock))
             return HypothesisLedger(clock=self.clock)
         # `from_snapshot` falla cerrado: un estado inconsistente o de otra
         # versión no se reinterpreta, se levanta.
-        return HypothesisLedger.from_snapshot(snapshot, clock=self.clock)
+        ledger = HypothesisLedger.from_snapshot(snapshot, clock=self.clock)
+        # Un estado que PASÓ la carga todavía puede no tener sentido: la carga
+        # valida estructura (referencias, esquema, claves canónicas), no que la
+        # historia sea coherente. Se diagnostica acá, se guarda el resultado y el
+        # HOST decide qué hacer con él (la librería no tiene política de log): lo
+        # que no se hace es gobernar en silencio sobre un estado absurdo.
+        self._diagnostico = diagnosticar(ledger)
+        return ledger
+
+    @property
+    def diagnostico_en_la_carga(self) -> "Diagnostico":
+        """
+        Diagnóstico del estado tal como se cargó (o del estado actual, tras
+        `recargar()`). Es una foto, no un monitor en vivo: para el estado actual,
+        `kal_epistemics.diagnosticar(registro.ledger)`.
+        """
+        return self._diagnostico
 
     @property
     def ledger(self) -> HypothesisLedger:

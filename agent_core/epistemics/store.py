@@ -69,6 +69,8 @@ from agent_core.epistemics.sanitize import (
     sanitize_text,
 )
 from kal_epistemics import (
+    Diagnostico,
+    diagnosticar,
     AMBITO_POR_DEFECTO,
     AlmacenDurable,
     AlmacenEnMemoria,
@@ -232,6 +234,17 @@ class EpistemicStore:
         self._almacen: AlmacenDurable = almacen or AlmacenEnMemoria()
         self._ambito = ambito
         self._registro = LedgerDurable(almacen=self._almacen, ambito=ambito, clock=clock)
+        # Mejora A (monitores introspectivos): un estado guardado puede pasar la
+        # carga y no tener sentido (contadores de reapertura que no corresponden
+        # a su historial, claves de dedup sin evidencia). Eso no se rechaza —un
+        # ledger 99% sano sirve— pero TAMPOCO se gobierna en silencio: se reporta
+        # una vez, al abrir el ámbito, y queda consultable con `diagnosticar()`.
+        self._diagnostico_de_carga = self._registro.diagnostico_en_la_carga
+        if not self._diagnostico_de_carga.sano:
+            logger.warning(
+                "El ledger epistémico del ámbito '%s' se cargó con inconsistencias: %s",
+                ambito, self._diagnostico_de_carga.resumen(),
+            )
         # Contadores POR SESIÓN, en memoria: el ledger es del ámbito, pero "qué
         # se observó en este turno" es de la sesión (ver el docstring del módulo).
         self._ingestas: dict[str, int] = {}
@@ -261,6 +274,21 @@ class EpistemicStore:
         while len(self._sesiones) > self._max_sessions:
             self._sesiones.popitem(last=False)
         return self._registro.ledger
+
+    def diagnosticar(self, session_id: str | None = None) -> Diagnostico:
+        """
+        Corre los monitores sobre el estado ACTUAL (no el de la carga). Es una
+        lectura sin efectos: sirve para auditar antes de confiar en el registro y
+        para que la instrumentación detecte un estado absurdo sin esperar a que
+        alguien lo note.
+        """
+        self.ledger(session_id)
+        return diagnosticar(self._registro.ledger)
+
+    @property
+    def diagnostico_de_carga(self) -> Diagnostico:
+        """El de la carga inicial del ámbito, para no repetir el cómputo."""
+        return self._diagnostico_de_carga
 
     def session_ids(self) -> tuple[str, ...]:
         """Sesiones que tocaron el ledger, en orden de uso (LRU). Es
