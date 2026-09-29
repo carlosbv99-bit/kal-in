@@ -1246,10 +1246,13 @@ la skill la condición que en el contenedor no tiene** (`sys.path.insert(0, skil
 + `from tool import ...`). Las dos cosas están arregladas: la skill se asegura de que
 su propia carpeta sea importable, el test ahora imita al runner, y **el runner mismo
 agrega la carpeta de la skill a `sys.path`** (el fix en la raíz, que cubre a cualquier
-skill que vendorice un módulo hermano). Ojo con ese archivo: es compartido con kal, así
-que el cambio va por el proceso de sincronización y queda pendiente de portar. Y una
-observación sobre la forma: conviene `sys.path.append()` y no `insert(0, ...)`, para
-que la carpeta de la skill no quede por delante de la stdlib y del `sdk/`. Lección de método:
+skill que vendorice un módulo hermano). Ese archivo es compartido con kal, así que el
+cambio fue por el proceso de sincronización y **ya está portado** (kal `fd7f68e`). En
+los dos repos quedó con `sys.path.append()` y no `insert(0, ...)`: con `insert(0, ...)`
+la carpeta de la skill —que no es confiable— quedaría por delante de la stdlib y del
+`sdk/` en la resolución de imports, y podría shadowear un `json.py` propio o una
+carpeta `sdk/`; con `append()` el import vendorizado se resuelve igual y shadowear algo
+que ya existe en `sys.path` es imposible. Lección de método:
 un test que arma las condiciones más favorable que el entorno real no prueba la
 portabilidad — prueba que el test sabe armar el entorno.
 

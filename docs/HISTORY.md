@@ -10369,12 +10369,14 @@ exactamente lo que el runner NO hace.
 
 Arreglado en dos niveles: la skill se asegura de que su propia carpeta sea
 importable (con el comentario que explica por qué), el test ahora imita al runner
-cargando por ruta de archivo, y **el runner mismo pasó a agregar la carpeta de la
-skill a `sys.path`** —el fix en la raíz, que cubre a cualquier skill que vendorice un
-módulo hermano y que es preferible al parche por skill—. Ese archivo
-(`kernel/lifecycle/skill_runner.py`) es COMPARTIDO con kal, así que el cambio entra
-por el proceso de sincronización documentado: queda anotado como pendiente de portar
-allí, igual que los otros archivos del kernel que divergen. Lección de método, que vale más que el bug: **un test
+cargando por ruta de archivo, y **el runner mismo agrega la carpeta de la skill a
+`sys.path` con `append()`** —el fix en la raíz, que cubre a cualquier skill que
+vendorice un módulo hermano y que es preferible al parche por skill—. Ese archivo
+(`kernel/lifecycle/skill_runner.py`) es COMPARTIDO con kal, así que el cambio entró
+por el proceso de sincronización documentado y **ya está portado**: kal lo tiene en
+su propio commit (`fd7f68e`), con su test de regresión contra Docker real. O sea que
+este archivo vuelve a estar en sincronía entre los dos repos en vez de sumar a la
+divergencia. Lección de método, que vale más que el bug: **un test
 que arma condiciones más favorables que el entorno real no prueba la portabilidad,
 prueba que el test sabe armar el entorno** — y es la misma clase de fidelidad que F7
 exigió para la costura.

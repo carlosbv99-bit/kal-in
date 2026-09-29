@@ -33,6 +33,7 @@ una ruta fija) y escribir ahí.
 import importlib.util
 import json
 import os
+import sys
 
 with open("/workspace/_input.json", encoding="utf-8") as f:
     payload = json.load(f)
@@ -42,6 +43,27 @@ kwargs = payload.get("kwargs", {})
 
 module_part, _, class_name = entry_point.partition(":")
 module_path = f"/workspace/skill/{module_part}.py"
+
+# BUG REAL ENCONTRADO EN kal-in (2026-09-29, corriendo la skill
+# facade epistémica contra un contenedor real en vez de en proceso):
+# spec_from_file_location() carga tool.py por RUTA DE ARCHIVO, pero
+# nunca agrega /workspace/skill/ a sys.path — cualquier skill que
+# vendorice un módulo hermano junto a tool.py (import de un paquete
+# propio, no de sdk/) revienta acá con ModuleNotFoundError, aunque un
+# test en proceso (que sí tiene la carpeta en sys.path por otro
+# motivo) pase limpio. Fix en la raíz en vez de que cada skill lo
+# resuelva por su cuenta.
+#
+# append(), NUNCA insert(0, ...): con insert(0, ...) la carpeta de la
+# skill queda POR DELANTE de la stdlib y de sdk/ en la resolución de
+# imports — una skill (no confiable) podría vendorizar un archivo
+# llamado, por ejemplo, `json.py` o una carpeta `sdk/` propia y
+# shadowear al real, silenciosamente. Con append() el import
+# vendorizado se sigue resolviendo igual (nada más lo provee), pero
+# shadowear algo que ya existe en sys.path es imposible.
+skill_dir = os.path.dirname(module_path)
+if skill_dir not in sys.path:
+    sys.path.append(skill_dir)
 
 result = {}
 try:
