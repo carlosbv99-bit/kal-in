@@ -31,6 +31,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 from utils.config import settings
+from utils.secure_dir import ensure_private_dir
 
 DEFAULT_KEY_DIR = Path("data/keys")
 
@@ -42,7 +43,7 @@ def _canonical_payload(name: str, version: int, source_code: str) -> bytes:
 class ToolSigner:
     def __init__(self, key_dir: Path | str = DEFAULT_KEY_DIR):
         self.key_dir = Path(key_dir)
-        self.key_dir.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(self.key_dir)  # M-4/B-6 en kal, portado acá: 0700, no lo que dé el umask del proceso
         self._private_key_path = self.key_dir / "tool_signing_key"
         self._public_key_path = self.key_dir / "tool_signing_key.pub"
         self._private_key = self._load_or_create_keypair()

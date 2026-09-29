@@ -9067,3 +9067,18 @@ aplicado) encontró un fallo más,
 a carga del sistema. Corrido aislado, pasa limpio (12/12 de su archivo)
 — flaky bajo la carga de correr la suite completa de punta a punta con
 todos los modelos multimodales, no una regresión de este trabajo.
+
+**Adenda (mismo día, post-push)**: `scripts/check_kernel_drift.py`
+corrido de nuevo después de pushear reveló un archivo más con el mismo
+gap M-4/B-6 sin portar: `kernel/registry/signing.py::ToolSigner`
+(clave PROPIA de kal para firmar herramientas dinámicas, distinta de
+`skill_signing.py`) todavía usaba `.mkdir(parents=True, exist_ok=True)`
+crudo en vez de `ensure_private_dir()`. Corregido, con el mismo test de
+kal portado (`test_key_dir_is_forced_to_restrictive_permissions_even_if_it_preexisted`).
+Confirma que la lista de 18 archivos de `check_kernel_drift.py` sigue
+mostrando divergencia byte-a-byte incluso después de portar todos los
+fixes reales (comentarios/contexto específico de cada repo, y
+extensiones propias como `/project` en `_ALLOWED_EXTRA_MOUNT_ROOTS`) —
+la herramienta reporta divergencia de TEXTO, no de protección; revisar
+a mano archivo por archivo sigue siendo necesario, no algo que este
+chequeo reemplace.
