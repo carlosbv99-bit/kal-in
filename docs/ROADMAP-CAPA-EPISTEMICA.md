@@ -1279,6 +1279,30 @@ que ya existe en `sys.path` es imposible. Lección de método:
 un test que arma las condiciones más favorable que el entorno real no prueba la
 portabilidad — prueba que el test sabe armar el entorno.
 
+### Campos del contrato declarados y todavía sin consumidor (2026-09-29)
+
+Revisión de código encontró campos que se escriben, se serializan y **nadie lee** —
+la misma clase que `validity_conditions` (que ya se cerró con D1) pero que estaban
+sin marcar. Se dejan anotados acá, con su consumidor natural, en vez de que parezcan
+"peso muerto" a quien los lea:
+
+| Campo | Se escribe en | Consumidor natural | Costo de quitarlo |
+|---|---|---|---|
+| `Evidence.recheckable` | dos caminos reales (ingesta del host y fachada), más `from_content` | revalidación de evidencia vencida: si el sostén venció (D1) **y** el dato es re-verificable, el déficit puede decir "re-verificá esto" en vez de solo "no tengo respaldo". Es la extensión natural de D1/D2 | **bump de esquema**: es un campo serializado, y además es uno de los cinco que F0 nombra |
+| `Question.last_reviewed_at` | al re-preguntar y al saldar un déficit | política de poda de preguntas dormidas en la compactación (hoy `planificar()` ordena por `created_at`, no por actividad) | **bump de esquema** |
+
+Los dos están comentados en `models.py` apuntando acá, para que el próximo lector no
+tenga que hacer el grep que hicimos nosotros. **Decisión pendiente**: darles el
+consumidor natural (arriba) o quitarlos en un bump conjunto. Mientras tanto no son
+infraestructura silenciosa: son deuda visible con consumidor identificado.
+
+Un tercero de la misma revisión ya se corrigió, y no era "sin consumidor" sino
+**duplicado**: `_aplicar()` escribía la descripción de la condición en
+`EvidenceLink.note` **y** en `HistoryEntry.reason` — la misma string dos veces, y la
+copia del vínculo no la leía ninguna vista (la trayectoria se arma desde el historial).
+Ahora el motivo vive solo en el historial, y `EvidenceLink.note` queda para lo que sí
+es suyo: la anotación que pasa un llamador por `link_evidence(note=...)`.
+
 ## 3. Lo que NO se hace (y en qué fase)
 
 - **F0–F2:** nada de persistencia, nada de red, nada de puntajes numéricos

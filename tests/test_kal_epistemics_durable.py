@@ -824,3 +824,87 @@ def test_una_version_futura_sigue_rechazandose():
 
     with pytest.raises(ke.SchemaVersionMismatch):
         ke.HypothesisLedger.from_snapshot(datos)
+
+
+def _terminales_para_compactar(vueltas: int = 5):
+    """
+    Cuatro terminales en la MISMA pregunta: el compactador solo planifica el
+    excedente sobre `max_hipotesis_terminales_por_pregunta` (3 por defecto), así
+    que con menos no compacta nada. Es la misma condición que descubrí escribiendo
+    los tests del diagnóstico, y la que hay que respetar para medir compactación.
+    """
+    led = _ledger()
+    pregunta, _ = led.open_question("¿Qué pasó con el índice?")
+    ids = []
+    for i in range(4):
+        h = led.record_hypothesis(f"candidata {i}", question_id=pregunta.id, reopen_conditions=[_condicion("deploy")])
+        for vuelta in range(vueltas):
+            led.set_status(h.id, HypothesisStatus.OPEN, reason=f"vuelta {vuelta}")
+            led.set_status(h.id, HypothesisStatus.REFUTED, reason=f"cierre {vuelta}")
+        ids.append(h.id)
+    return led, sorted(ids)
+
+
+def test_el_reporte_cuenta_las_entradas_de_historial_que_saco():
+    """
+    `entradas_de_historial_quitadas` se calculaba bien pero NINGÚN test lo
+    assertaba (revisión, 2026-09-29), a diferencia de sus tres hermanos del
+    `CompactionReport`. Es el patrón que ya costó caro: un número correcto hoy que
+    nadie notaría si un refactor lo rompe.
+
+    Se fijan valores EXACTOS, no una fórmula re-escrita (eso sería un test vacuo).
+    Con `max_entradas_de_historial=3` el compactador conserva la primera entrada y
+    la última (`cupo - 1 = 1`), más la marca:
+    11 entradas -> 3, o sea 11 - 3 + 1 = 9 quitadas.
+    El `+1` es lo que hace que el número signifique "entradas que ya no están" y no
+    "diferencia de largos": la marca que se agrega no se cuenta.
+    """
+    led, ids = _terminales_para_compactar(vueltas=5)
+    compactada = ids[0]  # la más vieja por id
+
+    reporte = led.compact(PresupuestoDeCompactacion(max_entradas_de_historial=3))
+
+    assert reporte.hipotesis_compactadas == (compactada,)
+    assert len(led.hypothesis(compactada).history) == 3
+    assert reporte.entradas_de_historial_quitadas == 9
+
+
+def test_el_conteo_de_entradas_quitadas_cuenta_la_marca_que_reemplaza():
+    """
+    La parte no obvia del `+1`: en una SEGUNDA compactación, la marca anterior se
+    reemplaza por la nueva, así que también cuenta como entrada que ya no está.
+    Un refactor que "simplifique" el cálculo a `len(antes) - len(después)` da 3 acá
+    y 9 en el test de arriba — pasa uno y falla el otro, que es exactamente para lo
+    que sirve fijar los dos.
+    """
+    led, ids = _terminales_para_compactar(vueltas=5)
+    compactada = ids[0]
+    presupuesto = PresupuestoDeCompactacion(max_entradas_de_historial=3)
+    led.compact(presupuesto)  # primera pasada: 11 -> 3
+
+    # Se agregan entradas nuevas por el camino normal y se vuelve a compactar.
+    for vuelta in range(3):
+        led.set_status(compactada, HypothesisStatus.OPEN, reason=f"otra {vuelta}")
+        led.set_status(compactada, HypothesisStatus.REFUTED, reason=f"cierre {vuelta}")
+    antes = len(led.hypothesis(compactada).history)
+
+    segunda = led.compact(presupuesto)
+
+    assert antes == 9  # 2 conservadas + la marca vieja + 6 nuevas
+    assert len(led.hypothesis(compactada).history) == 3
+    # De las 8 de detalle (9 menos la marca) se conservan 2: se van 6, MÁS la
+    # marca vieja, que se reemplaza por la nueva -> 7. Con la fórmula "largos"
+    # (9 - 3) daría 6: por eso este caso y el de arriba se fijan juntos.
+    assert segunda.entradas_de_historial_quitadas == 7
+
+
+def test_compactar_algo_ya_compactado_no_cuenta_entradas_quitadas():
+    """Idempotencia del contador: si no hubo cambios, no hay nada que reportar."""
+    led, _ = _terminales_para_compactar(vueltas=2)
+    presupuesto = PresupuestoDeCompactacion(max_entradas_de_historial=3)
+    led.compact(presupuesto)
+
+    otra_vez = led.compact(presupuesto)
+
+    assert otra_vez.hipotesis_compactadas == ()
+    assert otra_vez.entradas_de_historial_quitadas == 0

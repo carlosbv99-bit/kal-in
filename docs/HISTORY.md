@@ -10522,3 +10522,49 @@ entre alternativas comparaba el par de ids contra el orden de CREACIÓN, pero
 `conflictos_de_sostén()` los devuelve ordenados por id y los ids son aleatorios — fallaba
 aproximadamente una de cada tres corridas. Se comparan ordenados, con la nota del
 motivo para que nadie lo "simplifique" de vuelta.
+
+
+## Cuatro campos: tres sin consumidor y uno sin test (2026-09-29)
+
+Revisión de código (misma línea que el hallazgo de `truncated`): buscar campos que se
+calculan y nadie lee. Aparecieron cuatro, y el criterio de la revisión —"peor que
+`truncated`, que al menos se leía indirectamente"— es el correcto.
+
+**Verificado, uno por uno:**
+
+| Campo | Apariciones | Lectores |
+|---|---|---|
+| `Evidence.recheckable` | 5 (definición, `to_dict`, `from_dict`, ingesta del host, fachada) | **0** |
+| `Question.last_reviewed_at` | 3 (definición + dos escrituras en el ledger) | **0** |
+| `EvidenceLink.note` | se escribe en `_aplicar` y en `link_evidence(note=...)` | **0** (el único `.note` que se lee es `Ingestion.note`, otro objeto) |
+| `CompactionReport.entradas_de_historial_quitadas` | definición + cálculo | **0 aserciones**, contra 1, 1 y 7 de sus tres hermanos |
+
+**Lo que se hizo:**
+
+- **`EvidenceLink.note`: se cortó el duplicado.** `_aplicar()` guardaba
+  `condition.description` en el vínculo **y** en `HistoryEntry.reason` — la misma
+  string dos veces, y `trayectoria_de()` (cuyo propósito es explicar "por qué") arma
+  la biografía desde el historial, así que la copia del vínculo no la leía nadie. Ahora
+  el motivo vive solo en el historial. El campo NO se elimina porque tiene un uso
+  legítimo: es la anotación opcional que pasa un llamador por `link_evidence(note=...)`,
+  y eso quedó documentado en su docstring.
+- **`entradas_de_historial_quitadas`: tres tests.** El álgebra está bien (el `+1`
+  cuenta la marca que se reemplaza, y verifiqué la primera y la segunda pasada a mano),
+  pero nadie lo assertaba: exactamente el patrón que ya costó caro una vez. Los tests
+  fijan valores exactos (11 -> 3 -> **9** quitadas; segunda pasada 9 -> 3 -> **7**,
+  que es donde un refactor a "diferencia de largos" daría 6) y la idempotencia.
+  Escribirlos encontró que mi propia aritmética del comentario estaba mal (medía 9, no
+  6): el test corrigió al que lo escribía, que es la mejor señal de que hacía falta.
+- **`recheckable` y `last_reviewed_at`: deuda visible, no silenciosa.** Los dos están
+  en el contrato y no tienen lector. Quitarlos cuesta un **bump de esquema** (son campos
+  serializados, y `recheckable` además es uno de los cinco que F0 nombra), así que
+  quedaron: comentados en `models.py` con su consumidor natural y su costo, y con una
+  fila en el roadmap que espera decisión — `recheckable` se conecta naturalmente con
+  D1/D2 (si el sostén venció y el dato es re-verificable, el déficit puede pedir
+  revalidarlo en vez de solo declararse insuficiente) y `last_reviewed_at` con una
+  política de poda de preguntas dormidas en la compactación.
+
+Los tres primeros son la misma lección que `validity_conditions`: un campo del contrato
+sin consumidor no es peligroso, pero **parece** que el sistema hace algo que no hace.
+La diferencia con aquel es que estos quedaron marcados antes de que alguien confiara en
+ellos.

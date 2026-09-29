@@ -1009,10 +1009,14 @@ class HypothesisLedger:
                 else LinkPolarity.CONTRADICTS
             )
             if not any(l.evidence_id == ev.id and l.polarity is polaridad for l in enlaces):
+                # SIN `note`: el "por qué" de esta aplicación ya va en la entrada
+                # de historial (reason=descripción + condition=id en el detalle), y
+                # escribirlo también acá era guardar la MISMA string dos veces —
+                # una de las dos copias no la leía nadie (revisión, 2026-09-29).
+                # `EvidenceLink.note` queda para lo que sí es suyo: la anotación
+                # que pasa un llamador por `link_evidence(note=...)`.
                 enlaces = enlaces + (
-                    EvidenceLink(
-                        evidence_id=ev.id, polarity=polaridad, note=condition.description
-                    ),
+                    EvidenceLink(evidence_id=ev.id, polarity=polaridad),
                 )
 
         at = self._now()

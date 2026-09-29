@@ -305,6 +305,12 @@ class Evidence:
     content_hash: str = ""
     method: str = ""  # cómo se obtuvo (nombre de tool + operación de kernel)
     acquired_at: float = 0.0
+    # CONTRATO F0 DECLARADO, SIN CONSUMIDOR TODAVÍA (revisión, 2026-09-29): se
+    # serializa y los dos caminos reales lo ponen en True, pero nada lo lee. Es el
+    # único de los cinco campos que F0 nombra ("id, origin, anchor, method,
+    # acquired_at, recheckable") en esta situación; el consumidor natural es la
+    # revalidación de evidencia vencida (D1/D2) — ver la fila en el roadmap.
+    # Quitarlo NO es gratis: es un campo serializado, o sea otro bump de esquema.
     recheckable: bool = False
     # D1: hasta cuándo vale esta observación. `None` es "sin vencimiento
     # declarado" — que es distinto de "vale para siempre": es "nadie lo declaró",
@@ -560,7 +566,15 @@ class ReopenCondition:
 
 @dataclass(frozen=True)
 class EvidenceLink:
-    """Vínculo hipótesis ↔ evidencia, con la polaridad (ver módulo)."""
+    """
+    Vínculo hipótesis ↔ evidencia, con la polaridad (ver módulo).
+
+    `note` es una anotación OPCIONAL de quien vincula (`link_evidence(note=...)`):
+    nada del camino automático la escribe. La aplicación automática de una
+    condición deja su motivo en la entrada de historial, que es la única fuente de
+    verdad de "por qué pasó esto" — antes se copiaba acá también, y la segunda
+    copia no la leía nadie (revisión, 2026-09-29).
+    """
 
     evidence_id: str
     polarity: LinkPolarity = LinkPolarity.SUPPORTS
@@ -813,6 +827,11 @@ class Question:
     times_asked: int = 1
     hypothesis_ids: tuple[str, ...] = ()
     missing: tuple[str, ...] = ()  # ids de EvidenceRequest
+    # Sin consumidor todavía (revisión, 2026-09-29): se actualiza al re-preguntar
+    # y al saldar un déficit, y nada lo lee. Consumidor natural: una política de
+    # poda de preguntas dormidas en la compactación (que hoy ordena por
+    # `created_at`). Misma nota que `Evidence.recheckable`: quitarlo cuesta un
+    # bump de esquema.
     last_reviewed_at: float = 0.0
     history: tuple[HistoryEntry, ...] = ()
 
