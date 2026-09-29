@@ -143,8 +143,8 @@ class KernelBusSocketServer:
                     except LineTooLongError:
                         self._audit_line_too_long()
                         continue
-                    except InvalidLineEncodingError:
-                        self._audit_invalid_encoding()
+                    except InvalidLineEncodingError as e:
+                        self._audit_invalid_encoding(str(e))
                         continue
                     if line is None:
                         continue
@@ -256,11 +256,16 @@ class KernelBusSocketServer:
             )
         )
 
-    def _audit_invalid_encoding(self) -> None:
+    def _audit_invalid_encoding(self, detail: str) -> None:
+        # Mejora real de diagnóstico portada de kal (2026-09-28, vía
+        # scripts/check_kernel_drift.py): antes se descartaba el
+        # detalle concreto de UnicodeDecodeError (qué byte, en qué
+        # posición) — quedaba solo "no es UTF-8 válido", sin nada útil
+        # para diagnosticar CUÁL fue el problema exacto de esa skill.
         audit_log.record(
             AuditEvent(
                 event_type="kernel_line_invalid_encoding",
-                summary=f"Skill '{self.skill_name}' mandó una línea que no es UTF-8 válido — conexión cortada",
+                summary=f"Skill '{self.skill_name}' mandó una línea que no es UTF-8 válido ({detail}) — conexión cortada",
                 context={"skill": self.skill_name},
                 outcome="failure",
             )

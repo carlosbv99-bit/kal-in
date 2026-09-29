@@ -9082,3 +9082,389 @@ extensiones propias como `/project` en `_ALLOWED_EXTRA_MOUNT_ROOTS`) —
 la herramienta reporta divergencia de TEXTO, no de protección; revisar
 a mano archivo por archivo sigue siendo necesario, no algo que este
 chequeo reemplace.
+
+
+## Capa epistémica F0+F1: `kal_epistemics` como subpaquete portable (2026-09-29)
+
+Pedido del usuario: incorporar al agente la posibilidad de conservar
+hipótesis sin resolver como memoria que sirva en el futuro, con "no lo sé"
+como estado legítimo en vez de fallo, y que sea integrable como Skill en
+kal-in o en cualquier otro agente.
+
+**Decisión de arquitectura:** el código vive en `kal_epistemics/`,
+subpaquete de nivel superior de kal-in, con la misma disciplina que `sdk/`:
+100% stdlib y sin importar NADA del host, de modo que se puede copiar a otro
+agente tal cual y extraer a su propio repo después sin tocar una línea. Dos
+tests lo verifican en vez de declararlo: uno lee las fuentes buscando imports
+de `agent_core`/`kernel`/`sdk`, y otro importa el paquete en un proceso
+limpio y comprueba que no los arrastra ni gana dependencias fuera de stdlib.
+
+**El reparto, y por qué no entra al kernel:** el gate de emisión tiene que
+estar en la ruta de salida del agente, y una Skill —que corre en un
+contenedor y la invoca el agente— no puede imponerlo desde afuera: un gate
+que el modelo puede saltear no es un gate. Por eso la Skill es *advisory*
+para terceros (portabilidad) y el gate es *enforced* en kal-in. `kal` recibe
+una sola cosa en su fase F3: `event_id` → registro verificable, que es lo que
+hace que la procedencia no se pueda fabricar. Nada de hipótesis en el kernel,
+y nada de política de contenido tampoco: kal media a qué recursos accede el
+código, no opina sobre lo que dice.
+
+**Qué quedó implementado (F0 + F1, 77 tests):**
+
+- `models.py`: `Evidence` (con `origin`: observado por kernel / externo /
+  afirmado por humano / generado por el modelo), `Hypothesis`, `Question`,
+  `EvidenceRequest`, `ReopenCondition`, `EvidenceLink`, `HistoryEntry`,
+  `Flag`. `schema_version` desde el primer commit: leer datos de otra versión
+  levanta, no reinterpreta.
+- `conditions.py`: `should_reopen()` — determinista, sin LLM en el camino.
+- `ledger.py`: `HypothesisLedger` en memoria, con `level()` derivado del
+  grafo, `flags()` mecánicos, propagación de invalidación y reapertura.
+- `abstention.py`: `render_abstention()` estable (dos paráfrasis de la misma
+  pregunta producen el mismo texto) y `classify_abstention()` para los tres
+  tipos: ignorancia conocida, subdeterminación, y pregunta mal planteada.
+
+**Cuatro invariantes, como tests y no como convenciones:**
+
+1. `MODEL_GENERATED` no reabre nada, ni con una condición que lo declare
+   explícitamente entre los orígenes aceptados (test enumerativo sobre todos
+   los orígenes). Reabrir con texto del propio modelo es un bucle de
+   auto-confirmación con pasos extra.
+2. `SUPPORTED`/`REACTIVATED` sin evidencia exógena levanta
+   `InvalidHypothesis`, incluso con 20 vínculos endógenos: la repetición no
+   es evidencia, y no hay ninguna API que exprese "más confianza por
+   insistir".
+3. La misma evidencia (mismo hash) tres veces deja un solo vínculo y un solo
+   evento de reapertura.
+4. `HypothesisLedger` no es un `MemoryBackend` ni expone
+   `recall`/`retrieve`/`store`. Es la garantía anti-contaminación: una
+   hipótesis plausible recuperada por similaridad y sin marca de origen sería
+   una alucinación persistente con procedencia, que el sistema además cita.
+
+**Decisiones de diseño tomadas al escribir (difieren del boceto inicial):**
+
+- La polaridad vive en `EvidenceLink`, no en `Evidence`: la misma observación
+  puede sostener una hipótesis y contradecir otra.
+- El falsificador es una `ReopenCondition` con `action=REFUTE`, no un tipo
+  aparte: es la misma pregunta con distinta consecuencia.
+- `level` (nivel epistémico) y `confidence` NO son campos. `level` lo calcula
+  el ledger sobre el grafo, así que es estructuralmente imposible
+  autoelevarse declarando un campo; `confidence: float` no existe en
+  absoluto, reemplazada por flags derivados — un número que nadie puede
+  computar con datos reales se inventa, y un número inventado con decimales
+  es exactamente lo que produce una alucinación convincente. Hay un test que
+  falla si alguien agrega cualquiera de los dos.
+- La propagación de invalidación distingue dos casos: un descendiente con
+  respaldo exógeno PROPIO se marca (`DEPENDENCY_REFUTED`) pero no se
+  suspende, porque su sostén no dependía de la premisa caída; uno que colgaba
+  solo de ella sí se suspende. Sin esa distinción, invalidar una premisa
+  arrasa conclusiones que seguían siendo válidas por sí mismas.
+
+**Riesgo residual conocido:** el ledger en memoria se pierde al reiniciar. Es
+deliberado (F1): la reapertura ocurre de verdad DENTRO de una tarea — la
+herramienta número tres devuelve el dato que faltaba cinco pasos después — y
+persistir primero es cómo se construye un cementerio que nadie consulta. El
+ledger durable es F4, y solo si F2 demuestra que el mecanismo se usa.
+
+Suite completa: **1387 passed, 1 failed** (29 minutos, dominada por tests que
+generan imagen/video reales). El único fallo es
+`test_kernel_bus_audio_stt_inpaint_integration.py::test_image_inpaint_via_kernel_skill_edits_a_real_generated_image`,
+que agotó el timeout de 600s del sandbox corriendo un inpainting real de 25
+pasos en esta máquina y devolvió un artefacto de texto en vez de una imagen.
+No tiene relación con este cambio (diffusers/torch con caché de HuggingFace
+incompleta, cae a serialización insegura): este trabajo es puramente aditivo
+—un subpaquete nuevo, cinco archivos de tests nuevos, y este apunte—, así que
+no puede alterar el resultado de ningún test preexistente. Los 77 tests
+nuevos suman 0.5s.
+
+Efecto colateral de correr la suite completa: escribió artefactos reales en
+`data/` (imagen/audio/uploads de los tests, manifiestos de fixture hasta v120,
+el sqlite de chroma) y actualizó `.pytest_cache/`/`.ruff_cache/`. Todo
+ignorado por git, pero son archivos que antes no estaban en disco.
+
+Roadmap de las fases restantes, con criterios de aceptación y decisiones
+abiertas: `docs/ROADMAP-CAPA-EPISTEMICA.md` (en este repo). D1 quedó resuelta
+—el gate puede bloquear la tarea, fail-closed duro—; D2 (si la reapertura
+intra-tarea es automática o el agente la propone) sigue abierta, y es de
+política del host, no del mecanismo.
+
+
+## Capa epistémica: endurecimiento de seguridad antes de exponerla al modelo (2026-09-29)
+
+El usuario recordó la filosofía del proyecto —seguridad primero— al aprobar el
+alcance del gate (D1: puede bloquear la tarea; D2: la reapertura intra-tarea se
+aplica sola). La consecuencia concreta para F2a: `open_question` y
+`record_hypothesis` van a exponer estos objetos al modelo, así que desde ese
+momento reciben input NO confiable. El endurecimiento se hizo ANTES de
+exponerlos, no después — cerrar la superficie de entrada antes de abrirla.
+
+**Tres superficies reales y su mitigación:**
+
+1. **Regex sobre texto no confiable = ReDoS.** Una `ReopenCondition` lleva
+   patrones, y el matcher corre en el camino crítico cada vez que llega
+   evidencia: un patrón como `(a+)+$` contra una línea de log arbitraria cuelga
+   al agente, y con una inyección de prompt eso es provocable a voluntad.
+   Mitigación ESTRUCTURAL, no de filtro: se agregó
+   `ReopenCondition.from_untrusted()`, el constructor que va a usar la capa de
+   tools, y que **no tiene parámetros de patrón** — solo selectores enumerados
+   (`source_in`, coincidencia exacta) y `content_keywords` (substring
+   case-insensitive, sin motor de expresiones regulares). No es que los filtre:
+   no puede recibirlos. Los campos de regex quedan para condiciones escritas
+   por código o por un humano, con tope de longitud (200) y rechazo de
+   cuantificadores anidados.
+2. **Crecimiento del ledger = agotamiento de recursos.** Topes explícitos
+   (`safety.py`) para proposición, pregunta, descripción, contenido de
+   evidencia, cantidad de evidencia, hipótesis por pregunta, condiciones por
+   hipótesis, vínculos y dependencias. Todos fallan cerrado con
+   `LedgerLimitExceeded`.
+3. **Fail-closed al validar patrones.** Un patrón que no se puede ANALIZAR se
+   rechaza: aceptar algo cuyo costo no podemos acotar es peor que no matchear.
+
+**Bug real encontrado por los tests, y vale la pena registrarlo:** la primera
+versión del detector de ReDoS no detectaba NADA. `SubPattern` de `re` itera por
+`__getitem__` y **no implementa `__iter__`**, así que el chequeo
+`hasattr(valor, "__iter__")` daba False para los SubPattern anidados y el
+recorrido nunca bajaba al cuerpo de los cuantificadores:
+`pattern_is_unsafe("(a+)+$")` devolvía `None`. El control de seguridad existía,
+se veía correcto en el código, y no hacía absolutamente nada — la peor clase de
+fallo, porque produce confianza sin cobertura. Lo atraparon los tests del
+patrón catastrófico (que por eso no son decorativos), no una revisión visual.
+Corregido detectando el tipo explícitamente, con verificación de falsos
+positivos sobre los patrones legítimos en uso (`^wikipedia\.`,
+`acta\s+del\s+3/3`, `Out of memory|oom-kill`, `\d{4}-\d{2}-\d{2}`).
+
+**Contrato modificado:** `ReopenCondition` ganó `content_keywords` y
+`source_in` (validados en `__post_init__` → `InvalidCondition`), y existen
+`InvalidCondition` y `LedgerLimitExceeded`. `MAX_CONTENT_SCAN` se movió a
+`safety.py` y se re-exporta desde `conditions.py`. `SCHEMA_VERSION` sigue en 1
+porque no hay ningún dato persistido en ninguna parte: es el momento más
+barato de la vida del proyecto para cambiar la forma de los contratos.
+
+Tests de la capa epistémica: **94 passed** (17 nuevos de seguridad), ruff
+`--select=E9,F` limpio. Ningún archivo existente de kal-in fue modificado.
+
+
+## Capa epistémica F2: el adaptador, el gate y el choke point (2026-09-29)
+
+F2 completa en cuatro rebanadas verificables. 155 tests nuevos de la capa
+epistémica, ruff limpio, y la suite existente de la ruta de chat/orquestador sin
+regresiones.
+
+**Rebanada 1 — admisión ≠ creencia.** `EvidenceStatus` (`ACCEPTED` /
+`QUARANTINED`) separa "¿puedo dejar que esto entre al razonamiento?" de "¿cuánto
+debo creerlo?", porque la respuesta puede ser *sí puedo almacenarlo, no debo
+creerlo*. Decisión que va contra la intuición y conviene registrar: el vínculo a
+evidencia en cuarentena **está permitido** y se marca con
+`Flag.RESTING_ON_QUARANTINED` en vez de rechazarse — si una evidencia se pone en
+cuarentena DESPUÉS de haber sido vinculada, borrar el vínculo destruiría la
+trazabilidad de que esa hipótesis se apoyó en material hoy cuestionado, que es
+justo lo que hay que poder auditar. Además, presupuesto de reaperturas por
+hipótesis (acota el amplificador de ruido de una condición genérica sin depender
+de que la palabra clave que escribió el modelo sea buena) y mínimo de 3
+caracteres por palabra clave (deja pasar `OOM`, `TLS`, `DNS`).
+
+**Rebanada 2 — el adaptador y la ingestión.** `agent_core/epistemics/store.py`
+(ledger por sesión con desalojo LRU), `tool_integration/adapters/epistemic_tools.py`
+(`open_question`, `record_hypothesis`) y la ingestión en un punto ÚNICO
+(`agent_loop.py::_dispatch_tool`, con `session_id` explícito — nunca estado de
+instancia, que sería el bug A-4 otra vez).
+
+Dos hallazgos reales, los dos por leer el código de verdad y no por suposición:
+
+1. **El lazo de lavado de origen.** Si `recall`, `remember`, `open_question` o
+   `record_hypothesis` fueran ingeribles, el modelo podría: registrar una
+   hipótesis → su propia respuesta entra como "observación del kernel" → la
+   hipótesis queda sostenida por sí misma. Un lazo de auto-confirmación de dos
+   pasos, con procedencia verificable. La ingesta es una **allowlist que falla
+   cerrado**, y hay un test por el camino real (`_dispatch_tool`) que verifica
+   que un eco devolviendo EXACTAMENTE el texto que reabriría la hipótesis no
+   ingiere nada.
+2. **Las herramientas asíncronas no son observaciones.** `read_workspace_file`,
+   `import_resource` y `android_build_and_screenshot` estaban en la allowlist, y
+   no correspondía: devuelven un Artifact "pending" y el contenido real llega
+   después por otro camino. Ingerirlas era fabricar un dato a partir de un
+   marcador de estado. Ahora hay un test que exige que la allowlist sea disjunta
+   de `_VSCODE_ONLY_TOOL_NAMES`, para que una asíncrona nueva obligue a revisar
+   la decisión.
+
+**Rebanada 3 — el sanitizador.** `agent_core/epistemics/sanitize.py`: tercer eje
+independiente (admisión / creencia / **exposición**), reusando
+`security_policy.py` en vez de reinventar una política de secretos que la
+contradiga — mismo criterio que `recall()`: con proveedor en la nube no se
+incluye, con proveedor local se redacta. Dos cosas que agrega: el marcador de
+"dato, no instrucciones" viaja con el dato, y el **sumidero no es solo
+`Evidence.content`**: el claim de una hipótesis, la pregunta y el déficit son
+texto que también puede contener una credencial pegada, y también pasan por el
+sanitizador (con un test por cada uno).
+
+**Rebanada 4 — el gate y el choke point.** `agent_core/epistemics/gate.py` con
+dos reglas mecánicas, las dos decidibles sin llamar a ningún modelo:
+
+- **R1 (bloquea)**: el agente declaró un déficit ("me falta E7") y después
+  respondió igual sin marcar incertidumbre. Es el patrón más destructivo de
+  todos: el sistema SABÍA que no le alcanzaba y contestó como si le alcanzara.
+- **R2 (advierte)**: el turno terminó sin una sola observación ingerida y la
+  respuesta es larga → se emite con la marca explícita de que no hubo
+  verificación, en vez de dejarla pasar con la misma apariencia que una que sí
+  la tuvo.
+
+**Falla cerrado**: cualquier error interno del gate BLOQUEA. Un gate que ante un
+bug se abre es peor que no tener gate, porque se confía en él.
+
+Y el **choke point**: `routers/chat.py` tenía CUATRO salidas distintas
+(trivial, `answer_directly`, Conversation Engine, planner) — un gate en una sola
+es un gate que se saltea por las otras tres. Ahora todas pasan por
+`_respuesta_final()`, el gate corre solo en la ruta del planner (D8), y hay un
+test que LEE el archivo y falla si alguien agrega una quinta puerta con su propia
+clave de respuesta. Se graba la respuesta ya pasada por el gate: grabar la
+original haría que el próximo turno la viera como su propio mensaje anterior y la
+afirmación sin respaldo se propagaría igual, un turno más tarde.
+
+**Lo que NO quedó hecho, y por qué (importante):** el objetivo era anclar la
+procedencia al **audit log encadenado por HMAC**, y hoy se ancla al
+`content_hash`. Prueba que el contenido no cambió desde la ingesta; NO prueba que
+la herramienta corrió — eso lo garantiza el camino de código. El ancla real
+necesita un `event_type` nuevo, y al ir a hacerlo apareció algo más grande:
+
+**Hallazgo: kal-in está desincronizado de kal en 12 archivos de directorios
+compartidos.** Medido con ambos repos en su `origin/main` sin commits locales:
+`audit/audit_log.py` (127 líneas de diff), `kernel/api/sandbox_api.py` (78),
+`kernel/lifecycle/docker_runner.py` (65), `kernel/lifecycle/Dockerfile` (61),
+`kernel/api/socket_server.py` (38), `kernel/api/bus.py` (33),
+`kernel/registry/registry.py` (30), `kernel/permissions/access_manager.py` (24),
+`code_analysis/ast_validator.py` (23), `kernel/permissions/network_safety.py`
+(22), `sdk/skill.py` (20), `code_analysis/denylist.py` (18). Alrededor de 539
+líneas. Dos de esos archivos son de seguridad (`access_manager`, `network_safety`)
+y uno es el audit log. El proyecto tiene `scripts/check_kernel_drift.py`
+exactamente para detectar esto: hoy reportaría los doce. No lo arreglé acá porque
+es una decisión de qué versión es la canónica en cada caso, no un patch
+mecánico — y agregar un `event_type` arriba de un archivo ya divergente habría
+empeorado la reconciliación. Queda anotado para F3, como su primer paso.
+
+
+### F2, cierre: el lazo que faltaba, y el drift medido bien (2026-09-29)
+
+**El agujero que tenía F2 y no era obvio:** la reapertura automática funcionaba
+en el ledger, pero el modelo **nunca se enteraba**. `context_block()` existía y
+estaba testeado, y nadie lo llamaba: la hipótesis se reabría sola, subía a nivel
+0, y el modelo seguía razonando como si nada hubiera pasado. Un mecanismo
+correcto con el cable desconectado.
+
+Cerrado en dos partes:
+
+1. **El expediente abierto se funde en el ÚNICO mensaje `system`** del turno, vía
+   `AgentLoop._system_content()`. Fundido y no aparte por un bug real ya
+   documentado en ese archivo: con DOS mensajes `system`, qwen3-coder:30b
+   ignoraba por completo el contexto de sesión (confirmado con una prueba directa
+   contra Ollama). Un segundo system "más limpio" habría reintroducido ese bug, y
+   hay un test estructural que cuenta los `"role": "system"` del archivo para que
+   no vuelva a pasar.
+2. **La nota de reapertura viaja pegada a la observación.** `ingest_tool_result`
+   devuelve un `Ingestion` con la evidencia y la nota; `_dispatch_tool` la anexa
+   al texto que ve el modelo, que es donde está mirando en ese momento. Dice qué
+   hipótesis cambió, a qué estado y a qué nivel — sin ella, el valor de la
+   reapertura se pierde en el mismo turno en que ocurre.
+
+**El drift entre repos, medido bien (y mal dos veces antes).** Mi primera
+medición dijo 12 archivos: estaba truncada por un `head -8` mío. La autorizada,
+`scripts/check_kernel_drift.py --kal-repo`, dice **18**. Después armé un triaje
+que señalaba `kernel/permissions/network_safety.py` como un fix de seguridad
+presente en kal y ausente en kal-in (marca de vulnerabilidad: 1 vs 0) — y al leer
+el diff, **la diferencia era solo el docstring**. Contar marcadores en comentarios
+no mide código.
+
+Triage correcto, con comparación de AST ignorando docstrings: **12 de los 18 son
+solo comentarios/docstrings** (código idéntico, reconciliación trivial), **1 es el
+`Dockerfile`** y **5 tienen código distinto de verdad**:
+`kernel/api/sandbox_api.py`, `kernel/api/socket_server.py`,
+`kernel/lifecycle/docker_runner.py`, `kernel/registry/skill_market.py` y
+`audit/audit_log.py` (129 líneas, el más delicado: es la cadena de auditoría).
+Esos cinco necesitan una decisión humana sobre qué versión es la canónica —
+fixes han fluido en las dos direcciones según este mismo historial.
+
+**Sigue pendiente:** el ancla al audit log encadenado por HMAC. Hoy la evidencia
+se ancla a su `content_hash` (prueba que el contenido no cambió; NO que la
+herramienta corrió — eso lo garantiza el camino de código). Necesita un
+`event_type` nuevo, y agregarlo arriba de un `audit_log.py` ya divergente habría
+empeorado la reconciliación. Es el paso 0 de F3.
+
+161 tests de la capa epistémica, 184 tests de la ruta de chat/planner/orquestador
+sin regresiones, ruff limpio.
+
+
+### F2, el ancla que faltaba: procedencia que el modelo no puede fabricar (2026-09-29)
+
+La frase del objetivo que quedaba sin cumplir: la ingestión **anclada al audit
+log**. Ahora lo está. La evidencia se ancla al `event_hash` de un evento real del
+audit log encadenado por HMAC, creado al ingerir
+(`event_type="epistemic_evidence_ingested"`, agregado en `kal` Y en kal-in).
+
+Dos detalles que valen más que el cambio en sí:
+
+1. **`AuditEvent` no tiene id propio: su identidad ES su hash encadenado.** No
+   hay un `event_id` al que apuntar — el hash depende del evento anterior y de la
+   clave HMAC, así que es a la vez identidad y prueba de encadenamiento. Por eso
+   `anchor_kind="audit_event_hash"` y no `"audit_event_id"`.
+2. **Fail-closed VISIBLE.** Si no se puede auditar (disco de solo lectura, clave
+   inaccesible), la evidencia NO se descarta — perder una observación real sería
+   peor — pero queda con `anchor=""` y el ledger la marca
+   `Flag.UNVERIFIABLE_PROVENANCE`. Degradación visible, no silenciosa; hay un
+   test que la fuerza con un `audit_log.record` que explota.
+
+**Y la corrección que más importa: el drift no era lo que yo dije.** Dos rondas
+antes reporté que kal-in estaba atrás en fixes de seguridad, con 12 archivos
+(cifra ya corregida a 18). Leí los cinco diffs con código distinto de verdad, uno
+por uno, y el resultado es el opuesto:
+
+- **Cuatro son el MISMO fix escrito distinto** — `skill_market.py` (B-10),
+  `socket_server.py` (B-4), `sandbox_api.py` (C-3/M-2/M-6) y `docker_runner.py`
+  (M-5/B-5) coinciden en la corrección y difieren en el **nombre** de funciones,
+  excepciones y `event_type` (`InvalidLineEncodingError` →
+  `InvalidEncodingError`, `require_sandbox_secret` → `_verify_token`,
+  `kernel_line_invalid_encoding` → `kernel_invalid_encoding`).
+- **Uno es divergencia deliberada y documentada**: kal-in necesita
+  `("/workspace", "/project")` como raíces de mount porque tiene
+  `agent_core/self_modification.py`; kal es kernel puro y no tiene ese llamador.
+  El propio comentario de kal-in lo explica.
+- `audit_log.py` implementa el mismo A-10 #2 con otra forma (kal loguea la línea
+  cruda y hace `continue`; kal-in marca la entrada).
+
+Conclusión: **no hay evidencia de un fix de seguridad faltante en kal-in.** Fue mi
+tercera medición equivocada del mismo fenómeno (primero 12 por un `head -8`,
+después un falso positivo de seguridad por contar marcadores en comentarios, ahora
+una alarma de severidad por no leer los diffs). Las tres veces el patrón fue el
+mismo: inferir de un proxy en vez de leer la cosa.
+
+Problema de fondo que queda anotado: la regla **"byte a byte idénticos" no puede
+expresar "esta divergencia es intencional y está documentada"**, así que
+`docker_runner.py` va a figurar como drift para siempre. Necesita una allowlist
+con justificación por entrada, o mover la diferencia a un parámetro.
+
+Tests de la capa epistémica: 163. Ruff limpio.
+
+## Revisión puntual de 5 archivos con diff real (post-reconciliación) (2026-09-29)
+
+A pedido explícito, revisados a fondo los 5 archivos de los 18 de
+`check_kernel_drift.py` que SÍ tienen líneas de código distinto (no
+solo comentarios) — los otros 13 (incluidos `access_manager.py` y
+`network_safety.py`) se re-confirmaron como comentario/docstring puro,
+sin ninguna lógica distinta.
+
+- `skill_market.py`, `sandbox_api.py`, `docker_runner.py`: confirmados
+  sin fix real faltante — mismo naming/estructura ya revisados y
+  documentados en la entrada anterior.
+- `audit_log.py`: confirmado que `diagnose_chain()` de este repo YA
+  envuelve `entry["event_type"]`/`entry["prev_hash"]`/`entry["event_hash"]`
+  dentro del MISMO `try/except (JSONDecodeError, KeyError)` — nunca
+  tuvo el bug estructural que motivó M-3 en kal (acceso a esas claves
+  FUERA del try). El diseño "(ilegible)" vs log+skip sigue siendo
+  divergencia deliberada, con tests propios de este repo que lo fijan.
+- **`socket_server.py`: sí había un fix real faltante.** kal pasa el
+  detalle de `UnicodeDecodeError` (qué byte, en qué posición) al
+  audit log; kal-in lo descartaba, dejando solo "no es UTF-8 válido"
+  sin nada útil para diagnosticar CUÁL fue el problema exacto.
+  Portado: `except InvalidLineEncodingError as e: self._audit_invalid_encoding(str(e))`,
+  con el detalle ahora en el `summary` del evento. Nombres de clase/evento
+  (`InvalidLineEncodingError`/`kernel_line_invalid_encoding`) se
+  mantienen como estaban acá — es la misma divergencia cosmética de
+  siempre, no algo a unificar. 12/12 tests de
+  `test_kernel_bus_socket_server.py` pasan igual.
