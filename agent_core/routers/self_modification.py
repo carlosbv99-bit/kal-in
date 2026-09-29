@@ -22,6 +22,12 @@ class SelfModApplyRequest(BaseModel):
     approved_by: str
 
 
+class SelfModRejectRequest(BaseModel):
+    proposal_id: str
+    rejected_by: str = ""
+    reason: str = ""
+
+
 @router.post("/propose", dependencies=[Depends(require_admin_token)])
 def propose_self_modification(req: SelfModProposeRequest):
     proposal = orchestrator.self_modification.propose(req.target_path, req.proposed_source, req.justification)
@@ -35,6 +41,21 @@ def apply_self_modification(req: SelfModApplyRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"proposal_id": proposal.id, "status": proposal.status}
+
+
+@router.post("/reject", dependencies=[Depends(require_admin_token)])
+def reject_self_modification(req: SelfModRejectRequest):
+    """
+    El espejo de `/apply`: registrar que un humano revisó y dijo NO. Sin esto, la
+    única salida de `pending_human_approval` era aplicar el cambio.
+    """
+    try:
+        proposal = orchestrator.self_modification.reject(
+            req.proposal_id, rejected_by=req.rejected_by, reason=req.reason
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"proposal_id": proposal.id, "status": proposal.status, "detail": proposal.detail}
 
 
 @router.get("")

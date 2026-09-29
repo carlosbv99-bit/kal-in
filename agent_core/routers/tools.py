@@ -15,6 +15,13 @@ class ToolApproveRequest(BaseModel):
     approved_by: str = Field(description="Identidad de quien aprueba (auditado, no verificado por este endpoint).")
 
 
+class ToolDenyRequest(BaseModel):
+    denied_by: str = Field(
+        default="",
+        description="Identidad de quien rechaza (auditado, no verificado por este endpoint).",
+    )
+
+
 class ToolRollbackRequest(BaseModel):
     to_version: int = Field(description="Versión firmada a la que revertir.")
     approved_by: str = Field(description="Identidad de quien aprueba (auditado, no verificado por este endpoint).")
@@ -36,6 +43,24 @@ def approve_tool(name: str, req: ToolApproveRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"name": name, "status": "active"}
+
+
+@router.post(
+    "/tools/{name}/deny",
+    dependencies=[Depends(require_admin_token)],
+    summary="Rechazar una herramienta pendiente (nunca se activa)",
+)
+def deny_tool(name: str, req: ToolDenyRequest):
+    """
+    El espejo de `/approve`. Sin esto, una herramienta que un humano decide NO
+    aprobar quedaba en la lista de pendientes para siempre y la decisión no se
+    registraba en ningún lado (revisión, 2026-09-29).
+    """
+    try:
+        orchestrator.tools.deny_pending_tool(name, denied_by=req.denied_by)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"name": name, "status": "denied"}
 
 
 @router.get("/skills", summary="Listar Skills instaladas")

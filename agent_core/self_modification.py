@@ -291,6 +291,33 @@ class SelfModificationManager:
             self._audit(proposal, "escalated", "Sin regresiones — pendiente de aprobación humana")
             return proposal
 
+    def reject(self, proposal_id: str, rejected_by: str = "", reason: str = "") -> SelfModProposal:
+        """
+        Rechazo humano de una propuesta que llegó a `pending_human_approval`.
+
+        Los otros estados de descarte (`rejected_unsafe`, `regression_detected`,
+        `blocked_core`) los decide el propio sistema ANTES de que un humano vea
+        nada. Una vez que una propuesta llega a la aprobación humana, la única
+        transición por API era `apply()`: un humano que revisaba y decidía "esto
+        no" no tenía forma de registrar esa decisión, y la propuesta quedaba
+        pendiente para siempre —y contando en `/status`— (revisión, 2026-09-29).
+
+        Mismo patrón que `skill_creator.reject()`: valida que esté pendiente, deja
+        el estado y el motivo en la propuesta, y lo audita (outcome `failure`, con
+        quién y por qué).
+        """
+        proposal = self._require_proposal(proposal_id)
+        if proposal.status != "pending_human_approval":
+            raise ValueError(
+                f"La propuesta {proposal_id} no está pendiente de aprobación (status: {proposal.status})"
+            )
+
+        proposal.status = "rejected_by_human"
+        proposal.detail = reason or "Rechazada por un humano sin motivo especificado."
+        self._audit(proposal, "failure", f"Rechazada por {rejected_by or 'un humano'}: {proposal.detail}")
+        logger.info(f"Propuesta {proposal_id} rechazada por {rejected_by or 'un humano'}")
+        return proposal
+
     def apply(self, proposal_id: str, approved_by: str) -> SelfModProposal:
         proposal = self._require_proposal(proposal_id)
         if proposal.status != "pending_human_approval":

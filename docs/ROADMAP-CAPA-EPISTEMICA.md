@@ -1339,6 +1339,31 @@ de auth nueva):
   (`circuit_breaker_reset`, con firma, intentos y quién): si la apertura se registra como
   algo que requiere intervención humana, la intervención también.
 
+**La misma clase de hueco, buscada en el resto de las escalaciones humanas.** De los
+cuatro lugares donde el sistema deja algo "esperando una decisión humana", el resultado
+del barrido fue:
+
+| Escalación | Estado |
+|---|---|
+| Permisos de filesystem y red | **completo** ya: `GET /{tipo}-access` + `POST .../approve` + `POST .../deny`, con los dos verbos también en `access_manager.py` |
+| Propuestas de skill (`/skill-proposals`) | **completo**: tiene `approve` y `reject`, y es el patrón que se copió abajo |
+| Herramientas dinámicas pendientes | **faltaba el "no"**: había `approve_pending_tool()`, no `deny_pending_tool()` |
+| Propuestas de self-modification | **faltaba el "no"**: desde `pending_human_approval` la única transición por API era `apply()` |
+
+En los dos incompletos, "no hacer nada" lograba el efecto práctico (la herramienta nunca
+se activa, el cambio nunca se aplica), pero la entrada quedaba en la lista **para
+siempre** —contando en `/status`— y la decisión no se registraba en ningún lado: ni
+quién, ni cuándo, ni por qué. Cerrado con la mitad simétrica de la interfaz:
+
+- `deny_pending_tool(name, denied_by)` (espejo de `approve_pending_tool`: valida que esté
+  pendiente, deja `status="denied"`, saca la entrada de `_pending` y audita
+  `tool_denied`) + `POST /tools/{name}/deny`;
+- `SelfModificationManager.reject(proposal_id, rejected_by, reason)` con
+  `status="rejected_by_human"` + `POST /self-modification/reject`, con los mismos guardas
+  que `apply()` (no se puede rechazar algo ya aplicado: el estado mentiría sobre lo que
+  pasó de verdad con el archivo) y auditado con outcome `failure`;
+- los dos con `require_admin_token`, el gate que ya usan los otros endpoints de este tipo.
+
 Tests: 8 en el breaker (antes: 0) — contrato de apertura por firma, conteo, `first_seen`
 en el listado, `reset()` con su retorno y su auditoría — más 5 de los endpoints (gate,
 listado, reset real y auditado, 404 honesto) y las dos rutas sumadas al barrido

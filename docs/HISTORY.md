@@ -10670,3 +10670,63 @@ esperaba `attempts == 1` con `max_attempts=2` — o sea, le pedía al breaker qu
 un circuito que no estaba abierto. El código tenía razón y el test estaba mal; el
 `reset()` devolviendo `None` en ese caso es exactamente la semántica que el endpoint
 necesita para no confirmar algo que no pasó.
+
+
+## Las otras dos escalaciones sin "no": herramientas y self-modification (2026-09-29)
+
+Misma clase de hueco que el circuit breaker, buscada en el resto de las escalaciones
+humanas. De los cuatro lugares donde el sistema deja algo esperando una decisión humana,
+**dos ya estaban completos** (permisos de filesystem/red —con `approve` y `deny` en el
+router y en `access_manager.py`— y las propuestas de skill, que tienen `reject` y fueron
+el patrón a copiar) y **dos no**:
+
+- **Herramientas dinámicas pendientes:** existía `approve_pending_tool()`, no
+  `deny_pending_tool()` en ningún lado. Una herramienta que un humano decidía NO
+  aprobar quedaba en `_pending` para siempre: seguía en `list_pending()`, seguía
+  contando en `pending_tool_approvals` de `/status`, y la decisión no se registraba.
+- **Propuestas de self-modification:** `rejected_unsafe`, `regression_detected` y
+  `blocked_core` los decide el propio sistema ANTES de que un humano vea nada; una vez
+  que algo llegaba a `pending_human_approval`, la única transición por API era
+  `apply()`. Un humano que revisaba y decía "esto no" no tenía dónde registrarlo.
+
+En los dos casos, "no hacer nada" lograba el efecto práctico —la herramienta nunca se
+activa, el cambio nunca se aplica—, así que no era una capacidad de seguridad faltante
+como en el breaker. Lo que faltaba era la **mitad simétrica de la interfaz**: que la
+decisión humana quede registrada (quién, cuándo, por qué) y que la entrada salga de en
+medio.
+
+**Implementado, espejando lo que ya existía** (no se inventó ni el estilo ni la
+validación):
+
+- `deny_pending_tool(name, denied_by)`, espejo de `approve_pending_tool()`: valida que
+  la herramienta esté pendiente, deja `status="denied"`, **saca la entrada de
+  `_pending`** (igual que la aprobación: esa lista es lo que espera una decisión, y esta
+  ya está tomada) y audita `tool_denied` con quién la rechazó. Más
+  `POST /tools/{name}/deny`.
+- `SelfModificationManager.reject(proposal_id, rejected_by, reason)` con
+  `status="rejected_by_human"`, el motivo en `detail`, y el mismo guarda que `apply()`
+  (no se puede rechazar algo que ya se aplicó: **el estado mentiría sobre lo que pasó de
+  verdad con el archivo**) y auditoría con outcome `failure`. Más
+  `POST /self-modification/reject`.
+- Los dos con `require_admin_token`, el gate que ya protegen los otros endpoints de este
+  tipo, y las dos rutas sumadas al barrido transversal de `test_orchestrator_admin_auth.py`.
+
+Tests: 8 nuevos (`tests/test_human_deny_paths.py`) que cubren el gate sin token, el 400
+de negocio con un id inexistente, y —lo que importa— que después de la decisión la
+entrada **ya no está** en `list_pending()` ni en el contador de `/status`, con el evento
+de auditoría correspondiente. Los tests inyectan el estado pendiente en vez de correr el
+pipeline completo (ejecución de prueba en sandbox para una herramienta; copiar el
+proyecto y correr pytest para una propuesta) porque lo que se prueba es la TRANSICIÓN de
+la decisión humana, no cómo se llegó a pendiente.
+
+**Port a kal:** `kernel/registry/registry.py` y `audit/audit_log.py` son compartidos, así
+que `deny_pending_tool()` y el tipo de evento `tool_denied` van en dirección kal-in →
+kal. Los dos archivos **ya divergían** antes de esto (medido: `registry.py` tenía 30
+líneas de diff en el commit anterior, ahora ~62). El resto (`agent_core/self_modification.py`
+y los dos routers) es de kal-in y no se porta.
+
+De paso quedó explicado un detalle del checker de drift: pasó de reportar 18 archivos a
+**19**, y el que entró es `kernel/lifecycle/skill_runner.py` —el del fix de
+`sys.path.append()` de hoy—, que difiere entre repos **solo en el texto del comentario**
+(código idéntico). Es la misma categoría que los 12 que ya eran solo
+comentarios/docstrings, así que la reconciliación es cosmética.

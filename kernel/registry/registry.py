@@ -296,6 +296,38 @@ class ToolRegistry:
         )
         logger.info(f"Herramienta '{name}' aprobada por {approved_by} y activada (v{version})")
 
+    def deny_pending_tool(self, name: str, denied_by: str = "") -> None:
+        """
+        Rechazo humano explícito de una herramienta pendiente: el espejo de
+        `approve_pending_tool()`.
+
+        Sin esto la interfaz era asimétrica: un humano podía decir "sí" pero no
+        "no". Una herramienta pendiente que se decidía no aprobar quedaba en
+        `_pending` **para siempre** —seguía apareciendo en `list_pending()` y
+        contando en `pending_tool_approvals` de `/status`— y la decisión no se
+        registraba en ningún lado. Ignorarla logra el efecto práctico de que nunca
+        se active, pero no deja constancia de quién la descartó ni saca la entrada
+        de en medio (revisión, 2026-09-29).
+        """
+        pending = self._pending.get(name)
+        if pending is None:
+            raise ValueError(f"No hay herramienta pendiente llamada {name}")
+        if pending.status != "pending_approval":
+            raise ValueError(
+                f"La herramienta '{name}' no está pendiente de aprobación (status actual: {pending.status})"
+            )
+
+        pending.status = "denied"
+        # Se saca de `_pending` igual que en la aprobación: es la lista de lo que
+        # espera una decisión humana, y esta ya está tomada.
+        del self._pending[name]
+
+        quien = denied_by or "un humano"
+        self._audit_tool_event(
+            "tool_denied", pending.manifest, "denied", f"Rechazada por {quien}"
+        )
+        logger.info(f"Herramienta '{name}' rechazada por {quien}; nunca se activa")
+
     def _activate(self, manifest: ToolManifest, source_code: str) -> int:
         """
         Registra la herramienta dinámica como ejecutable de verdad:

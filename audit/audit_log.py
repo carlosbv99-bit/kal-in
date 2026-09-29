@@ -51,6 +51,7 @@ EventType = Literal[
     "error_repair",
     "tool_created",
     "tool_promoted",
+    "tool_denied",
     "sandbox_execution",
     "self_modification_proposed",
     "self_modification_applied",
