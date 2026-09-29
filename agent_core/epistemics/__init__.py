@@ -20,14 +20,18 @@ from agent_core.epistemics.sanitize import (
     sanitize_text,
 )
 from agent_core.epistemics.store import (
+    EXTERNAL_TEXT_TOOLS,
     OBSERVATION_TOOLS,
+    TOOLS_DONDE_EL_FALLO_NO_ES_EVIDENCIA,
     EpistemicStore,
     Ingestion,
     almacen_persistente,
 )
 
 __all__ = [
+    "EXTERNAL_TEXT_TOOLS",
     "OBSERVATION_TOOLS",
+    "TOOLS_DONDE_EL_FALLO_NO_ES_EVIDENCIA",
     "almacen_persistente",
     "EpistemicStore",
     "Ingestion",

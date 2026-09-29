@@ -1,0 +1,45 @@
+name: claim_verifier
+description: >
+  Consigue evidencia EXÓGENA para un claim atómico: trae las fuentes candidatas que se le
+  pasan y devuelve, por cada una, la URL final, el estado, el tipo de contenido, el sha256
+  y el texto marcado como DATO. NO opina: nunca devuelve "verdadero", "falso" ni un puntaje.
+version: "0.1.0"
+entry_point: "tool:ClaimVerifierTool"
+# F5 de la capa epistémica (ver docs/ROADMAP-CAPA-EPISTEMICA.md). De PRIMERA PARTE
+# (decisión D6): no sale al market. El motivo está en el roadmap y vale repetirlo acá,
+# porque es el riesgo central de esta pieza: un verificador de terceros podría envenenar
+# justo el canal que existe para prevenir alucinaciones — el sistema confiaría en su
+# salida como evidencia exógena, y con un autor ajeno no hay forma de auditar qué trajo
+# ni por qué. Un verificador que miente es peor que no tener verificador.
+#
+# Permisos: red explícita, filesystem de lectura (implícito para todas las skills).
+# NETWORK es un permiso que la cascada del KERNEL puede denegar (config.yaml:
+# trust_tier_caps.skill = [filesystem_read] por defecto): si no está otorgado, la skill
+# NO se ejecuta y el agente pierde una CAPACIDAD, no un invariante — el gate, el ledger
+# y la reapertura siguen funcionando igual sin ella. Eso es deliberado y está testeado.
+enabled: true
+permissions:
+  - "network"
+requirements: []
+parameters_schema:
+  type: object
+  properties:
+    claim:
+      type: string
+      description: >
+        El claim atómico a verificar, en una sola proposición. Ej: "El RFC-9911 define
+        un handshake de tres pasos".
+    sources:
+      type: array
+      items:
+        type: string
+      description: >
+        URLs de las fuentes candidatas (http/https, máximo 5). Las propone quien llama —
+        esta skill no busca: no tiene motor de búsqueda ni claves de API, y adivinar
+        fuentes sería exactamente el relleno de vacíos que la capa epistémica evita.
+    max_bytes:
+      type: integer
+      description: "Tope de bytes a leer por fuente (default 200000, máximo 1000000)."
+  required:
+    - claim
+    - sources

@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 from agent_core.epistemics import OBSERVATION_TOOLS, EpistemicStore
+from kernel.registry.skills import parse_manifest
 from kal_epistemics import (
     EvidenceOrigin,
     Flag,
@@ -135,10 +136,20 @@ def test_la_allowlist_no_nombra_herramientas_inexistentes():
     """
     Un typo en la allowlist falla en SILENCIO: esa herramienta nunca ingeriría
     nada, y el agente simplemente afirmaría menos sin que nadie se entere.
+
+    Las herramientas pueden vivir en dos lugares: los adaptadores de
+    `tool_integration/adapters/` (de primera parte) y las **skills** instaladas en
+    `skills/`, cuyo nombre canónico es el de su `skill.yaml` — no el de ninguna
+    variable del código, que el loader nunca importa (ver
+    `kernel/registry/skills.py`). Mirar solo los adaptadores fue lo que hizo
+    fallar este test cuando F5 agregó `claim_verifier`: el test tenía razón en
+    preguntar, y le faltaba la segunda fuente de nombres.
     """
     nombres: set[str] = set()
     for archivo in (RAIZ / "tool_integration" / "adapters").glob("*.py"):
         nombres |= set(re.findall(r'name="([a-z_]+)"', archivo.read_text(encoding="utf-8")))
+    for manifest_path in (RAIZ / "skills").glob("*/skill.yaml"):
+        nombres.add(parse_manifest(manifest_path).name)
 
     faltantes = OBSERVATION_TOOLS - nombres
     assert faltantes == set(), (

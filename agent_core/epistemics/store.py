@@ -105,6 +105,10 @@ OBSERVATION_TOOLS: frozenset[str] = frozenset(
     {
         # Lectura del mundo: estas traen el contenido en ESTA misma llamada.
         "browser",
+        # F5: trae evidencia externa para un claim (fuentes candidatas que se le
+        # pasan). Es una observación más, con una diferencia que importa: su origen
+        # es TOOL_EXTERNAL, no KERNEL_OBSERVED (ver EXTERNAL_TEXT_TOOLS).
+        "claim_verifier",
         "analyze_image",
         "extract_text_from_image",
         "speech_to_text",
@@ -146,6 +150,54 @@ Excluidas a propósito, y el motivo importa más que la lista:
   allowlist sea DISJUNTA de ese conjunto, para que agregar una herramienta
   asíncrona nueva obligue a revisar esta decisión en vez de pasar inadvertida.
 """
+
+EXTERNAL_TEXT_TOOLS: frozenset[str] = frozenset(
+    {
+        # Traen texto de internet: es exógeno, y NO es verdad — puede mentir y
+        # puede intentar inyectar. Se distingue de `KERNEL_OBSERVED`, que es una
+        # observación del sistema bajo mediación del kernel (el stdout de un
+        # comando, el resultado de un análisis local): ahí el kernel responde por
+        # el hecho de que la herramienta corrió y devolvió eso; acá responde solo
+        # por la procedencia ("esto es lo que dijo esta fuente, con este hash").
+        #
+        # La distinción no cambia si la evidencia es exógena (las dos lo son) —
+        # cambia con qué fuerza se puede tratar: el marcador que viaja al contexto
+        # es distinto (ver `sanitize.py`), y `TOOL_EXTERNAL` es el que dice
+        # "contenido externo no confiable" en vez de "observado por el kernel".
+        "claim_verifier",
+        "browser",
+    }
+)
+"""Herramientas cuyo resultado es TEXTO EXTERNO. `claim_verifier` (F5) trae las
+fuentes candidatas que se le pasan; `browser` navega páginas reales dentro de su
+allowlist de dominios. Las dos son observaciones ingeribles, con origen distinto."""
+
+TOOLS_DONDE_EL_FALLO_NO_ES_EVIDENCIA: frozenset[str] = frozenset(
+    {
+        # F5: si la verificación no llegó a traer nada (el sandbox no arrancó, el
+        # entry point falló), el mensaje del runner NO es una observación del
+        # mundo: ingerirlo fabricaría un dato a partir de un marcador de estado —
+        # el mismo error que F2 encontró con las herramientas asíncronas, cuyo
+        # "pending" parecía un dato. Peor acá: un "ERROR (...)" que mencione, por
+        # ejemplo, un timeout, podría reabrir una hipótesis por una falla de
+        # infraestructura y no por evidencia.
+        #
+        # Es una política POR HERRAMIENTA y no una regla general a propósito: la
+        # convención `ERROR (<status>): ...` también la usa `run_code`, donde el
+        # stderr de un comando que SÍ corrió es una observación legítima (y el
+        # corpus de F6 la usa como evidencia). Distinguir "el runner se negó" de
+        # "la herramienta corrió y falló" requiere que el artefacto lo declare
+        # (una clave de metadata en `SandboxedSkillTool`, que es código COMPARTIDO
+        # con kal): queda anotado como el arreglo general, y mientras tanto la
+        # lista es explícita y fail-closed.
+        "claim_verifier",
+    }
+)
+"""Herramientas cuyo fallo del runner NO se ingiere como evidencia."""
+
+_MARCADOR_DE_FALLO_DEL_RUNNER = "ERROR ("
+"""Convención de `_artifact_to_observation` cuando una Tool devuelve un artefacto
+con `status` de error (ver agent_core/llm/agent_loop.py)."""
 
 _TOOLS_QUE_MUTAN_EL_LEDGER: frozenset[str] = frozenset(
     {"open_question", "record_hypothesis"}
@@ -297,6 +349,15 @@ class EpistemicStore:
             return Ingestion()
         if not observation or not observation.strip():
             return Ingestion()
+        if tool_name in TOOLS_DONDE_EL_FALLO_NO_ES_EVIDENCIA and observation.lstrip().startswith(
+            _MARCADOR_DE_FALLO_DEL_RUNNER
+        ):
+            logger.info(
+                "Observación de '%s' descartada: es el fallo del runner, no una "
+                "observación del mundo.", tool_name,
+            )
+            self._persistir_si_mutó(tool_name)
+            return Ingestion()
 
         ledger = self.ledger(session_id)
         recortada = len(observation) > _MAX_OBSERVATION_CHARS
@@ -307,7 +368,14 @@ class EpistemicStore:
 
         evidencia = Evidence.from_content(
             contenido,
-            origin=EvidenceOrigin.KERNEL_OBSERVED,
+            # El origen lo fija ESTE camino de código (nunca el modelo): observación
+            # del sistema salvo que la herramienta traiga texto de internet, que es
+            # exógeno pero no es verdad.
+            origin=(
+                EvidenceOrigin.TOOL_EXTERNAL
+                if tool_name in EXTERNAL_TEXT_TOOLS
+                else EvidenceOrigin.KERNEL_OBSERVED
+            ),
             source=tool_name,
             method=metodo,
             acquired_at=self._clock(),
