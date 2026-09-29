@@ -16,7 +16,7 @@ from __future__ import annotations
 import docker
 from docker.errors import DockerException
 
-from kernel.lifecycle.docker_runner import DockerSandboxRunner
+from kernel.lifecycle.docker_runner import DockerSandboxRunner, SandboxResult
 from tests.conftest import requires_docker
 
 
@@ -85,3 +85,104 @@ def test_real_docker_still_works_with_an_explicit_workdir_root(tmp_path, monkeyp
 
     assert result.status == "success"
     assert "funciona" in result.stdout
+
+
+# --------------------------------------------------------------------------
+# B-3 (re-auditoría de seguridad 2026-09-28, hallazgo parcial): diagnóstico
+# explícito cuando el daemon NO ve el workdir.
+#
+# Sin esto, el único síntoma es `python: can't open file '/workspace/main.py'`,
+# que no distingue "el daemon no ve la ruta" de "la imagen no tiene Python" ni de
+# "el script se borró". Costó media hora de diagnóstico manual el 2026-09-29
+# (TMPDIR privado del shell -> bind montado vacío -> TODOS los e2e de skills
+# fallando con ese mensaje).
+# --------------------------------------------------------------------------
+
+
+def _resultado_workdir_vacio():
+    return SandboxResult(
+        status="error",
+        stdout="",
+        stderr="python: can't open file '/workspace/main.py': [Errno 2] No such file or directory",
+        exit_code=2,
+    )
+
+
+def test_el_diagnostico_aparece_solo_si_la_prueba_confirma_que_el_daemon_no_ve_el_workdir(
+    tmp_path, monkeypatch
+):
+    runner = DockerSandboxRunner()
+    monkeypatch.setattr(runner.cfg, "workdir_root", str(tmp_path))
+    monkeypatch.setattr(runner, "_daemon_ve_el_workdir", lambda: False)
+    auditados = []
+    monkeypatch.setattr(
+        "kernel.lifecycle.docker_runner.audit_log.record",
+        lambda evento: auditados.append(evento),
+    )
+
+    resultado = runner._diagnosticar_workdir_invisible(_resultado_workdir_vacio(), tmp_path / "w")
+
+    assert "daemon de Docker NO ve el directorio de trabajo" in resultado.stderr
+    assert "sandbox.workdir_root" in resultado.stderr
+    assert "TMPDIR" in resultado.stderr
+    # La salida original se conserva: el diagnóstico se agrega, no reemplaza.
+    assert "can't open file" in resultado.stderr
+    assert auditados and auditados[0].event_type == "sandbox_workdir_no_visible"
+
+
+def test_sin_confirmacion_no_se_afirma_ninguna_causa(tmp_path, monkeypatch):
+    """
+    Si la prueba dice que el daemon SÍ ve el workdir —o no se pudo determinar—,
+    el mensaje original queda intacto: no se inventa un diagnóstico.
+    """
+    runner = DockerSandboxRunner()
+    for respuesta in (True, None):
+        monkeypatch.setattr(runner, "_daemon_ve_el_workdir", lambda r=respuesta: r)
+        original = _resultado_workdir_vacio()
+
+        resultado = runner._diagnosticar_workdir_invisible(original, tmp_path / "w")
+
+        assert resultado.stderr == original.stderr
+
+
+def test_no_se_paga_la_prueba_si_el_fallo_no_es_ese_sintoma(tmp_path, monkeypatch):
+    runner = DockerSandboxRunner()
+    llamadas = []
+    monkeypatch.setattr(
+        runner, "_daemon_ve_el_workdir", lambda: llamadas.append(1) or False
+    )
+    otro = SandboxResult(status="error", stdout="", stderr="ModuleNotFoundError: no module named 'x'", exit_code=1)
+    exito = SandboxResult(status="success", stdout="hola", stderr="", exit_code=0)
+
+    assert runner._diagnosticar_workdir_invisible(otro, tmp_path / "w").stderr == otro.stderr
+    assert runner._diagnosticar_workdir_invisible(exito, tmp_path / "w").stderr == exito.stderr
+    assert llamadas == [], "la prueba con contenedor solo corre ante el síntoma, no en el camino feliz"
+
+
+def test_la_prueba_se_cachea_por_instancia(tmp_path, monkeypatch):
+    """Es una propiedad del entorno, no de la ejecución: se prueba una vez."""
+    runner = DockerSandboxRunner()
+    corridas = []
+
+    class ClienteFalso:
+        class containers:  # noqa: N801
+            @staticmethod
+            def create(**kwargs):
+                corridas.append(kwargs)
+
+                class Contenedor:
+                    def start(self): ...
+                    def wait(self, timeout=None): return {"StatusCode": 0}
+                    def logs(self, **kw): return b"kal-probe"
+                    def remove(self, force=False): ...
+
+                return Contenedor()
+
+    monkeypatch.setattr(type(runner), "client", property(lambda self: ClienteFalso()), raising=False)
+
+    primera = runner._daemon_ve_el_workdir()
+    segunda = runner._daemon_ve_el_workdir()
+
+    assert primera is True and segunda is True
+    assert len(corridas) == 1, "la segunda consulta sale de la cache"
+    assert corridas[0]["volumes"], "la prueba monta un centinela desde la raíz configurada"

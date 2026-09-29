@@ -10438,3 +10438,50 @@ del sandbox; nadie había ejercitado el caso "el runner rechaza antes de ejecuta
 la ruta viva. La verificación en vivo no reemplaza a los tests: encontró el caso que
 a los tests les faltaba, y ahora ese caso es un test (cuatro, en `test_epistemic_seam.py`,
 incluido el control de que un fallo en ejecución SÍ se ingiere).
+
+
+## B-3 de la re-auditoría: el diagnóstico que faltaba (2026-09-29)
+
+La re-auditoría de seguridad de kal (`docs/RE-AUDITORIA-SEGURIDAD-2026-09-28.md`, en
+el repo de kal, todavía sin trackear) había fichado el problema que esta sesión
+encontró a mano: **B-3 — "workdir dependiente de TMPDIR", parcial**, con el pendiente
+exacto: *"falta el diagnóstico explícito cuando el daemon no ve el workdir"*. La
+primera mitad (`sandbox.workdir_root` configurable) ya estaba; lo que faltaba era que
+el sistema **dijera** qué pasaba.
+
+Y lo que pasaba es lo que costó media hora de diagnóstico manual: este entorno le da a
+cada shell un `/tmp` privado, el daemon de Docker es un proceso de afuera, y el bind
+mount del workdir llegaba VACÍO — con el único síntoma siendo `python: can't open file
+'/workspace/main.py'`, que no distingue "el daemon no ve la ruta" de "la imagen no
+tiene Python" ni de "el script se borró".
+
+**Implementado.** Cuando el contenedor termina con esa firma, el runner corre una
+**prueba real** —escribe un centinela en un temporal del mismo `workdir_root` y lo
+monta en un contenedor mínimo— y:
+
+- si el contenedor **no ve** el centinela, reemplaza el stderr por un detalle
+  accionable: el workdir del host, el `workdir_root` configurado, la constancia de que
+  la prueba se corrió, las causas típicas (daemon en otro contexto/VM, `TMPDIR`
+  privado) y el arreglo (apuntar `sandbox.workdir_root` o `TMPDIR` a una ruta que el
+  daemon vea). Además lo audita (`sandbox_workdir_no_visible`), con el mismo patrón
+  que el fix de B-4 en `sandboxed_skill.py`: un fallo de entorno se convierte en un
+  artefacto con detalle y rastro, nunca en una excepción críptica;
+- si la prueba **sí lo ve**, o no se pudo determinar, el mensaje original queda
+  intacto. Esto importa tanto como el diagnóstico: **no se afirma una causa que no se
+  verificó**, que es la misma regla que el resto de la capa aplica a la evidencia.
+
+El costo está acotado a propósito: la prueba corre **solo** ante esa firma —nunca en el
+camino feliz— y se cachea por instancia, porque es una propiedad del entorno y no de la
+ejecución. Verificado en este entorno: con el `TMPDIR` privado, el runner ahora explica
+el bind vacío en vez de devolver el mensaje del intérprete.
+
+Tests: cuatro nuevos en `tests/test_docker_runner_workdir_root.py` (el diagnóstico
+aparece solo con confirmación, no se afirma nada sin ella, no se paga la prueba si el
+fallo no es ese síntoma, y la prueba se cachea), 7/7 en el archivo con `TMPDIR`
+compartido.
+
+**Estado del hallazgo.** B-3 queda cerrado del lado de kal-in. `docker_runner.py` es
+compartido con kal, así que el cambio va por el proceso de sincronización —y allá es
+donde el hallazgo está fichado—, así que hay port pendiente en esa dirección. B-4
+(path AF_UNIX largo) está al revés: el fix vive en kal-in (portado en F3) y su
+verificación con un `TMPDIR` de 151 caracteres es la que el note reporta.

@@ -1239,8 +1239,21 @@ Docker es un proceso de afuera y no lo ve—, así que el bind montaba un direct
 **vacío** y el contenedor arrancaba sin `main.py`. La prueba: un bind desde `/tmp`
 llega vacío y el mismo bind desde el repo funciona.
 
-Consecuencia práctica: con `TMPDIR` apuntando a una ruta compartida (por ejemplo
-`data/tmp`, que está en `.gitignore`), los e2e corren de verdad. Verificado: los 3
+**Y ya no hay que diagnosticarlo a mano.** El hallazgo B-3 de la re-auditoría de
+seguridad de kal (2026-09-28) pedía exactamente esto —"falta el diagnóstico explícito
+cuando el daemon no ve el workdir"— y quedó implementado: cuando el contenedor
+arranca sin el script, el runner corre una prueba real (monta un centinela desde la
+misma raíz) y, si confirma que el daemon no la ve, reemplaza el mensaje críptico por
+uno accionable —workdir, `workdir_root` configurado, causas típicas (daemon remoto,
+`TMPDIR` privado) y el arreglo— más un evento de auditoría
+(`sandbox_workdir_no_visible`). Si la prueba NO confirma, el mensaje original queda
+intacto: no se afirma una causa que no se verificó. Ojo con el archivo:
+`kernel/lifecycle/docker_runner.py` es compartido con kal, así que el cambio va por el
+proceso de sincronización (y allá es donde el hallazgo está fichado).
+
+Consecuencia práctica, ahora que el diagnóstico existe: con `TMPDIR` apuntando a una
+ruta compartida (por ejemplo `data/tmp`, que está en `.gitignore`), los e2e corren de
+verdad. Verificado: los 3
 e2e `requires_docker` de F5/F2b/F7 pasan con contenedor real, y el test que ya
 existía para `workdir_root` (que era parte de los que fallaban) también. Los
 "49 fallos pre-existentes" del entorno eran, en su gran mayoría, esta única causa.
