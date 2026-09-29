@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "conjunto": "D",
+  "descripcion": "Deriva: la MISMA pregunta con varias redacciones. Los items cosmeticos (mayúsculas, acentos, puntuación, espacios) tienen que caer en un solo registro y producir la misma abstención; los lexicos (sinónimos, otro orden) NO, y eso es una decisión conservadora explícita de canonical_key: prefiere dos claves para la misma pregunta antes que una clave que fusione dos preguntas distintas. 'dedup_entre_sesiones' no es una expectativa sino una MEDICIÓN de la brecha que F4 tiene que cerrar.",
+  "items": [
+    {
+      "id": "D01",
+      "etiqueta": "cosmetica_puntuacion",
+      "variantes": [
+        "¿Por qué se cayó el servicio a las 3:14?",
+        "¿por que se cayo el servicio a las 3:14?",
+        "¿Por qué se cayó el servicio a las 3:14???"
+      ],
+      "missing": ["el log del kernel de esa ventana"],
+      "esperado": {"dedup_en_sesion": true, "texto_abstencion_identico": true}
+    },
+    {
+      "id": "D02",
+      "etiqueta": "cosmetica_espacios",
+      "variantes": [
+        "¿Cuál es el margen de la línea de sensores?",
+        "¿Cual es el margen de la linea de sensores ?",
+        "  ¿cuál   es  el  margen  de la línea de sensores?  "
+      ],
+      "missing": ["el estado contable interno"],
+      "esperado": {"dedup_en_sesion": true, "texto_abstencion_identico": true}
+    },
+    {
+      "id": "D03",
+      "etiqueta": "cosmetica_mayusculas",
+      "variantes": [
+        "¿Está corriendo el servicio de indexación?",
+        "¿Esta corriendo el servicio de indexacion?",
+        "¿ESTÁ CORRIENDO EL SERVICIO DE INDEXACIÓN?"
+      ],
+      "missing": ["el estado del servicio en este momento"],
+      "esperado": {"dedup_en_sesion": true, "texto_abstencion_identico": true}
+    },
+    {
+      "id": "D04",
+      "etiqueta": "lexica_sinonimos",
+      "variantes": [
+        "¿Por qué se cayó el servicio?",
+        "¿Cuál fue la causa de la caída del servicio?",
+        "¿Qué provocó que el servicio dejara de responder?"
+      ],
+      "missing": ["el log del kernel de esa ventana"],
+      "esperado": {"dedup_en_sesion": false, "texto_abstencion_identico": true}
+    },
+    {
+      "id": "D05",
+      "etiqueta": "lexica_orden",
+      "variantes": [
+        "¿Qué límite de memoria tiene el contenedor?",
+        "¿Qué límite tiene el contenedor de memoria?",
+        "El contenedor, ¿qué límite de memoria tiene?"
+      ],
+      "missing": ["el archivo de composición del servicio"],
+      "esperado": {"dedup_en_sesion": false, "texto_abstencion_identico": true}
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "conjunto": "R",
+  "descripcion": "Reapertura y refutación AUTOMÁTICAS por el camino real, más los dos casos en los que NO tiene que pasar nada: el eco del propio modelo (lavado de origen) y la repetición de la misma observación. Todo lo que se verifica acá lo decide el ledger, sin intervención del modelo en ese camino.",
+  "items": [
+    {
+      "id": "R01",
+      "etiqueta": "reapertura_por_observacion",
+      "pregunta": "¿Por qué se cayó el servicio a las 3:14?",
+      "acciones": [
+        {"tool": "record_hypothesis", "args": {"claim": "El servicio se cayó por falta de memoria del proceso principal", "watch_for": ["Out of memory"]}}
+      ],
+      "observaciones": [
+        {"tool": "run_code", "contenido": "kernel: Out of memory: Killed process 4821 (python3), anon-rss:7854012kB"}
+      ],
+      "respuesta_final": "La observación del log del kernel confirma la hipótesis que había registrado: el proceso 4821 de Python fue terminado por el OOM killer a las 03:14, con casi 7,9 GB residentes. La caída fue por agotamiento de memoria.",
+      "etiqueta_respuesta": "afirmativa",
+      "esperado": {"estado_final": "reactivated", "reaperturas_exactas": 1, "evidencia_exogena": 1, "gate_no_permite": false}
+    },
+    {
+      "id": "R02",
+      "etiqueta": "refutacion_por_observacion",
+      "pregunta": "¿Por qué falló el endpoint de pagos?",
+      "acciones": [
+        {"tool": "record_hypothesis", "args": {"claim": "El endpoint de pagos falló por un timeout de red", "watch_for": ["timeout confirmado"], "refuted_by": ["Connection refused"]}}
+      ],
+      "observaciones": [
+        {"tool": "run_code", "contenido": "journalctl -u pagos --since '5 min ago' | tail -1\npagos.service: connect() failed: Connection refused (111)"}
+      ],
+      "respuesta_final": "Mi hipótesis de timeout quedó refutada por la observación: el journal del servicio dice 'Connection refused', que es un rechazo explícito, no un timeout. La causa es que no hay nada escuchando en ese puerto.",
+      "etiqueta_respuesta": "afirmativa",
+      "esperado": {"estado_final": "refuted", "reaperturas_exactas": 1, "evidencia_exogena": 1, "gate_no_permite": false}
+    },
+    {
+      "id": "R03",
+      "etiqueta": "dedup_por_hash",
+      "pregunta": "¿Sigue apareciendo el OOM en los logs?",
+      "acciones": [
+        {"tool": "record_hypothesis", "args": {"claim": "El proceso se sigue muriendo por OOM", "watch_for": ["Out of memory"]}}
+      ],
+      "observaciones": [
+        {"tool": "run_code", "contenido": "kernel: Out of memory: Killed process 4821 (python3)"},
+        {"tool": "run_code", "contenido": "kernel: Out of memory: Killed process 4821 (python3)"},
+        {"tool": "run_code", "contenido": "kernel: Out of memory: Killed process 4821 (python3)"}
+      ],
+      "respuesta_final": "El log vuelve a mostrar el OOM del proceso 4821, así que el problema se repite. Es la misma evidencia que ya había usado para reabrir la hipótesis: repetirla no agrega respaldo nuevo.",
+      "etiqueta_respuesta": "afirmativa",
+      "esperado": {"estado_final": "reactivated", "reaperturas_exactas": 1, "evidencia_exogena": 3, "gate_no_permite": false}
+    },
+    {
+      "id": "R04",
+      "etiqueta": "eco_no_reabre",
+      "pregunta": "¿Qué se sabe del OOM del proceso principal?",
+      "acciones": [
+        {"tool": "record_hypothesis", "args": {"claim": "El servicio se cayó por falta de memoria del proceso principal", "watch_for": ["Out of memory"]}}
+      ],
+      "observaciones": [
+        {"tool": "recall", "contenido": "De mi memoria: el servicio se cayó por Out of memory, seguro. Guardado el 29/09 a las 3:20."}
+      ],
+      "respuesta_final": "Todavía no tengo ninguna observación del mundo sobre esto: lo único que aparece es algo que yo mismo había guardado antes.",
+      "etiqueta_respuesta": "hedge",
+      "esperado": {"estado_final": "open", "reaperturas_exactas": 0, "evidencia_exogena": 0}
+    },
+    {
+      "id": "R05",
+      "etiqueta": "accion_del_modelo_no_ingiere",
+      "pregunta": "¿Quedó registrada la hipótesis del OOM?",
+      "acciones": [
+        {"tool": "record_hypothesis", "args": {"claim": "El servicio se cayó por falta de memoria del proceso principal", "watch_for": ["Out of memory"]}}
+      ],
+      "observaciones": [
+        {"tool": "record_hypothesis", "contenido": "Hipótesis registrada (id=h_000000000000, estado=open, SIN respaldo). Se reabrirá sola si aparece evidencia con: Out of memory."}
+      ],
+      "respuesta_final": "La hipótesis quedó registrada y sigue sin respaldo: el sistema no la ingiere como observación del mundo.",
+      "etiqueta_respuesta": "hedge",
+      "esperado": {"estado_final": "open", "reaperturas_exactas": 0, "evidencia_exogena": 0}
+    },
+    {
+      "id": "R06",
+      "etiqueta": "sin_coincidencia",
+      "pregunta": "¿Corrió bien el comando de diagnóstico?",
+      "acciones": [
+        {"tool": "record_hypothesis", "args": {"claim": "El comando de diagnóstico falló", "watch_for": ["Out of memory"]}}
+      ],
+      "observaciones": [
+        {"tool": "run_code", "contenido": "exit 0"}
+      ],
+      "respuesta_final": "El comando terminó con éxito (código de salida 0), así que no hay ninguna observación que reabra la hipótesis de falla: queda abierta y sin respaldo.",
+      "etiqueta_respuesta": "afirmativa",
+      "esperado": {"estado_final": "open", "reaperturas_exactas": 0, "evidencia_exogena": 1, "gate_no_permite": false}
+    }
+  ]
+}

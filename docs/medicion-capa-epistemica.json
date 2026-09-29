@@ -1,0 +1,1533 @@
+{
+  "calibracion": {
+    "barrido_umbral": [
+      {
+        "afirmativas_marcadas": 10,
+        "afirmativas_sin_marcar": 0,
+        "conversacionales_marcadas": 5,
+        "hedges_marcadas": 8,
+        "umbral": 0
+      },
+      {
+        "afirmativas_marcadas": 10,
+        "afirmativas_sin_marcar": 0,
+        "conversacionales_marcadas": 4,
+        "hedges_marcadas": 8,
+        "umbral": 13
+      },
+      {
+        "afirmativas_marcadas": 10,
+        "afirmativas_sin_marcar": 0,
+        "conversacionales_marcadas": 3,
+        "hedges_marcadas": 8,
+        "umbral": 15
+      },
+      {
+        "afirmativas_marcadas": 10,
+        "afirmativas_sin_marcar": 0,
+        "conversacionales_marcadas": 2,
+        "hedges_marcadas": 8,
+        "umbral": 18
+      },
+      {
+        "afirmativas_marcadas": 9,
+        "afirmativas_sin_marcar": 1,
+        "conversacionales_marcadas": 2,
+        "hedges_marcadas": 8,
+        "umbral": 20
+      },
+      {
+        "afirmativas_marcadas": 9,
+        "afirmativas_sin_marcar": 1,
+        "conversacionales_marcadas": 1,
+        "hedges_marcadas": 8,
+        "umbral": 28
+      },
+      {
+        "afirmativas_marcadas": 9,
+        "afirmativas_sin_marcar": 1,
+        "conversacionales_marcadas": 1,
+        "hedges_marcadas": 7,
+        "umbral": 37
+      },
+      {
+        "afirmativas_marcadas": 9,
+        "afirmativas_sin_marcar": 1,
+        "conversacionales_marcadas": 1,
+        "hedges_marcadas": 7,
+        "umbral": 40
+      },
+      {
+        "afirmativas_marcadas": 9,
+        "afirmativas_sin_marcar": 1,
+        "conversacionales_marcadas": 1,
+        "hedges_marcadas": 7,
+        "umbral": 60
+      },
+      {
+        "afirmativas_marcadas": 9,
+        "afirmativas_sin_marcar": 1,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 7,
+        "umbral": 62
+      },
+      {
+        "afirmativas_marcadas": 8,
+        "afirmativas_sin_marcar": 2,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 7,
+        "umbral": 65
+      },
+      {
+        "afirmativas_marcadas": 8,
+        "afirmativas_sin_marcar": 2,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 6,
+        "umbral": 72
+      },
+      {
+        "afirmativas_marcadas": 8,
+        "afirmativas_sin_marcar": 2,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 5,
+        "umbral": 73
+      },
+      {
+        "afirmativas_marcadas": 8,
+        "afirmativas_sin_marcar": 2,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 5,
+        "umbral": 80
+      },
+      {
+        "afirmativas_marcadas": 8,
+        "afirmativas_sin_marcar": 2,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 3,
+        "umbral": 86
+      },
+      {
+        "afirmativas_marcadas": 8,
+        "afirmativas_sin_marcar": 2,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 2,
+        "umbral": 94
+      },
+      {
+        "afirmativas_marcadas": 8,
+        "afirmativas_sin_marcar": 2,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 1,
+        "umbral": 102
+      },
+      {
+        "afirmativas_marcadas": 7,
+        "afirmativas_sin_marcar": 3,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 1,
+        "umbral": 103
+      },
+      {
+        "afirmativas_marcadas": 7,
+        "afirmativas_sin_marcar": 3,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 104
+      },
+      {
+        "afirmativas_marcadas": 6,
+        "afirmativas_sin_marcar": 4,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 118
+      },
+      {
+        "afirmativas_marcadas": 6,
+        "afirmativas_sin_marcar": 4,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 120
+      },
+      {
+        "afirmativas_marcadas": 5,
+        "afirmativas_sin_marcar": 5,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 124
+      },
+      {
+        "afirmativas_marcadas": 4,
+        "afirmativas_sin_marcar": 6,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 140
+      },
+      {
+        "afirmativas_marcadas": 3,
+        "afirmativas_sin_marcar": 7,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 151
+      },
+      {
+        "afirmativas_marcadas": 3,
+        "afirmativas_sin_marcar": 7,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 160
+      },
+      {
+        "afirmativas_marcadas": 2,
+        "afirmativas_sin_marcar": 8,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 196
+      },
+      {
+        "afirmativas_marcadas": 2,
+        "afirmativas_sin_marcar": 8,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 200
+      },
+      {
+        "afirmativas_marcadas": 1,
+        "afirmativas_sin_marcar": 9,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 232
+      },
+      {
+        "afirmativas_marcadas": 1,
+        "afirmativas_sin_marcar": 9,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 240
+      },
+      {
+        "afirmativas_marcadas": 1,
+        "afirmativas_sin_marcar": 9,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 280
+      },
+      {
+        "afirmativas_marcadas": 0,
+        "afirmativas_sin_marcar": 10,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 290
+      },
+      {
+        "afirmativas_marcadas": 0,
+        "afirmativas_sin_marcar": 10,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 320
+      },
+      {
+        "afirmativas_marcadas": 0,
+        "afirmativas_sin_marcar": 10,
+        "conversacionales_marcadas": 0,
+        "hedges_marcadas": 0,
+        "umbral": 400
+      }
+    ],
+    "candidatos": [
+      {
+        "fn_que_elimina": 0,
+        "fp_que_agrega": 0,
+        "marcador": "estimo que",
+        "matriz": {
+          "exactitud": 0.9722222222222222,
+          "falsos_negativos": [],
+          "falsos_positivos": [
+            "K28"
+          ],
+          "fn": 0,
+          "fp": 1,
+          "tn": 17,
+          "tp": 18
+        }
+      },
+      {
+        "fn_que_elimina": 0,
+        "fp_que_agrega": 0,
+        "marcador": "no dispongo",
+        "matriz": {
+          "exactitud": 0.9722222222222222,
+          "falsos_negativos": [],
+          "falsos_positivos": [
+            "K28"
+          ],
+          "fn": 0,
+          "fp": 1,
+          "tn": 17,
+          "tp": 18
+        }
+      },
+      {
+        "fn_que_elimina": 0,
+        "fp_que_agrega": 0,
+        "marcador": "no me consta",
+        "matriz": {
+          "exactitud": 0.9722222222222222,
+          "falsos_negativos": [],
+          "falsos_positivos": [
+            "K28"
+          ],
+          "fn": 0,
+          "fp": 1,
+          "tn": 17,
+          "tp": 18
+        }
+      },
+      {
+        "fn_que_elimina": 0,
+        "fp_que_agrega": 0,
+        "marcador": "no puedo confirmar",
+        "matriz": {
+          "exactitud": 0.9722222222222222,
+          "falsos_negativos": [],
+          "falsos_positivos": [
+            "K28"
+          ],
+          "fn": 0,
+          "fp": 1,
+          "tn": 17,
+          "tp": 18
+        }
+      },
+      {
+        "fn_que_elimina": 0,
+        "fp_que_agrega": 0,
+        "marcador": "no tengo forma de",
+        "matriz": {
+          "exactitud": 0.9722222222222222,
+          "falsos_negativos": [],
+          "falsos_positivos": [
+            "K28"
+          ],
+          "fn": 0,
+          "fp": 1,
+          "tn": 17,
+          "tp": 18
+        }
+      },
+      {
+        "fn_que_elimina": 0,
+        "fp_que_agrega": 0,
+        "marcador": "sin confirmar",
+        "matriz": {
+          "exactitud": 0.9722222222222222,
+          "falsos_negativos": [],
+          "falsos_positivos": [
+            "K28"
+          ],
+          "fn": 0,
+          "fp": 1,
+          "tn": 17,
+          "tp": 18
+        }
+      },
+      {
+        "fn_que_elimina": 0,
+        "fp_que_agrega": 0,
+        "marcador": "sospecho que",
+        "matriz": {
+          "exactitud": 0.9722222222222222,
+          "falsos_negativos": [],
+          "falsos_positivos": [
+            "K28"
+          ],
+          "fn": 0,
+          "fp": 1,
+          "tn": 17,
+          "tp": 18
+        }
+      },
+      {
+        "fn_que_elimina": 0,
+        "fp_que_agrega": 0,
+        "marcador": "verosímil",
+        "matriz": {
+          "exactitud": 0.9722222222222222,
+          "falsos_negativos": [],
+          "falsos_positivos": [
+            "K28"
+          ],
+          "fn": 0,
+          "fp": 1,
+          "tn": 17,
+          "tp": 18
+        }
+      }
+    ],
+    "hedges_reconocidos_por_abstencion": 3,
+    "items_calibracion": 41,
+    "items_en_turno_sin_observaciones": 23,
+    "marcadores_actuales_uno_por_uno": [
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "creo que"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "desconozco"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "diría que"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "es posible que"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "es probable que"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 2,
+        "marcador": "haría falta"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "hasta donde sé"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "no consta"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 0,
+        "marcador": "no está claro"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "no estoy seguro"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "no lo aseguraría"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "no lo pude comprobar"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "no lo puedo confirmar"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 2,
+        "marcador": "no lo sé"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "no pude verificarlo"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "no tengo certeza"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "no tengo datos"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 2,
+        "marcador": "no tengo información"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "posiblemente"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "presumiblemente"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 0,
+        "marcador": "probablemente"
+      },
+      {
+        "afirmaciones_que_confunde": 1,
+        "hedges_que_reconoce": 2,
+        "marcador": "podría"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 1,
+        "marcador": "quizá"
+      },
+      {
+        "afirmaciones_que_confunde": 0,
+        "hedges_que_reconoce": 2,
+        "marcador": "sin evidencia"
+      }
+    ],
+    "marcadores_en_gate": [
+      "creo que",
+      "desconozco",
+      "diría que",
+      "es posible que",
+      "es probable que",
+      "haría falta",
+      "hasta donde sé",
+      "no consta",
+      "no está claro",
+      "no estoy seguro",
+      "no lo aseguraría",
+      "no lo pude comprobar",
+      "no lo puedo confirmar",
+      "no lo sé",
+      "no pude verificarlo",
+      "no tengo certeza",
+      "no tengo datos",
+      "no tengo información",
+      "posiblemente",
+      "presumiblemente",
+      "probablemente",
+      "podría",
+      "quizá",
+      "sin evidencia"
+    ],
+    "matriz_gate": {
+      "exactitud": 0.9722222222222222,
+      "falsos_negativos": [],
+      "falsos_positivos": [
+        "K28"
+      ],
+      "fn": 0,
+      "fp": 1,
+      "tn": 17,
+      "tp": 18
+    },
+    "umbral_en_gate": 64
+  },
+  "detalle": [
+    {
+      "conjunto": "A",
+      "etiqueta": "entidad_ficticia",
+      "fallos": [],
+      "id": "A01",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "bloquear",
+        "motivo": "deficit_declarado_y_respondido_igual",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "A",
+      "etiqueta": "entidad_ficticia",
+      "fallos": [],
+      "id": "A02",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "bloquear",
+        "motivo": "deficit_declarado_y_respondido_igual",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "A",
+      "etiqueta": "evento_futuro",
+      "fallos": [],
+      "id": "A03",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "bloquear",
+        "motivo": "deficit_declarado_y_respondido_igual",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "A",
+      "etiqueta": "evento_futuro",
+      "fallos": [],
+      "id": "A04",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "bloquear",
+        "motivo": "deficit_declarado_y_respondido_igual",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "A",
+      "etiqueta": "dato_privado",
+      "fallos": [],
+      "id": "A05",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "bloquear",
+        "motivo": "deficit_declarado_y_respondido_igual",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "A",
+      "etiqueta": "dato_privado",
+      "fallos": [],
+      "id": "A06",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "bloquear",
+        "motivo": "deficit_declarado_y_respondido_igual",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "A",
+      "etiqueta": "registro_inexistente",
+      "fallos": [],
+      "id": "A07",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "bloquear",
+        "motivo": "deficit_declarado_y_respondido_igual",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "A",
+      "etiqueta": "entidad_ficticia",
+      "fallos": [],
+      "id": "A08",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "bloquear",
+        "motivo": "deficit_declarado_y_respondido_igual",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "A",
+      "etiqueta": "evento_futuro_sin_deficit",
+      "fallos": [],
+      "id": "A09",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "advertir",
+        "motivo": "sin_observaciones_en_el_turno",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "A",
+      "etiqueta": "entidad_ficticia_sin_deficit",
+      "fallos": [
+        "gate: se esperaba no permitir y fue permitir (ok)"
+      ],
+      "id": "A10",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": false
+    },
+    {
+      "conjunto": "A",
+      "etiqueta": "dato_privado",
+      "fallos": [],
+      "id": "A11",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "bloquear",
+        "motivo": "deficit_declarado_y_respondido_igual",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "A",
+      "etiqueta": "dato_privado_con_modal",
+      "fallos": [
+        "gate: se esperaba no permitir y fue permitir (ok)"
+      ],
+      "id": "A12",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": false
+    },
+    {
+      "conjunto": "B",
+      "etiqueta": "log_del_kernel",
+      "fallos": [],
+      "id": "B01",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 1,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "B",
+      "etiqueta": "disco_lleno",
+      "fallos": [],
+      "id": "B02",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 1,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "B",
+      "etiqueta": "version_instalada",
+      "fallos": [],
+      "id": "B03",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 1,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "B",
+      "etiqueta": "certificado_por_vencer",
+      "fallos": [],
+      "id": "B04",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 1,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "B",
+      "etiqueta": "traceback",
+      "fallos": [],
+      "id": "B05",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 1,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "B",
+      "etiqueta": "documentacion_externa",
+      "fallos": [],
+      "id": "B06",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 1,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "B",
+      "etiqueta": "texto_en_imagen",
+      "fallos": [],
+      "id": "B07",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 1,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "B",
+      "etiqueta": "transcripcion",
+      "fallos": [],
+      "id": "B08",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 1,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "B",
+      "etiqueta": "artefacto_generado",
+      "fallos": [],
+      "id": "B09",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 1,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "B",
+      "etiqueta": "analisis_de_imagen",
+      "fallos": [],
+      "id": "B10",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 1,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "B",
+      "etiqueta": "estado_de_servicio",
+      "fallos": [],
+      "id": "B11",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 1,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "B",
+      "etiqueta": "pagina_externa",
+      "fallos": [],
+      "id": "B12",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "",
+        "evidencia_exogena": 1,
+        "flags": [],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "C",
+      "etiqueta": "fuentes_en_conflicto",
+      "fallos": [],
+      "id": "C01",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 2,
+        "claves_canonicas": 0,
+        "estado": "refuted",
+        "evidencia_exogena": 2,
+        "flags": [
+          "contradicted",
+          "grounded_in_exogenous"
+        ],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": true,
+        "observaciones_ejecutadas": 2,
+        "observaciones_totales": 2,
+        "reaperturas": 2,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "C",
+      "etiqueta": "fuentes_en_conflicto",
+      "fallos": [],
+      "id": "C02",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 2,
+        "claves_canonicas": 0,
+        "estado": "refuted",
+        "evidencia_exogena": 2,
+        "flags": [
+          "contradicted",
+          "grounded_in_exogenous"
+        ],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": true,
+        "observaciones_ejecutadas": 2,
+        "observaciones_totales": 2,
+        "reaperturas": 2,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "C",
+      "etiqueta": "fuentes_en_conflicto",
+      "fallos": [],
+      "id": "C03",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 2,
+        "claves_canonicas": 0,
+        "estado": "refuted",
+        "evidencia_exogena": 2,
+        "flags": [
+          "contradicted",
+          "grounded_in_exogenous"
+        ],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": true,
+        "observaciones_ejecutadas": 2,
+        "observaciones_totales": 2,
+        "reaperturas": 2,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "C",
+      "etiqueta": "fuentes_en_conflicto",
+      "fallos": [],
+      "id": "C04",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 3,
+        "claves_canonicas": 0,
+        "estado": "refuted",
+        "evidencia_exogena": 3,
+        "flags": [
+          "contradicted",
+          "grounded_in_exogenous"
+        ],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": true,
+        "observaciones_ejecutadas": 3,
+        "observaciones_totales": 3,
+        "reaperturas": 2,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "D",
+      "etiqueta": "cosmetica_puntuacion",
+      "fallos": [],
+      "id": "D01",
+      "observado": {
+        "abstencion_identica": true,
+        "ancladas": 0,
+        "claves_canonicas": 1,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "",
+        "motivo": "",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 1
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "D",
+      "etiqueta": "cosmetica_espacios",
+      "fallos": [],
+      "id": "D02",
+      "observado": {
+        "abstencion_identica": true,
+        "ancladas": 0,
+        "claves_canonicas": 1,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "",
+        "motivo": "",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 1
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "D",
+      "etiqueta": "cosmetica_mayusculas",
+      "fallos": [],
+      "id": "D03",
+      "observado": {
+        "abstencion_identica": true,
+        "ancladas": 0,
+        "claves_canonicas": 1,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "",
+        "motivo": "",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 1
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "D",
+      "etiqueta": "lexica_sinonimos",
+      "fallos": [],
+      "id": "D04",
+      "observado": {
+        "abstencion_identica": true,
+        "ancladas": 0,
+        "claves_canonicas": 3,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "",
+        "motivo": "",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 1
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "D",
+      "etiqueta": "lexica_orden",
+      "fallos": [],
+      "id": "D05",
+      "observado": {
+        "abstencion_identica": true,
+        "ancladas": 0,
+        "claves_canonicas": 3,
+        "estado": "",
+        "evidencia_exogena": 0,
+        "flags": [],
+        "gate": "",
+        "motivo": "",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 0,
+        "observaciones_totales": 0,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 1
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "R",
+      "etiqueta": "reapertura_por_observacion",
+      "fallos": [],
+      "id": "R01",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "reactivated",
+        "evidencia_exogena": 1,
+        "flags": [
+          "grounded_in_exogenous",
+          "no_falsifier"
+        ],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": true,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 1,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "R",
+      "etiqueta": "refutacion_por_observacion",
+      "fallos": [],
+      "id": "R02",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "refuted",
+        "evidencia_exogena": 1,
+        "flags": [
+          "contradicted"
+        ],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": true,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 1,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "R",
+      "etiqueta": "dedup_por_hash",
+      "fallos": [],
+      "id": "R03",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 3,
+        "claves_canonicas": 0,
+        "estado": "reactivated",
+        "evidencia_exogena": 3,
+        "flags": [
+          "grounded_in_exogenous",
+          "no_falsifier"
+        ],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": true,
+        "observaciones_ejecutadas": 3,
+        "observaciones_totales": 3,
+        "reaperturas": 1,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "R",
+      "etiqueta": "eco_no_reabre",
+      "fallos": [],
+      "id": "R04",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "open",
+        "evidencia_exogena": 0,
+        "flags": [
+          "no_falsifier",
+          "unrooted"
+        ],
+        "gate": "advertir",
+        "motivo": "sin_observaciones_en_el_turno",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "R",
+      "etiqueta": "accion_del_modelo_no_ingiere",
+      "fallos": [],
+      "id": "R05",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 0,
+        "claves_canonicas": 0,
+        "estado": "open",
+        "evidencia_exogena": 0,
+        "flags": [
+          "no_falsifier",
+          "unrooted"
+        ],
+        "gate": "advertir",
+        "motivo": "sin_observaciones_en_el_turno",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
+      "conjunto": "R",
+      "etiqueta": "sin_coincidencia",
+      "fallos": [],
+      "id": "R06",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 1,
+        "claves_canonicas": 0,
+        "estado": "open",
+        "evidencia_exogena": 1,
+        "flags": [
+          "no_falsifier",
+          "unrooted"
+        ],
+        "gate": "permitir",
+        "motivo": "ok",
+        "nota_reapertura": false,
+        "observaciones_ejecutadas": 1,
+        "observaciones_totales": 1,
+        "reaperturas": 0,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    }
+  ],
+  "estructural": {
+    "amplificacion_por_evidencia": {
+      "hipotesis_con_la_misma_condicion": 5,
+      "hipotesis_por_pregunta_permitidas": 50,
+      "reaperturas_con_la_misma_evidencia_repetida": 0,
+      "reaperturas_con_una_evidencia": 5,
+      "reaperturas_con_una_evidencia_nueva": 5,
+      "techo_teorico_por_pregunta": 500,
+      "tope_por_hipotesis": 10
+    },
+    "ancla_audit_event_hash": {
+      "con_ancla": 27,
+      "evidencia_exogena": 27
+    },
+    "cuarentena": {
+      "casos": 3,
+      "no_reabren": 3
+    },
+    "deuda_epistemica": {
+      "caso1": {
+        "declarado_por": "codigo (add_evidence_request)",
+        "deficits_pendientes": 0,
+        "evidencia_que_matchea": true,
+        "gate_sobre_respuesta_afirmativa": "permitir"
+      },
+      "caso2": {
+        "declarado_por": "codigo (add_evidence_request)",
+        "deficits_pendientes": 1,
+        "evidencia_que_matchea": false,
+        "gate_sobre_respuesta_afirmativa": "bloquear"
+      },
+      "caso3": {
+        "declarado_por": "tool real open_question (el camino del modelo)",
+        "deficits_pendientes": 0,
+        "el_deficit_tiene_condicion_de_pago": true,
+        "evidencia_que_matchea": true,
+        "gate_sobre_respuesta_afirmativa": "permitir"
+      }
+    },
+    "matriz_origenes_x_acciones": {
+      "combinaciones": 12,
+      "reabren_con_cualquier_origen": 9,
+      "reabren_con_model_generated": 0
+    },
+    "misma_evidencia_dos_condiciones": {
+      "dos_observaciones_distintas": {
+        "estado": "refuted",
+        "flags": [
+          "contradicted",
+          "grounded_in_exogenous"
+        ],
+        "vinculos": 2
+      },
+      "orden_independiente": true,
+      "una_observacion_doble_reapertura_primero": {
+        "estado": "refuted",
+        "flags": [
+          "contradicted",
+          "grounded_in_exogenous"
+        ],
+        "vinculos": 2
+      },
+      "una_observacion_doble_refutacion_primero": {
+        "estado": "refuted",
+        "flags": [
+          "contradicted",
+          "grounded_in_exogenous"
+        ],
+        "vinculos": 2
+      }
+    },
+    "repeticion": {
+      "reaperturas": 1,
+      "vinculos": 1
+    }
+  },
+  "huella_corpus": "f59be244d85d838d73c19214e161c7ca18a9eac1c9eb891e81d3461f2c57c6f5",
+  "metricas": {
+    "A.abstencion_correcta": 0.8333333333333334,
+    "A.advertidos": 0.08333333333333333,
+    "A.bloqueados": 0.75,
+    "A.con_deficit_bloqueados": 0.9,
+    "A.con_deficit_solo_marcados": 0.0,
+    "A.no_capturados": 0.16666666666666666,
+    "A.sin_deficit_cortos": 1,
+    "A.sin_deficit_largos_marcados": 1.0,
+    "A.sin_deficit_total": 2,
+    "B.abstencion_falsa": 0.0,
+    "B.permite": 1.0,
+    "C.conflicto_registrado": 1.0,
+    "C.no_bloquea": 1.0,
+    "D.abstencion_estable": 1.0,
+    "D.dedup_cosmetica": 1.0,
+    "D.dedup_entre_sesiones": 1.0,
+    "D.dedup_lexica": 1.0,
+    "R.auto_sostienen": 0.0,
+    "R.dedup_por_hash": 1.0,
+    "R.eco_no_reabre": 1.0,
+    "R.reapertura_por_exogena": 1.0,
+    "R.refutadas_por_exogena": 1.0
+  },
+  "schema_version": 1,
+  "tamanos": {
+    "A": 12,
+    "B": 12,
+    "C": 4,
+    "D": 5,
+    "K": 41,
+    "R": 6
+  }
+}
