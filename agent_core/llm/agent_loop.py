@@ -937,6 +937,15 @@ class AgentLoop:
         # saber que la verificación no trajo nada. Lo que no hace es entrar al
         # ledger como evidencia.
         artefacto = getattr(tool, "last_artifact", None)
+        # D1: el PRODUCTOR puede declarar hasta cuándo vale lo que trajo (una
+        # verificación de red caduca en minutos; un "el RFC no existe", en años).
+        # Se lee de la metadata del artefacto —código, no modelo— y sólo si es
+        # numérico: cualquier otra cosa se trata como "sin vencimiento declarado".
+        valido_hasta = None
+        if artefacto is not None:
+            crudo = artefacto.metadata.get("valid_until")
+            if isinstance(crudo, (int, float)) and not isinstance(crudo, bool):
+                valido_hasta = float(crudo)
         if (
             getattr(tool, "trust_tier", "") == "skill"
             and artefacto is not None
@@ -956,6 +965,7 @@ class AgentLoop:
         # interviene en ese camino.
         ingesta = self.epistemics.ingest_tool_result(
             session_id=session_id, tool_name=name, observation=observacion,
+            valid_until=valido_hasta,
         )
         if ingesta.note:
             # La nota va pegada a la observación a propósito: es donde el

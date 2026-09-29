@@ -596,6 +596,30 @@ def _chequear_deficits(ledger: Any, hallazgos: list[Hallazgo]) -> bool:
     return completo
 
 
+def _chequear_exclusiones(ledger: Any, hallazgos: list[Hallazgo]) -> bool:
+    """
+    La exclusión mutua tiene que ser SIMÉTRICA (C). El ledger la mantiene así al
+    declararla, pero una asimetría puede llegar por un snapshot: y entonces el
+    conflicto se vería desde una hipótesis y no desde la otra, que es la peor
+    forma de tener un flag — la que depende de por dónde se mire.
+    """
+    for h in ledger.hypotheses():
+        for otra in h.excludes:
+            if h.id not in ledger.hypothesis(otra).excludes:
+                hallazgos.append(
+                    Hallazgo(
+                        invariante="exclusion_simetrica",
+                        severidad=INCONSISTENCIA,
+                        sujeto=h.id,
+                        detalle=(
+                            f"excluye a '{otra}' y '{otra}' no la excluye: el conflicto "
+                            "se vería desde un solo lado"
+                        ),
+                    )
+                )
+    return True
+
+
 def _chequear_techos(ledger: Any, hallazgos: list[Hallazgo]) -> bool:
     """
     Los techos de reapertura (R8) se midieron para acotar ruido; un contador por
@@ -655,6 +679,7 @@ def diagnosticar(ledger: Any) -> Diagnostico:
     )
     completos["deficit_saldado"] = _chequear_deficits(ledger, hallazgos)
     completos["techo_de_reaperturas"] = _chequear_techos(ledger, hallazgos)
+    completos["exclusion_simetrica"] = _chequear_exclusiones(ledger, hallazgos)
 
     verificados = tuple(k for k, v in completos.items() if v)
     no_verificables = tuple(k for k, v in completos.items() if not v)

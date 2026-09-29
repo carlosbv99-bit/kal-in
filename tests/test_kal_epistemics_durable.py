@@ -750,3 +750,77 @@ def test_dos_escritores_del_mismo_ambito_se_pisan_y_esta_declarado():
 
     final = ke.LedgerDurable(almacen=almacen, ambito="instalacion", clock=lambda: 1000.0)
     assert [h.claim for h in final.ledger.hypotheses()] == ["de B"]
+
+
+# --------------------------------------------------------------------------
+# Compatibilidad de esquema (decisión del 2026-09-29: leer v1 y v2, escribir v2)
+# --------------------------------------------------------------------------
+
+
+def _snapshot_v1(led: ke.HypothesisLedger) -> dict:
+    """
+    Un snapshot v1 de verdad: el estado actual SIN los campos que en v1 no
+    existían, y con la versión en 1. Es exactamente lo que producía el código de
+    v1 —`to_dict` no emitía esas claves— y es lo que hay guardado en los almacenes
+    de quien corrió la versión anterior.
+    """
+    datos = json.loads(json.dumps(led.snapshot()))
+    datos["schema_version"] = 1
+    for crudo in datos.get("evidence", ()):
+        crudo.pop("valid_from", None)
+        crudo.pop("valid_until", None)
+    for crudo in datos.get("hypotheses", ()):
+        crudo.pop("excludes", None)
+    return datos
+
+
+def test_un_snapshot_v1_se_lee_y_se_reguarda_como_v2_sin_perder_nada():
+    """
+    El bump de esquema de C+D1 no puede costar los ledgers guardados. `from_snapshot`
+    falla cerrado ante lo que NO sabemos leer (una versión futura), no ante lo que
+    sí sabemos leer y es de ayer: tirar el estado ES perder el activo que toda esta
+    capa existe para no perder.
+
+    Lo que se verifica, en orden: (1) el v1 real carga, (2) se re-guarda como v2,
+    (3) los campos nuevos quedan en su default de v1 (`None` = sin vencimiento
+    declarado, `()` = sin exclusiones), y (4) NADA más cambió — el snapshot v2
+    recién escrito es idéntico al que produce el código de hoy.
+    """
+    poblado = _ledger_poblado()
+    v1 = _snapshot_v1(poblado)
+    esperado_v2 = poblado.snapshot()
+
+    releido = ke.HypothesisLedger.from_snapshot(v1, clock=lambda: 1000.0)
+    reguardado = releido.snapshot()
+
+    assert reguardado["schema_version"] == ke.SCHEMA_VERSION == 2
+    assert all(e["valid_from"] is None and e["valid_until"] is None for e in reguardado["evidence"])
+    assert all(h["excludes"] == [] for h in reguardado["hypotheses"])
+    assert reguardado == esperado_v2, "el round-trip v1→v2 perdió o cambió algo"
+
+
+def test_un_snapshot_v1_llega_al_ledger_durable_y_queda_en_v2():
+    """El camino real: el almacén tiene un v1 guardado (lo que dejó la versión
+    anterior) y el ledger durable lo abre, lo usa y lo reescribe en v2."""
+    poblado = _ledger_poblado()
+    almacen = ke.AlmacenEnMemoria()
+    almacen.guardar("instalacion", _snapshot_v1(poblado))
+
+    durable = ke.LedgerDurable(almacen=almacen, clock=lambda: 1000.0)
+
+    assert len(durable.ledger.hypotheses()) == len(poblado.hypotheses())
+    assert durable.diagnostico_en_la_carga.sano is True
+
+    durable.guardar()
+
+    assert almacen.cargar("instalacion")["schema_version"] == 2
+
+
+def test_una_version_futura_sigue_rechazandose():
+    """La promesa que importa no se tocó: un esquema que no sabemos leer no se
+    reinterpreta."""
+    datos = _ledger_poblado().snapshot()
+    datos["schema_version"] = 3
+
+    with pytest.raises(ke.SchemaVersionMismatch):
+        ke.HypothesisLedger.from_snapshot(datos)

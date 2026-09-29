@@ -192,6 +192,16 @@ class RecordHypothesisTool(Tool):
                     "items": {"type": "string"},
                     "description": "Marcadores que la refutarían. Ej: 'rollback', 'denied'.",
                 },
+                "excluye_a": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Ids de hipótesis que esta EXCLUYE por ser alternativas "
+                        "incompatibles (no pueden ser verdad juntas). Si más adelante "
+                        "las dos quedan respaldadas, el sistema lo marca como conflicto "
+                        "en vez de dejar que elijas una en silencio."
+                    ),
+                },
             },
             "required": ["claim"],
         },
@@ -209,6 +219,7 @@ class RecordHypothesisTool(Tool):
         depends_on: list[str] | None = None,
         watch_for: list[str] | None = None,
         refuted_by: list[str] | None = None,
+        excluye_a: list[str] | None = None,
     ) -> Artifact:
         try:
             condiciones = _condiciones(watch_for, refuted_by)
@@ -224,6 +235,7 @@ class RecordHypothesisTool(Tool):
                 question_id=question_id or "",
                 depends_on=(depends_on or [])[:_MAX_ITEMS],
                 reopen_conditions=condiciones,
+                excludes=(excluye_a or [])[:_MAX_ITEMS],
             )
         except EpistemicsError as e:
             return _error(f"no se pudo registrar la hipótesis: {e}")

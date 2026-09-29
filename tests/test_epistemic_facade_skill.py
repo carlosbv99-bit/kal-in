@@ -556,7 +556,7 @@ def test_la_fachada_expone_los_monitores(facade):
 
     assert sano["ok"] is True
     assert sano["resultado"]["sano"] is True
-    assert len(sano["resultado"]["verificados"]) == 5
+    assert len(sano["resultado"]["verificados"]) == 6
 
     # Un estado estructuralmente válido y absurdamente falso: 5 reaperturas
     # contadas que su historial no registra.
@@ -585,3 +585,62 @@ def test_reanudar_un_estado_guardado_viene_con_su_diagnostico(facade):
     assert limpio["resultado"]["diagnostico"]["sano"] is True
     assert sucio["resultado"]["diagnostico"]["sano"] is False
     assert sucio["ok"] is True, "un estado absurdo se reporta, no se rechaza"
+
+
+def test_la_fachada_deja_declarar_alternativas_incompatibles(facade):
+    """
+    C por la fachada: el tercero declara que dos de sus hipótesis son alternativas
+    incompatibles, y el conflicto queda NOMBRABLE en su estado — no como una
+    decisión de redacción suya en cada turno.
+    """
+    estado = _correr(facade, "estado_vacio")["estado"]
+    abierto = _correr(facade, "abrir_pregunta", estado=estado, pregunta="¿por qué se cayó?")
+    qid = abierto["resultado"]["pregunta_id"]
+    h1 = _correr(
+        facade, "registrar_hipotesis", estado=abierto["estado"], pregunta_id=qid,
+        claim="fue el OOM", reabrir_con=["OutOfMemory"],
+    )
+    h2 = _correr(
+        facade, "registrar_hipotesis", estado=h1["estado"], pregunta_id=qid,
+        claim="fue el deploy", reabrir_con=["deploy"],
+        excluye_a=[h1["resultado"]["hipotesis_id"]],
+    )
+
+    assert h2["resultado"]["excluye_a"] == [h1["resultado"]["hipotesis_id"]]
+    guardadas = {h["id"]: h["excludes"] for h in h2["estado"]["hypotheses"]}
+    assert guardadas[h1["resultado"]["hipotesis_id"]] == [h2["resultado"]["hipotesis_id"]]
+    assert guardadas[h2["resultado"]["hipotesis_id"]] == [h1["resultado"]["hipotesis_id"]]
+
+    # Las dos respaldadas por evidencia distinta → conflicto marcado en las dos.
+    e1 = _correr(facade, "ingerir_evidencia", estado=h2["estado"],
+                 contenido="kernel: OutOfMemory killed 4821", origen="kernel_observed")
+    e2 = _correr(facade, "ingerir_evidencia", estado=e1["estado"],
+                 contenido="coincide con el deploy 2026.09.29-3", origen="tool_external")
+    d = _correr(facade, "diagnosticar", estado=e2["estado"])
+
+    assert d["resultado"]["sano"] is True
+    for hid in (h1["resultado"]["hipotesis_id"], h2["resultado"]["hipotesis_id"]):
+        hipotesis = [h for h in e2["estado"]["hypotheses"] if h["id"] == hid][0]
+        assert hipotesis["status"] == "reactivated"
+
+
+def test_la_fachada_deja_declarar_hasta_cuando_vale_una_evidencia(facade):
+    """D1 por la fachada: la ventana la declara quien trae el dato y vencer no
+    cambia el estado, solo marca."""
+    estado = _correr(facade, "estado_vacio")["estado"]
+
+    r = _correr(
+        facade, "ingerir_evidencia", estado=estado, contenido="la API respondió 200",
+        origen="kernel_observed", valido_desde=10.0, valido_hasta=20.0,
+    )
+
+    assert r["ok"] is True
+    evidencia = r["estado"]["evidence"][0]
+    assert evidencia["valid_from"] == 10.0 and evidencia["valid_until"] == 20.0
+
+    malo = _correr(
+        facade, "ingerir_evidencia", estado=estado, contenido="otra", origen="kernel_observed",
+        valido_hasta="mañana",
+    )
+    assert malo["ok"] is False
+    assert "tiene que ser un número" in malo["error"]

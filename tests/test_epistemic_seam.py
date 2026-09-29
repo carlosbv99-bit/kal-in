@@ -48,7 +48,7 @@ from pathlib import Path
 from agent_core.epistemics import EpistemicStore, OBSERVATION_TOOLS
 from agent_core.epistemics.sanitize import sanitize_for_context
 from agent_core.llm.agent_loop import AgentLoop, _agent_tool_from_tool
-from kal_epistemics import EvidenceOrigin, HypothesisStatus, ReopenCondition
+from kal_epistemics import EvidenceOrigin, Flag, HypothesisStatus, ReopenCondition
 from kernel.lifecycle.docker_runner import DockerSandboxRunner, SandboxResult
 from kernel.lifecycle.executor import SandboxExecutor
 from kernel.registry.sandboxed_skill import SandboxedSkillTool
@@ -80,8 +80,13 @@ class SandboxGuionado:
         return self.resultado
 
 
-def _resultado_ok(resumen: str) -> SandboxResult:
-    payload = {"ok": True, "modality": "text", "uri": "", "metadata": {"summary": resumen}}
+def _resultado_ok(resumen: str, **metadata) -> SandboxResult:
+    """`metadata` extra es lo que la skill ponga en el artefacto que devuelve: así
+    es como un productor declara, por ejemplo, hasta cuándo vale su dato."""
+    payload = {
+        "ok": True, "modality": "text", "uri": "",
+        "metadata": {"summary": resumen, **metadata},
+    }
     return SandboxResult(
         status="success", stdout="", stderr="", exit_code=0,
         output_files={"_output.json": json.dumps(payload).encode("utf-8")},
@@ -438,3 +443,57 @@ def test_los_nombres_de_esta_suite_son_ingeribles_y_los_dobles_son_fieles():
 
     assert "claim_verifier" in OBSERVATION_TOOLS
     assert trust_tier_for(_skill(Path("/tmp"), SandboxGuionado(_resultado_ok("x")))) == "skill"
+
+
+# --------------------------------------------------------------------------
+# 8. D1: la ventana de validez la declara el PRODUCTOR
+# --------------------------------------------------------------------------
+
+
+def test_la_ventana_de_validez_la_declara_el_artefacto_no_el_modelo(tmp_path):
+    """
+    D1 necesita que ALGUIEN pueda declarar hasta cuándo vale un dato, y la vía
+    honesta es el artefacto de la tool —el que trajo el dato sabe cuánto dura—, no
+    una decisión del modelo sobre su propia evidencia. Se verifica el camino
+    completo: metadata del artefacto → evidencia con ventana → marca cuando cierra
+    → y el estado intacto.
+    """
+    from kal_epistemics import ReopenCondition
+
+    loop, store = _loop_con_store()
+    ledger = store.ledger("s")
+    hipotesis = ledger.record_hypothesis(
+        "La API respondió bien a las 03:12",
+        reopen_conditions=[ReopenCondition.from_untrusted(content_keywords=("API respondió",))],
+    )
+    # La skill declara la ventana en SU artefacto, y el reloj del test (1000) está
+    # después del cierre (500): cuando se lo mira, ya venció.
+    skill = _skill(
+        tmp_path,
+        SandboxGuionado(_resultado_ok("la API respondió 200 en 40ms", valid_until=500.0)),
+        nombre="browser",
+    )
+
+    _observacion(loop, skill, nombre="browser")
+
+    evidencia = _evidencia(store)
+    assert evidencia.valid_until == 500.0
+    assert evidencia.is_expired_at(1000.0) is True
+    assert Flag.EXPIRED_SUPPORT in ledger.flags(hipotesis.id)
+    # Y el estado NO cambió: marcar no es cambiar.
+    assert ledger.hypothesis(hipotesis.id).status is HypothesisStatus.REACTIVATED
+
+
+def test_un_valor_de_ventana_que_no_es_numero_se_ignora(tmp_path):
+    """Fail-safe: si el productor manda cualquier cosa en `valid_until`, se trata
+    como "sin vencimiento declarado" en vez de romper la ingestión."""
+    loop, store = _loop_con_store()
+    skill = _skill(
+        tmp_path,
+        SandboxGuionado(_resultado_ok("contenido", valid_until="mañana")),
+        nombre="browser",
+    )
+
+    _observacion(loop, skill, nombre="browser")
+
+    assert _evidencia(store).valid_until is None

@@ -74,6 +74,7 @@ from kal_epistemics.safety import (
     MAX_DESCRIPTION_LENGTH,
     MAX_EVIDENCE_CONTENT_LENGTH,
     MAX_EVIDENCE_ENTRIES,
+    MAX_EXCLUDES,
     MAX_HYPOTHESES_PER_QUESTION,
     MAX_LINKS_PER_HYPOTHESIS,
     MAX_MISSING_PER_QUESTION,
@@ -355,6 +356,7 @@ class HypothesisLedger:
         evidence_links: Iterable[EvidenceLink | tuple[str, LinkPolarity] | str] = (),
         reopen_conditions: Iterable[ReopenCondition] = (),
         validity_conditions: Iterable[str] = (),
+        excludes: Iterable[str] = (),
     ) -> Hypothesis:
         """
         Registra una hipótesis, SIEMPRE en estado `OPEN`.
@@ -364,12 +366,25 @@ class HypothesisLedger:
         nunca el mismo actor que propuso la idea, porque un sistema donde el
         modelo puede autodeclararse `SUPPORTED` tiene todo este andamiaje
         como decoración.
+
+        `excludes` declara alternativas INCOMPATIBLES. Se mantiene SIMÉTRICA: la
+        otra hipótesis queda excluyendo a esta en la misma operación, con una
+        entrada de historial que lo dice. Una exclusión de un solo lado haría que
+        el conflicto se vea desde una y no desde la otra — que es la peor forma
+        de tener un flag: la que depende de por dónde se mire.
         """
         if len(claim) > MAX_CLAIM_LENGTH:
             raise LedgerLimitExceeded(
                 f"Proposición de {len(claim)} caracteres > tope de {MAX_CLAIM_LENGTH}."
             )
         deps = tuple(depends_on)
+        excluidas = tuple(dict.fromkeys(excludes))
+        if len(excluidas) > MAX_EXCLUDES:
+            raise LedgerLimitExceeded(
+                f"{len(excluidas)} exclusiones > tope de {MAX_EXCLUDES}."
+            )
+        for otra in excluidas:
+            self.hypothesis(otra)  # UnknownId si no existe: no se excluye un fantasma
         enlaces = self._normalizar_enlaces(evidence_links)
         condiciones = tuple(reopen_conditions)
         if len(deps) > MAX_DEPENDENCIES:
@@ -401,6 +416,7 @@ class HypothesisLedger:
             claim=claim,
             question_id=question_id,
             depends_on=deps,
+            excludes=excluidas,
             evidence_links=enlaces,
             reopen_conditions=condiciones,
             validity_conditions=tuple(validity_conditions),
@@ -413,7 +429,32 @@ class HypothesisLedger:
         if question_id:
             q = self.question(question_id)  # UnknownId si la pregunta no existe
             self._questions[q.id] = replace(q, hypothesis_ids=q.hypothesis_ids + (hid,))
+        for otra in excluidas:
+            self._anotar_exclusion(otra, hid)
         return h
+
+    def _anotar_exclusion(self, hypothesis_id: str, otra: str) -> None:
+        """
+        Cierra la simetría de una exclusión: la otra hipótesis queda excluyendo a
+        esta, con una entrada de historial que lo atribuye a la declaración (no a
+        una decisión propia). Sin esto, `excludes` sería direccional y el flag
+        dependería de por dónde se mire.
+        """
+        h = self.hypothesis(hypothesis_id)
+        if otra in h.excludes:
+            return
+        at = self._now()
+        h2 = replace(h, excludes=h.excludes + (otra,))
+        h2 = h2.with_history(
+            HistoryEntry(
+                at=at,
+                kind="excluded",
+                reason=f"alternativa declarada incompatible desde '{otra}'",
+                detail=_detalle(otra=otra),
+            )
+        )
+        self._validate(h2)
+        self._hypotheses[hypothesis_id] = h2
 
     def hypotheses(self) -> tuple[Hypothesis, ...]:
         """Todas las hipótesis registradas, en orden estable por id. Lo usa el
@@ -512,6 +553,11 @@ class HypothesisLedger:
                 raise UnknownId(
                     f"'{h.id}' depende de '{dep}', que no existe en el ledger."
                 )
+        for otra in h.excludes:
+            if otra not in self._hypotheses:
+                raise UnknownId(
+                    f"'{h.id}' excluye a '{otra}', que no existe en el ledger."
+                )
         h.validate(exogenous_evidence_ids=self.exogenous_evidence_ids())
 
     # ------------------------------------------------------------------
@@ -568,6 +614,59 @@ class HypothesisLedger:
             return memo[node]
 
         return visit(hypothesis_id, frozenset())
+
+    def _pares_en_conflicto(self) -> tuple[tuple[str, str], ...]:
+        """
+        Pares de hipótesis que se excluyen y están LAS DOS respaldadas por
+        evidencia exógena, ordenados y sin repetir.
+
+        **Qué significa "respaldada", y por qué NO es `SUPPORTED`.** Una primera
+        versión de esto exigía `status is SUPPORTED` y estaba muerta: en el host
+        NINGÚN camino pone `SUPPORTED` (el modelo no puede autodeclararse
+        respaldado, y por eso el estado lo cambia la evidencia o un humano), así
+        que el conflicto no se habría detectado nunca en una conversación real —
+        la misma clase de trampa que un detector que no detecta nada. La noción
+        alcanzable es la que el resto del ledger ya usa para "esto se apoya en el
+        mundo": `has_exogenous_support()` (un vínculo de sostén con evidencia
+        exógena usable), que es exactamente lo que marca
+        `Flag.GROUNDED_IN_EXOGENOUS` y lo que exige `validate()`.
+
+        Y no es ruido: para que haya conflicto hace falta que ALGUIEN haya
+        declarado la exclusión, así que una pregunta con tres candidatos
+        respaldados y ninguna exclusión declarada no marca nada — es una pregunta
+        abierta, y para eso ya está la abstención.
+
+        Se detecta el par mirando las dos direcciones, así que un estado con la
+        exclusión declarada de un solo lado igual aparece acá (y el diagnóstico
+        reporta la asimetría, que es un estado corrupto, en vez de esconderla).
+        """
+        respaldadas = {
+            hid
+            for hid, h in self._hypotheses.items()
+            if (h.status is HypothesisStatus.SUPPORTED or self.has_exogenous_support(hid))
+        }
+        pares: list[tuple[str, str]] = []
+        vistos: set[tuple[str, str]] = set()
+        for hid in sorted(respaldadas):
+            h = self._hypotheses[hid]
+            for otra in sorted(h.excludes):
+                if otra not in respaldadas:
+                    continue
+                par = (hid, otra) if hid < otra else (otra, hid)
+                if par not in vistos:
+                    vistos.add(par)
+                    pares.append(par)
+        return tuple(pares)
+
+    def conflictos_de_sostén(self) -> tuple[tuple[str, str], ...]:
+        """
+        Las alternativas incompatibles que están las dos respaldadas por evidencia
+        exógena (C). Es la
+        consulta que el expediente y el gate usan para no elegir en silencio: el
+        sistema puede mostrar dos conclusiones incompatibles, lo que no puede es
+        presentar una como LA respuesta sin decirlo.
+        """
+        return self._pares_en_conflicto()
 
     def flags(self, hypothesis_id: str) -> frozenset[Flag]:
         """
@@ -627,6 +726,27 @@ class HypothesisLedger:
             for link in h.evidence_links
         ):
             marcas.add(Flag.UNVERIFIABLE_PROVENANCE)
+
+        # C: incompatible con otra alternativa que también está respaldada. Se
+        # consulta por PARES (no por el lado propio) para que las dos hipótesis
+        # del conflicto queden marcadas igual.
+        if any(hypothesis_id in par for par in self._pares_en_conflicto()):
+            marcas.add(Flag.CONFLICTING_SUPPORT)
+
+        # D1: MARCA, no cambia estado. Una observación con ventana vencida deja de
+        # sostener de verdad, pero que el tiempo pase no es una observación nueva:
+        # el estado solo lo cambian las reglas declaradas. Lo que sí hace es
+        # hacerlo VISIBLE — y sin esto `valid_until` sería un campo que se guarda
+        # y no se lee, que es la trampa del detector inerte.
+        ahora = self._now()
+        if any(
+            link.polarity is LinkPolarity.SUPPORTS
+            and (ev := self._evidence.get(link.evidence_id)) is not None
+            and ev.is_usable
+            and ev.is_expired_at(ahora)
+            for link in h.evidence_links
+        ):
+            marcas.add(Flag.EXPIRED_SUPPORT)
 
         return frozenset(marcas)
 

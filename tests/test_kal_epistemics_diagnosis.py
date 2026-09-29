@@ -104,7 +104,7 @@ def _invariantes(diagnostico) -> set[str]:
 # --------------------------------------------------------------------------
 
 
-def test_un_ledger_sano_verifica_los_cinco_invariantes():
+def test_un_ledger_sano_verifica_todos_los_invariantes():
     led, _ = _con_reapertura()
 
     d = diagnosticar(led)
@@ -117,6 +117,7 @@ def test_un_ledger_sano_verifica_los_cinco_invariantes():
         "aplicado_coherente",
         "deficit_saldado",
         "techo_de_reaperturas",
+        "exclusion_simetrica",
     }
 
 
@@ -313,6 +314,31 @@ def _estados_de(led, hid) -> list[str]:
     return [
         t.hacia for t in led.trayectoria_de(hid).transiciones if t.cambia_estado
     ]
+
+
+def test_una_exclusion_de_un_solo_lado_se_reporta():
+    """
+    La simetría la mantiene el ledger al declararla, así que una asimetría solo
+    puede llegar desde afuera (un snapshot). Y hay que verla: con la exclusión de
+    un solo lado el conflicto se detectaría desde una hipótesis y no desde la otra,
+    o sea que el flag dependería de por dónde se mire.
+    """
+    led = _ledger()
+    q, _ = led.open_question("¿por qué se cayó?")
+    primera = led.record_hypothesis("fue el OOM", question_id=q.id)
+    segunda = led.record_hypothesis("fue el deploy", question_id=q.id, excludes=(primera.id,))
+
+    snap = led.snapshot()
+    for crudo in snap["hypotheses"]:
+        if crudo["id"] == primera.id:
+            crudo["excludes"] = []  # se rompe la simetría a mano
+    roto = HypothesisLedger.from_snapshot(snap, clock=lambda: 1000.0)
+
+    d = diagnosticar(roto)
+
+    assert d.sano is False
+    assert "exclusion_simetrica" in _invariantes(d)
+    assert any(x.sujeto == segunda.id for x in d.hallazgos)
 
 
 # --------------------------------------------------------------------------

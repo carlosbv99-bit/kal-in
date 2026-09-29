@@ -3,7 +3,7 @@ El gate: la última puerta antes de que un texto salga hacia el usuario.
 
 Qué es y qué NO es, porque la diferencia decide si sirve o es decoración:
 
-- **Es un control mecánico y fail-closed.** Dos reglas, las dos decidibles sin
+- **Es un control mecánico y fail-closed.** Tres reglas, todas decidibles sin
   llamar a ningún modelo, porque pedirle al mismo modelo que juzgue si su
   respuesta está respaldada es una segunda opinión correlacionada, no una
   verificación.
@@ -16,6 +16,12 @@ Qué es y qué NO es, porque la diferencia decide si sirve o es decoración:
        respondió igual, sin marcar la incertidumbre. Es el patrón más
        destructivo de todos: el sistema SABÍA que no le alcanzaba y contestó
        como si le alcanzara.
+    R3 (ADVERTIR, C) — hay alternativas incompatibles y las dos están
+       respaldadas. El sistema puede mostrar dos conclusiones que no pueden ser
+       verdad juntas; lo que no puede es presentar una como LA respuesta sin
+       decirlo. Se calla si la respuesta ya admite incertidumbre: una respuesta
+       que muestra las dos ya está haciendo lo que la regla pide.
+
     R2 (ADVERTIR) — el turno terminó sin una sola observación ingerida y la
        respuesta es larga Y NO admite incertidumbre: se emite con la marca
        explícita de que no hubo verificación, en vez de dejarla pasar con la
@@ -127,6 +133,12 @@ la forma de no perderlo de vista es que siga apareciendo en el reporte — no
 alargar la lista hasta que desaparezca del corpus.
 """
 
+_SUFIJO_CONFLICTO = (
+    "\n\n[Conflicto sin resolver: hay dos alternativas TUYAS incompatibles y las dos están "
+    "respaldadas por evidencia externa. Ninguna puede presentarse como la respuesta: mostrá "
+    "las dos y decí qué evidencia sostiene a cada una.]"
+)
+
 _SUFIJO_SIN_VERIFICACION = (
     "\n\n[Sin verificación: en este turno no se consultó ninguna fuente ni se ejecutó "
     "ninguna herramienta, así que lo de arriba no está respaldado por una observación.]"
@@ -234,6 +246,21 @@ def _evaluate(
             answer=_texto_bloqueo(deficits),
             reason="deficit_declarado_y_respondido_igual",
             deficits=deficits,
+        )
+
+    # R3 (ADVERTIR) — hay alternativas incompatibles y las dos están respaldadas.
+    # Es la regla que impide elegir en silencio: el sistema puede mostrar dos
+    # conclusiones que no pueden ser verdad juntas, lo que no puede es presentar
+    # una como LA respuesta sin decirlo. El consumidor es real y ya existía a
+    # nivel de texto (el conjunto C del corpus: dos fuentes exógenas que se
+    # contradicen se presentan las dos); esto lo hace además persistente en el
+    # ledger, en vez de una decisión de redacción de cada turno.
+    conflictos = store.conflictos_de_sostén(session_id)
+    if conflictos and not _tiene_marcador_de_incertidumbre(texto):
+        return GateDecision(
+            outcome=GateOutcome.ADVERTIR,
+            answer=texto + _SUFIJO_CONFLICTO,
+            reason="alternativas_respaldadas_en_conflicto",
         )
 
     ingeridas = store.ingested_count(session_id) - evidence_before

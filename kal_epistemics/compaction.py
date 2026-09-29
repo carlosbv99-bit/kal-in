@@ -242,6 +242,7 @@ def conserva_lo_irrenunciable(original: Hypothesis, compactada: Hypothesis) -> b
         and original.question_id == compactada.question_id
         and original.evidence_links == compactada.evidence_links
         and original.depends_on == compactada.depends_on
+        and original.excludes == compactada.excludes
         and original.reopen_conditions == compactada.reopen_conditions
         and original.validity_conditions == compactada.validity_conditions
         and original.created_at == compactada.created_at

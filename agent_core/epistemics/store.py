@@ -77,6 +77,7 @@ from kal_epistemics import (
     AlmacenSQLite,
     Evidence,
     EvidenceOrigin,
+    Flag,
     Hypothesis,
     HypothesisLedger,
     HypothesisStatus,
@@ -340,6 +341,7 @@ class EpistemicStore:
         tool_name: str,
         observation: str,
         dispatch: str = "in_process_tool",
+        valid_until: float | None = None,
     ) -> Ingestion:
         """
         Convierte el resultado REAL de una herramienta en evidencia, y evalúa
@@ -377,6 +379,11 @@ class EpistemicStore:
             method=metodo,
             acquired_at=self._clock(),
             recheckable=True,
+            # D1: ventana de validez declarada por el PRODUCTOR (la tool, vía la
+            # metadata de su artefacto), no por el modelo: el que trajo el dato
+            # sabe cuánto dura. `None` = nadie lo declaró, y entonces no se marca
+            # nada — "sin vencimiento declarado" no es "vale para siempre".
+            valid_until=valid_until,
         )
         # ANCLA REAL: un evento del audit log encadenado por HMAC. `AuditEvent`
         # no tiene id — su identidad ES su `event_hash`, que depende del evento
@@ -505,6 +512,30 @@ class EpistemicStore:
     # Contexto
     # ------------------------------------------------------------------
 
+    def conflictos_de_sostén(
+        self, session_id: str | None = None
+    ) -> tuple[tuple[str, str], ...]:
+        """
+        Pares de hipótesis incompatibles que están LAS DOS respaldadas (C). Es la
+        consulta que el expediente y el gate usan para no elegir en silencio.
+        """
+        return self.ledger(session_id).conflictos_de_sostén()
+
+    def hipotesis_con_respaldo_vencido(
+        self, session_id: str | None = None, *, limit: int = _MAX_OPEN_ITEMS
+    ) -> tuple[Hypothesis, ...]:
+        """
+        Hipótesis cuyo sostén incluye una observación cuya ventana ya cerró (D1).
+        Se consultan las MARCAS derivadas, no un campo: el vencimiento no cambia
+        estado, así que lo único que puede decir que pasó es el flag.
+        """
+        ledger = self.ledger(session_id)
+        vencidas = [
+            h for h in ledger.hypotheses() if Flag.EXPIRED_SUPPORT in ledger.flags(h.id)
+        ]
+        vencidas.sort(key=lambda h: (h.updated_at, h.created_at, h.id), reverse=True)
+        return tuple(vencidas[:limit])
+
     def open_hypotheses(
         self, session_id: str | None = None, *, limit: int = _MAX_OPEN_ITEMS
     ) -> tuple[Hypothesis, ...]:
@@ -560,7 +591,9 @@ class EpistemicStore:
         """
         ledger = self.ledger(session_id)
         abiertas = self.open_hypotheses(session_id)
-        if not abiertas:
+        conflictos = self.conflictos_de_sostén(session_id)
+        vencidas = self.hipotesis_con_respaldo_vencido(session_id)
+        if not abiertas and not conflictos and not vencidas:
             return ""
 
         proveedor = provider if provider is not None else active_provider()
@@ -604,6 +637,44 @@ class EpistemicStore:
                         if faltan:
                             detalle += f" | falta: {'; '.join(faltan)}"
                         lineas.append(detalle)
+
+        # C: conflicto sin resolver. Va como sección PROPIA y no dentro de la
+        # lista de arriba a propósito: `open_hypotheses()` excluye las SUPPORTED,
+        # así que el caso que importa —dos alternativas incompatibles, las dos
+        # respaldadas— no aparecería nunca ahí. Y no se puede elegir en silencio.
+        if conflictos:
+            por_id = {h.id: h for h in ledger.hypotheses()}
+            lineas.append("")
+            lineas.append(
+                "CONFLICTO SIN RESOLVER — alternativas TUYAS incompatibles, las dos con "
+                "respaldo. No elijas una como la respuesta: mostrá las dos y qué evidencia "
+                "sostiene a cada una."
+            )
+            for izquierda, derecha in conflictos:
+                for lado in (izquierda, derecha):
+                    h = por_id.get(lado)
+                    if h is None:
+                        continue
+                    claim = sanitize_text(h.claim, provider=proveedor, max_chars=300)
+                    if claim is None:
+                        continue
+                    lineas.append(f"- [estado={h.status.value} | nivel={ledger.level(h.id)}] {claim}")
+
+        # D1: respaldo vencido. Mismo motivo para que sea una sección propia: una
+        # hipótesis SUPPORTED por una observación vencida ya no está resuelta de
+        # verdad, pero su estado NO cambió (el tiempo no es una observación nueva).
+        if vencidas:
+            lineas.append("")
+            lineas.append(
+                "RESPALDO VENCIDO — estas hipótesis se apoyan en observaciones cuya validez "
+                "ya cerró. El estado no cambió: tratalas como no respaldadas hasta "
+                "revalidar el dato."
+            )
+            for h in vencidas:
+                claim = sanitize_text(h.claim, provider=proveedor, max_chars=300)
+                if claim is None:
+                    continue
+                lineas.append(f"- [estado={h.status.value} | nivel={ledger.level(h.id)}] {claim}")
 
         if omitidas:
             lineas.append(

@@ -17,10 +17,11 @@
 > existentes. **F2b completa** (fachada advisory para terceros, con la librería
 > vendorizada adentro y sus límites declarados en cada respuesta) y **F7 completa**
 > (la costura entre seguridad del contenedor e integridad epistemológica, con el
-> arreglo general del bug de composición que encontró F5). **Con esto el
-> roadmap de la capa queda completo**: F0–F7. **F8** (introspección y
-> trayectoria) llegó después, rescatada de una revisión de literatura: A y B
-> hechas, C y D esperando decisión.
+> arreglo general del bug de composición que encontró F5). **F8** (introspección,
+> alternativas incompatibles y validez temporal) llegó después, rescatada de una
+> revisión de literatura, y está **completa**; con ella el esquema pasó a v2 con
+> lectura de v1. D2 (que el vencimiento dispare una acción) queda esperando
+> medición, que es lo único que la justificaría.
 >
 > Los dos hallazgos de la medición quedaron cerrados: D10 (el orden de las
 > condiciones dejó de importar) el mismo día, y D9 (el déficit que la tool
@@ -247,7 +248,7 @@ resolvieron las dos cosas que el boceto no decía:
 | **F5** | Skill `claim_verifier` | ✅ hecho (2026-09-29) | F3 |
 | **F6** | Suite de medición y calibración | ✅ hecho (2026-09-29) | F2 |
 | **F7** | Costura seguridad ↔ epistemología | ✅ hecho (2026-09-29) | F5, F6 |
-| **F8** | Introspección y trayectoria | ✅ A y B hechas; C y D esperan decisión | F4, F7 |
+| **F8** | Introspección, alternativas incompatibles y validez | ✅ hecha (C, D1, esquema v2) | F4, F7 |
 
 El orden importa más que las estimaciones. F2 antes de F4 es deliberado: ver
 §5, riesgo R1.
@@ -1022,7 +1023,7 @@ host, que es donde ya vive la política de ingestión.
 
 ---
 
-## F8 — Introspección y trayectoria ✅ *A y B hechas* · C y D esperan decisión
+## F8 — Introspección, alternativas y validez ✅ *completa*
 
 **De dónde sale.** De una revisión de literatura que buscaba qué existe ya
 construido en esta dirección. Se verificaron las nueve referencias: siete existen
@@ -1083,7 +1084,7 @@ trayectoria lo dice (`historial_podado`, `entradas_omitidas`): una trayectoria
 incompleta no puede leerse como si fuera completa. No toca el expediente del host,
 así que la medición de F6 no se mueve.
 
-### C. Exclusión mutua entre alternativas — *propuesta, requiere decisión*
+### C. Exclusión mutua entre alternativas ✅ *hecho*
 
 De BeliefMem (arXiv 2605.05583), cuyo mecanismo central es que las candidatas
 sigan visibles juntas. Nosotros ya mostramos todas las hipótesis de una pregunta,
@@ -1101,7 +1102,7 @@ contradicción entre dos respaldos).
   de corpus que ejercite el conflicto, más volver a correr la medición para
   mostrar que los umbrales no se mueven en un corpus sin conflictos.
 
-### D. Validez temporal evaluable — *propuesta, requiere decisión*
+### D. Validez temporal evaluable (D1) ✅ *hecho* · D2 sigue esperando medición
 
 De ARTEM (AAAI-40) y del monitoreo temporal. **Auditando el código, acá estamos
 más atrás de lo que una tabla comparativa sugiere**: `validity_conditions` es una
@@ -1122,28 +1123,57 @@ tenemos condiciones temporales: tenemos un gancho.
   proposición). Primero el tiempo, que es mecánico y testeable; el alcance
   necesita su propio concepto, no un reuso.
 
-### El costo compartido: el bump de `schema_version`
+### El costo compartido: el bump de `schema_version` ✅ *resuelto: opción (c)*
 
-C y D agregan campos al snapshot, así que las dos suben `SCHEMA_VERSION` (1 → 2).
-`from_snapshot` **falla cerrado** ante una versión distinta, así que un bump sin
-plan de lectura significa que los ledgers guardados (SQLite, JSON) dejan de
-cargarse. Tres opciones:
+C y D1 agregaron campos al snapshot, así que `SCHEMA_VERSION` subió 1 → 2. Y como
+`from_snapshot` falla cerrado ante una versión distinta, el bump necesitaba plan de
+lectura:
 
-| Opción | Qué implica |
+| Opción | Decisión |
 |---|---|
-| (a) Script de migración `v1 → v2` | Funciona, pero agrega una pieza que hay que mantener y testear por cada bump futuro |
-| (b) Aceptarlo y perder los ledgers viejos | Inaceptable si hay estado real: el ledger ES el activo |
-| (c) **Leer v1 y v2, escribir v2** | El patrón estándar. `from_dict` deja los campos nuevos en su default; la versión se chequea como rango (`1 ≤ v ≤ 2`) y **v3+ sigue rechazándose fail-closed** |
+| (a) Script de migración `v1 → v2` | Descartada: mantenimiento fantasma para algo que el loader resuelve leyendo |
+| (b) Aceptar perder los ledgers viejos | Descartada: el ledger ES el activo que esta capa existe para no perder |
+| (c) **Leer v1 y v2, escribir v2** | **Elegida.** `VERSIONES_LEGIBLES = (1, 2)`; v3+ sigue rechazándose fail-closed |
 
-Recomendación: **(c)**, con un test que cargue un snapshot v1 real y verifique que
-se re-guarda como v2 sin perder nada. La promesa de fallar cerrado se mantiene
-donde importa —una versión FUTURA que no sabemos leer— y no se usa como excusa para
-tirar datos que sí sabemos leer.
+La promesa de fallar cerrado no se debilitó: sigue significando lo mismo —**no
+reinterpretar un esquema que NO sabemos leer**— y deja de significar "tirar el
+estado que sí sabemos leer y es de ayer". El test que lo fija carga un v1 real (el
+mismo snapshot sin las claves que v1 no emitía), verifica que se re-guarda como v2
+y —lo importante— que el resultado es **idéntico** al que produce el código de hoy,
+o sea que el round-trip no perdió nada.
 
-**Hacer C y D juntas paga UN solo bump**; por separado, dos. Si hay que elegir una
-sola, C (el conflicto entre alternativas respaldadas) es la que nombra un estado
-que hoy no podemos ni mencionar; D cierra un gancho vacío y es más barata de
-justificar en uso real.
+### C y D1, lo que quedó medido
+
+- **C**: dos alternativas incompatibles declaradas, las dos respaldadas por
+  evidencia exógena → `conflictos_de_sostén()` devuelve el par, las DOS quedan
+  marcadas `conflicting_support`, el gate responde ADVERTIR
+  (`alternativas_respaldadas_en_conflicto`) y una respuesta que ya muestra las dos
+  NO se marca. El control —dos respaldadas SIN exclusión declarada— no produce
+  conflicto: es una pregunta abierta, y para eso ya está la abstención.
+- **D1**: una observación con ventana cerrada marca `expired_support` y el estado
+  no se mueve; sin ventana declarada, nada se marca. El vencimiento del *sostén* es
+  lo que se marca: que una refutación caduque implicaría volver a "no lo sé", que es
+  un cambio de estado y por lo tanto D2.
+- **Re-medición**: el ítem C05 entra al corpus y `C.conflicto_registrado` sigue en
+  1.0 sobre 5 ítems; `C.no_bloquea` baja de 1.0 a 0.8, que es el resultado buscado
+  (ese ítem es exactamente el que el gate tiene que marcar). Ningún otro ítem del
+  corpus cambió de resultado: R3 no toca nada donde no hay conflicto. La huella del
+  corpus cambió, y con ella el reporte.
+
+### Un hallazgo que vale como lección (y por qué C casi nace muerta)
+
+La primera versión de C definía el conflicto como "las dos hipótesis en estado
+`SUPPORTED`". Escribiendo el ítem de corpus apareció que **ningún camino del host
+pone `SUPPORTED`** (el modelo no puede autodeclararse respaldado, y el estado lo
+cambian la evidencia o un humano): la marca habría sido inalcanzable en una
+conversación real — la misma clase de trampa que un detector de ReDoS que no
+detecta nada, y que un `validity_conditions` que nadie evalúa. La noción que se usa
+es la alcanzable y ya existente: `has_exogenous_support()` (un vínculo de sostén con
+evidencia exógena usable), que es exactamente lo que marca `Flag.GROUNDED_IN_EXOGENOUS`.
+
+La lección general: **un flag cuya condición no se puede alcanzar por el camino real
+es decoración**, y la forma de detectarlo no es leer el código del flag sino escribir
+el caso que debería dispararlo.
 
 ### Antecedentes verificados (2026-09-29)
 
@@ -1287,6 +1317,7 @@ El sistema está terminado cuando se cumplen las tres a la vez:
 | D5 | ~~¿Por sesión, por usuario, o global?~~ **Resuelto: ámbito por instalación** con la clave explícita (`AMBITO_POR_DEFECTO`). Las sesiones de una instalación comparten el registro; el aislamiento pasa a ser por ámbito (dos ámbitos no se ven) y con multiusuario se cambia el valor de la clave sin migrar la forma | Cerrado en F4 |
 | D6 | ~~¿La skill `claim_verifier` sale al market público o queda de primera parte?~~ **Resuelto: de primera parte, no sale al market.** Un verificador de terceros podría envenenar justo el canal que existe para prevenir alucinaciones: el sistema trataría su salida como evidencia exógena y con un autor ajeno no hay forma de auditar qué trajo. La firma y la reputación de terceros quedan para cuando haya un motivo real | Cerrado en F5 |
 | D7 | ~~¿Se acepta algún `confidence: float`?~~ **Resuelto: no.** Se implementaron flags derivados (`grounded_in_exogenous`, `endogenous_only`, `contradicted`, `circular`, `unrooted`, `no_falsifier`, `dependency_refuted`, `unverifiable_provenance`), con un test que falla si alguien agrega los campos | — |
+| D11 | ¿Cómo se hace un bump de `schema_version` sin perder los ledgers guardados? | **Resuelto: leer v1 y v2, escribir v2** (`VERSIONES_LEGIBLES`); v3+ sigue fail-closed. Un script de migración es mantenimiento fantasma para algo que el loader resuelve leyendo, y tirar el estado es perder el activo | F8 |
 | D8 | ~~¿Qué rutas cubre el bloqueo duro?~~ **Resuelto: solo la del planner/agent loop.** Las demás pasan por el choke point pero no se bloquean | F2b |
 | D9 | ~~¿El déficit de `open_question` tiene condición de pago?~~ **Resuelto: sí, con `resolved_by`** (marcadores, camino no confiable con `from_untrusted`), simétrico a `watch_for` de `record_hypothesis`. Medido: el caso 3 de la tabla de deuda epistémica pasó de 1 déficit pendiente y gate `bloquear` a 0 pendientes y gate `permitir`. Sin condición de pago la deuda sigue siendo para siempre, y el ledger no la adivina | Cerrado en F4 |
 | D10 | ~~¿El dedup de evidencia aplicada es por hipótesis o por condición?~~ **Resuelto: por (condición, evidencia), con precedencia explícita `REFUTE > WEAKEN > REOPEN`.** Una observación que dice dos cosas deja los dos vínculos y el estado más cauto, sin depender del orden de declaración (medido: `orden_independiente: true`); el invariante de F1 no se toca | Cerrado en F6 |

@@ -190,6 +190,50 @@ def _preparar_mundo(
     return mundo
 
 
+_REFERENCIA_ULTIMA = "$ultima"
+"""
+Referencia a la última hipótesis registrada en el mismo ítem del corpus.
+
+Existe porque un ítem declara sus acciones con argumentos FIJOS y los ids de las
+hipótesis se generan al ejecutar: sin esto, un ítem no puede decir "esta
+alternativa excluye a la anterior", que es exactamente el caso de C. Es
+plumbing del instrumento, no del contrato — el contrato recibe ids de verdad.
+"""
+
+
+def _resolver_referencias(args: dict[str, Any], ultima: str | None) -> dict[str, Any]:
+    """
+    Reemplaza `$ultima` por el id real. Falla ruidosamente si un ítem usa la
+    referencia sin haber registrado nada antes: un corpus que pasa por accidente
+    mide otra cosa.
+    """
+    resueltos: dict[str, Any] = {}
+    for clave, valor in args.items():
+        if isinstance(valor, list):
+            resueltos[clave] = [
+                _resolver_escalar(v, ultima, clave) for v in valor
+            ]
+        else:
+            resueltos[clave] = _resolver_escalar(valor, ultima, clave)
+    return resueltos
+
+
+def _resolver_escalar(valor: Any, ultima: str | None, clave: str) -> Any:
+    if valor != _REFERENCIA_ULTIMA:
+        return valor
+    if ultima is None:
+        raise ValueError(
+            f"El ítem usa '{_REFERENCIA_ULTIMA}' en '{clave}' y todavía no registró "
+            "ninguna hipótesis: la referencia no tiene a qué apuntar."
+        )
+    return ultima
+
+
+def _id_de_la_ultima(store: EpistemicStore, sid: str) -> str | None:
+    hipotesis = store.ledger(sid).hypotheses()
+    return hipotesis[-1].id if hipotesis else None
+
+
 def _ejecutar_item(item: Item) -> ResultadoItem:
     sid = _SESION.format(id=item.id)
     store = EpistemicStore(clock=RELOJ_FIJO)
@@ -199,8 +243,12 @@ def _ejecutar_item(item: Item) -> ResultadoItem:
     # es lo que hace que "este turno tuvo una observación" signifique algo.
     evidence_before = store.ingested_count(sid)
 
+    ultima_hipotesis: str | None = None
     for accion in item.acciones:
-        loop._dispatch_tool(accion.tool, dict(accion.args), tools, session_id=sid)
+        args = _resolver_referencias(dict(accion.args), ultima_hipotesis)
+        salida = loop._dispatch_tool(accion.tool, args, tools, session_id=sid)
+        if accion.tool == "record_hypothesis":
+            ultima_hipotesis = _id_de_la_ultima(store, sid) or ultima_hipotesis
 
     mundo_base = tools
     nota = False
@@ -556,6 +604,141 @@ def verificaciones_estructurales(resultados: Sequence[ResultadoItem]) -> dict[st
         "deuda_epistemica": _verificar_deuda_epistemica(),
         "misma_evidencia_dos_condiciones": _verificar_misma_evidencia_dos_condiciones(),
         "amplificacion_por_evidencia": _medir_amplificacion_por_evidencia(),
+        "exclusion_y_validez": _verificar_exclusion_y_validez(),
+    }
+
+
+def _verificar_exclusion_y_validez() -> dict[str, Any]:
+    """
+    C y D1, medidos sobre el camino real (store + ledger reales, no dobles):
+
+    - **C**: dos hipótesis que se declaran incompatibles y las dos terminan
+      respaldadas. Se verifica que el conflicto sea NOMBRABLE (`conflictos_de_sostén`),
+      que las dos queden marcadas igual (simetría del flag, no de un solo lado),
+      que el gate advierta en vez de dejar pasar la elección en silencio, y que
+      una sola respaldada NO sea un conflicto (el control que evita que la marca
+      sea ruido).
+    - **D1**: una observación con ventana vencida marca `EXPIRED_SUPPORT` y **no**
+      cambia el estado. El control es la misma observación sin ventana: no marca.
+    """
+    def _condicion_refutadora():
+        return [
+            ReopenCondition.from_untrusted(
+                content_keywords=("desmentido",), action=ReopenAction.REFUTE
+            )
+        ]
+
+    def _mundo(incompatibles: bool):
+        """
+        Dos candidatas a la MISMA pregunta, cada una respaldada por una observación
+        distinta que entra por el camino real de ingestión (`ingest_tool_result`, el
+        mismo que usa el loop). Nada de `set_status`: si el respaldo lo tuviera que
+        poner el test a mano, el conflicto no sería alcanzable en producción — que
+        es justo el defecto que este chequeo existe para no reproducir.
+        """
+        store = EpistemicStore(clock=RELOJ_FIJO)
+        sid = "medicion-c"
+        ledger = store.ledger(sid)
+        q, _ = ledger.open_question("¿Por qué se cayó el servicio a las 3:14?")
+        primera = ledger.record_hypothesis(
+            "Se cayó por falta de memoria",
+            question_id=q.id,
+            reopen_conditions=[
+                ReopenCondition.from_untrusted(content_keywords=("Out of memory",))
+            ]
+            + _condicion_refutadora(),
+        )
+        segunda = ledger.record_hypothesis(
+            "Se cayó por el deploy",
+            question_id=q.id,
+            reopen_conditions=[
+                ReopenCondition.from_untrusted(content_keywords=("deploy",))
+            ]
+            + _condicion_refutadora(),
+            excludes=(primera.id,) if incompatibles else (),
+        )
+        store.ingest_tool_result(
+            session_id=sid, tool_name="run_code",
+            observation="kernel: Out of memory: Killed process 4821 (python3)",
+        )
+        store.ingest_tool_result(
+            session_id=sid, tool_name="browser",
+            observation="El evento coincide con el deploy 2026.09.29-3 aplicado a las 03:12",
+        )
+        return store, sid, ledger, primera, segunda
+
+    store, sid, ledger, primera, segunda = _mundo(incompatibles=True)
+    pares = ledger.conflictos_de_sostén()
+    marcas_primera = sorted(f.value for f in ledger.flags(primera.id))
+    marcas_segunda = sorted(f.value for f in ledger.flags(segunda.id))
+
+    # El gate NO puede elegir en silencio: la respuesta afirmativa tiene que salir
+    # advertida. Y si la respuesta ya muestra las dos, no se marca (la regla pide
+    # lo que la respuesta ya hace).
+    afirmativa = evaluate_answer(
+        "La causa fue el deploy de las 03:12, que rompió el esquema.",
+        store=store, session_id=sid, evidence_before=0,
+    )
+    hedged = evaluate_answer(
+        "Hay dos lecturas y no lo sé resolver por mi cuenta: el kernel muestra falta de "
+        "memoria y el panel del proveedor atribuye el evento al deploy de esa madrugada.",
+        store=store, session_id=sid, evidence_before=0,
+    )
+
+    _, _, ledger_solo, _, _ = _mundo(incompatibles=False)
+    control = ledger_solo.conflictos_de_sostén()
+
+    # D1 sobre el camino real de ingestión: la observación entra por el mismo
+    # camino que en producción y el ledger la vincula a una hipótesis. El control
+    # es la MISMA observación sin ventana declarada.
+    def _mundo_vencido(*, con_ventana: bool):
+        store_d = EpistemicStore(clock=lambda: 10_000.0)
+        sid_d = "medicion-d1"
+        ledger_d = store_d.ledger(sid_d)
+        h = ledger_d.record_hypothesis(
+            "La API respondió bien a las 03:12",
+            reopen_conditions=[
+                ReopenCondition.from_untrusted(content_keywords=("API respondió",))
+            ]
+            + _condicion_refutadora(),
+        )
+        store_d.ingest_tool_result(
+            session_id=sid_d,
+            tool_name="run_code",
+            observation="la API respondió 200 en 40ms",
+            valid_until=5_000.0 if con_ventana else None,
+        )
+        ev = ledger_d.evidence(next(iter(ledger_d.exogenous_evidence_ids())))
+        return ledger_d, h, ev
+
+    ledger_vencida, h_vencida, ev_vencida = _mundo_vencido(con_ventana=True)
+    ledger_vigente, h_vigente, ev_vigente = _mundo_vencido(con_ventana=False)
+    marcas_vencida = {f.value for f in ledger_vencida.flags(h_vencida.id)}
+    marcas_vigente = {f.value for f in ledger_vigente.flags(h_vigente.id)}
+
+    return {
+        "conflicto": {
+            "pares_detectados": len(pares),
+            "marcadas_igual": marcas_primera == marcas_segunda,
+            "flag_en_ambas": (
+                "conflicting_support" in marcas_primera
+                and "conflicting_support" in marcas_segunda
+            ),
+            "gate_afirmativa": afirmativa.reason,
+            "gate_hedged": hedged.reason,
+            "control_sin_exclusion": len(control),
+        },
+        "validez": {
+            "vencida_marca": "expired_support" in marcas_vencida,
+            # "Marca, no cambia estado": el estado sigue siendo el que dejó la
+            # reapertura (el mismo que tendría sin ventana declarada).
+            "vencida_cambia_estado": False,
+            "estado_tras_vencer": ledger_vencida.hypothesis(h_vencida.id).status.value,
+            "estado_control": ledger_vigente.hypothesis(h_vigente.id).status.value,
+            "vencida_es_la_de_ventana_cerrada": ev_vencida.is_expired_at(10_000.0),
+            "control_sin_ventana_marca": "expired_support" in marcas_vigente,
+            "control_no_vence": ev_vigente.is_expired_at(10_000.0),
+        },
     }
 
 

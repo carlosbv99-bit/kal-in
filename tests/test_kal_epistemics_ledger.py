@@ -741,3 +741,185 @@ def test_el_presupuesto_por_pregunta_sobrevive_al_round_trip():
     recargado.consider(_evidencia_distinta(999))
 
     assert recargado.reopen_count_of_question(pregunta.id) == antes
+
+
+# --------------------------------------------------------------------------
+# C (2026-09-29): alternativas incompatibles
+# --------------------------------------------------------------------------
+
+
+def _dos_alternativas(*, excluyentes: bool = True, respaldar: bool = True):
+    """
+    El caso real: dos candidatas a la MISMA pregunta. El respaldo llega por el
+    camino real (`consider` sobre una observación), no por `set_status`: en el host
+    ningún camino pone SUPPORTED, así que un conflicto que dependiera de ese
+    estado no se detectaría nunca en una conversación.
+    """
+    led = _ledger()
+    q, _ = led.open_question("¿Por qué se cayó el servicio a las 3:14?")
+    primera = led.record_hypothesis(
+        "Se cayó por falta de memoria",
+        question_id=q.id,
+        reopen_conditions=[ReopenCondition.from_untrusted(content_keywords=("OutOfMemory",))],
+    )
+    segunda = led.record_hypothesis(
+        "Se cayó por el deploy",
+        question_id=q.id,
+        reopen_conditions=[ReopenCondition.from_untrusted(content_keywords=("deploy",))],
+        excludes=(primera.id,) if excluyentes else (),
+    )
+    if respaldar:
+        led.consider(_ev(content="kernel: OutOfMemory killed process 4821"))
+        led.consider(_ev(content="coincide con el deploy 2026.09.29-3"))
+    return led, primera, segunda
+
+
+def test_la_exclusion_es_simetrica_y_queda_en_el_historial():
+    """
+    La exclusión se mantiene en las DOS direcciones: una de un solo lado haría que
+    el conflicto se vea desde una hipótesis y no desde la otra, que es la peor
+    forma de tener un flag — la que depende de por dónde se mire.
+    """
+    led, primera, segunda = _dos_alternativas(respaldar=False)
+
+    assert led.hypothesis(segunda.id).excludes == (primera.id,)
+    assert led.hypothesis(primera.id).excludes == (segunda.id,)
+    kinds = [e.kind for e in led.hypothesis(primera.id).history]
+    assert "excluded" in kinds, "la simetría se atribuye en el historial de la otra"
+
+
+def test_no_se_puede_excluir_una_hipotesis_que_no_existe():
+    led = _ledger()
+
+    with pytest.raises(UnknownId):
+        led.record_hypothesis("otra cosa", excludes=("h_fantasma",))
+
+
+def test_una_hipotesis_no_puede_excluirse_a_si_misma():
+    """Solo es alcanzable por un estado que llegó de afuera (o a mano): la API no
+    deja crear una hipótesis que se excluya sola, la validación sí la rechaza."""
+    led, primera, _ = _dos_alternativas(respaldar=False)
+    snap = led.snapshot()
+    snap["hypotheses"][0]["excludes"] = [snap["hypotheses"][0]["id"]]
+
+    with pytest.raises(InvalidHypothesis):
+        ke.HypothesisLedger.from_snapshot(snap)
+
+
+def test_dos_alternativas_respaldadas_son_un_conflicto_nombrable():
+    led, primera, segunda = _dos_alternativas()
+
+    pares = led.conflictos_de_sostén()
+
+    assert pares == ((primera.id, segunda.id),)
+    assert Flag.CONFLICTING_SUPPORT in led.flags(primera.id)
+    assert Flag.CONFLICTING_SUPPORT in led.flags(segunda.id), "el flag es de las dos, no de una"
+
+
+def test_una_sola_respaldada_no_es_conflicto():
+    led, primera, segunda = _dos_alternativas(respaldar=False)
+    led.consider(_ev(content="kernel: OutOfMemory killed process 4821"))
+
+    assert led.conflictos_de_sostén() == ()
+    assert Flag.CONFLICTING_SUPPORT not in led.flags(primera.id)
+    assert Flag.CONFLICTING_SUPPORT not in led.flags(segunda.id)
+
+
+def test_sin_exclusion_declarada_dos_respaldadas_no_son_un_conflicto():
+    """
+    El control que evita que la marca sea ruido: una pregunta con varios candidatos
+    respaldados y NINGUNA exclusión declarada es una pregunta abierta (para eso ya
+    está la abstención), no dos conclusiones incompatibles.
+    """
+    led, primera, segunda = _dos_alternativas(excluyentes=False)
+
+    assert led.conflictos_de_sostén() == ()
+    assert Flag.CONFLICTING_SUPPORT not in led.flags(primera.id)
+    assert Flag.CONFLICTING_SUPPORT not in led.flags(segunda.id)
+
+
+def test_la_compaction_no_tira_las_exclusiones():
+    """La exclusión es estructural, no detalle: si la compactación la tirara, el
+    conflicto desaparecería solo con el paso del tiempo."""
+    from kal_epistemics import PresupuestoDeCompactacion
+
+    led, primera, segunda = _dos_alternativas(respaldar=False)
+    led.set_status(segunda.id, HypothesisStatus.REFUTED, reason="cierre")
+    led.set_status(segunda.id, HypothesisStatus.OPEN, reason="reabro")
+    led.set_status(segunda.id, HypothesisStatus.REFUTED, reason="cierro")
+
+    led.compact(PresupuestoDeCompactacion(max_entradas_de_historial=1))
+
+    assert led.hypothesis(segunda.id).excludes == (primera.id,)
+    assert led.hypothesis(primera.id).excludes == (segunda.id,)
+
+
+# --------------------------------------------------------------------------
+# D1 (2026-09-29): validez temporal — marca, no cambia estado
+# --------------------------------------------------------------------------
+
+
+def _con_ventana(*, valid_until, ahora=1000.0):
+    led = ke.HypothesisLedger(clock=lambda: ahora)
+    h = led.record_hypothesis(
+        "La API respondió bien",
+        reopen_conditions=[ReopenCondition.from_untrusted(content_keywords=("API",))],
+    )
+    led.consider(
+        _ev(
+            content="la API respondió 200 en 40ms",
+            anchor="evt_1",
+            valid_until=valid_until,
+        )
+    )
+    return led, h
+
+
+def test_una_observacion_vencida_marca_pero_no_cambia_el_estado():
+    """
+    D1 en una línea: el tiempo pasa, el sostén se marca, el estado NO se toca. El
+    ledger solo cambia estado por reglas declaradas, y envejecer no es una
+    observación nueva.
+    """
+    led, h = _con_ventana(valid_until=500.0)  # venció antes del reloj (1000)
+
+    assert Flag.EXPIRED_SUPPORT in led.flags(h.id)
+    assert led.hypothesis(h.id).status is HypothesisStatus.REACTIVATED
+
+
+def test_sin_ventana_o_con_ventana_abierta_no_se_marca():
+    led_sin, h_sin = _con_ventana(valid_until=None)
+    led_abierta, h_abierta = _con_ventana(valid_until=2000.0)
+
+    assert Flag.EXPIRED_SUPPORT not in led_sin.flags(h_sin.id)
+    assert Flag.EXPIRED_SUPPORT not in led_abierta.flags(h_abierta.id)
+
+
+def test_lo_que_vence_es_el_sostén_y_no_la_contradicción():
+    """
+    Alcance deliberado de D1: se marca el sostén vencido, no la contradicción
+    vencida. Que una refutación caduque es un cambio de estado (volver a "no lo
+    sé"), y eso es D2 — que necesita medición. Marcar de menos acá deja al sistema
+    conservador; marcar de más lo volvería confiado sin haber medido nada.
+    """
+    led = ke.HypothesisLedger(clock=lambda: 1000.0)
+    h = led.record_hypothesis(
+        "Se cayó por el deploy",
+        reopen_conditions=[
+            ReopenCondition.from_untrusted(content_keywords=("deploy",), action=ReopenAction.REFUTE)
+        ],
+    )
+    led.consider(
+        _ev(content="deploy sin rollback aplicado", anchor="evt_1", valid_until=500.0)
+    )
+
+    assert led.hypothesis(h.id).status is HypothesisStatus.REFUTED
+    assert Flag.EXPIRED_SUPPORT not in led.flags(h.id)
+
+
+def test_la_ventana_sobrevive_al_snapshot():
+    led, h = _con_ventana(valid_until=500.0)
+
+    releido = ke.HypothesisLedger.from_snapshot(led.snapshot(), clock=lambda: 1000.0)
+
+    assert Flag.EXPIRED_SUPPORT in releido.flags(h.id)

@@ -10255,3 +10255,84 @@ orden de condiciones; y la división con las reglas de escritura) más **4** en 
 fachada. 560 passed en el conjunto tocado con los 5 fallos de siempre (todos e2e de
 skills por el sandbox roto de este entorno), ruff `--select=E9,F` limpio,
 `validate_skills.py` verificando las 9 skills y la medición de F6 consistente.
+
+
+## C y D1: alternativas incompatibles y validez temporal, con el esquema en v2 (2026-09-29)
+
+Las dos propuestas que quedaban de F8, decididas juntas para pagar **un solo bump**
+de esquema: C completa (con su consumidor real, que ya existía) y D1 sola —el
+vencimiento MARCA, nunca cambia estado—, dejando D2 (que el vencimiento dispare una
+acción, integrado al presupuesto de reaperturas y a la precedencia) para cuando haya
+medición que lo justifique. El alcance espacial quedó afuera por la razón ya dicha:
+conflatar el ámbito de D5 (dónde se guarda el estado) con el alcance de una
+proposición (dónde vale) son dos preguntas que no se resuelven con la misma
+respuesta.
+
+**C — alternativas incompatibles.** `Hypothesis.excludes`, mantenido **simétrico** por
+el ledger en la misma operación (con una entrada de historial que atribuye la
+simetría), `Flag.CONFLICTING_SUPPORT` sobre LAS DOS, `conflictos_de_sostén()` como
+consulta, una sección propia en el expediente y la regla **R3** del gate: con un
+conflicto sin resolver y una respuesta que no admite incertidumbre, el gate ADVIERTE
+("mostrá las dos") en vez de dejar pasar la elección en silencio. Si la respuesta ya
+muestra las dos, no se marca: la regla pide lo que la respuesta ya hace.
+
+Por qué el consumidor era real y no infraestructura especulativa: el conjunto C del
+corpus ya ejercitaba este fenómeno **a nivel de texto** (dos fuentes exógenas que se
+contradicen se presentan las dos). Lo que agrega C es que el conflicto entre
+*hipótesis alternativas* deje de ser una decisión de redacción que el gate toma de
+nuevo en cada turno y pase a ser un estado **nombrable y persistente** del ledger.
+Por eso pagó el camino completo —flag, expediente, gate, corpus y re-medición—: un
+flag sin esos cuatro es un campo decorativo.
+
+**Un hallazgo que casi deja a C muerta, y que vale como lección.** La primera versión
+definía el conflicto como "las dos hipótesis en estado `SUPPORTED`". Escribiendo el
+ítem de corpus apareció que **ningún camino del host pone `SUPPORTED`**: el modelo no
+puede autodeclararse respaldado, y el estado lo cambian la evidencia o un humano.
+O sea que la marca era **inalcanzable en una conversación real** — la misma clase de
+trampa que el detector de ReDoS inerte y que el `validity_conditions` que nadie
+evaluaba. La noción que se usa ahora es la alcanzable y ya existente:
+`has_exogenous_support()` (un vínculo de sostén con evidencia exógena usable), que es
+exactamente lo que marca `Flag.GROUNDED_IN_EXOGENOUS`. La forma de detectar esta
+clase de defecto no es leer el código del flag: es escribir el caso que debería
+dispararlo.
+
+**D1 — validez temporal.** `Evidence.valid_from`/`valid_until` y
+`Flag.EXPIRED_SUPPORT` cuando algún vínculo de **sostén** apunta a una observación
+cuya ventana cerró. El estado no se mueve (y hay test): el ledger solo cambia estado
+por reglas declaradas, y envejecer no es una observación nueva. Se marca el sostén
+vencido, no la contradicción vencida: que una refutación caduque implicaría volver a
+"no lo sé", que es un cambio de estado y por lo tanto D2.
+
+La vía para declarar la ventana es el **artefacto de la tool** (el que trajo el dato
+sabe cuánto dura), leída por el camino real de ingestión —el mismo lugar donde F7 lee
+`status`—, más la API de la librería y la fachada para terceros. Hoy ninguna tool
+incorporada declara una ventana; lo que existe es la superficie, y está dicha así en
+el roadmap en vez de insinuar una cobertura que no hay. Se eligió esa vía porque
+`USER_ASSERTED` (el otro origen posible) no lo crea nadie en producción: una ventana
+que solo se pudiera declarar por un camino que no existe sería otro flag muerto.
+
+**Esquema v2, con lectura de v1 (decisión que el usuario fijó como opción (c)).**
+`SCHEMA_VERSION = 2` y `VERSIONES_LEGIBLES = (1, 2)`: se leen las dos, se escribe la
+actual, y v3+ sigue rechazándose fail-closed. El argumento que la resolvió: fallar
+cerrado tiene que significar "no reinterpretar lo que NO sé leer", no "tirar lo que
+sí sé leer y es de ayer" — el ledger ES el activo. Un script de migración aparte
+sería mantenimiento fantasma para algo que el loader resuelve leyendo. El test carga
+un v1 real (el snapshot sin las claves que v1 no emitía) y verifica que se re-guarda
+como v2 **idéntico** al que produce el código de hoy: sin eso, "leo v1" sería una
+afirmación sin evidencia, que es lo que esta capa no se permite en ningún otro lado.
+
+**Re-medición de F6.** El ítem C05 (`alternativas_incompatibles_respaldadas`) entra
+al corpus y el reporte se regeneró: `C.conflicto_registrado` sigue en 1.0 sobre 5
+ítems, `C.no_bloquea` baja de 1.0 a 0.8 —que es el resultado buscado, porque ese ítem
+es exactamente el que el gate tiene que marcar—, y **ningún otro ítem del corpus
+cambió de resultado**: R3 no dispara donde no hay conflicto. También cambió la huella
+del corpus. En el chequeo estructural nuevo quedó medido: un par detectado, las dos
+marcadas igual, el gate advirtiendo a la afirmativa y sin marcar a la que muestra las
+dos, cero conflictos sin exclusión declarada, y del lado de D1, la vencida marcada
+sin cambio de estado mientras el control sin ventana no marca nada.
+
+Tests: 50 en el ledger (C y D1 entre ellos), 3 de compatibilidad de esquema —uno de
+ellos a través del ledger durable real—, el invariante de simetría en los monitores,
+R3 y el expediente en el gate, la ventana declarada por el artefacto en la suite de
+costura, y las operaciones nuevas de la fachada (con la copia vendorizada
+re-sincronizada y la skill re-firmada).

@@ -7,8 +7,8 @@
 
 Mide el **sistema** —store real, camino de ingestión real, ancla real, ledger real, gate real— contra un corpus de escenarios con el comportamiento del modelo **scripteado**: no hay un LLM en el loop de medición, así que esto **no mide al modelo**. Las etiquetas del corpus y del conjunto de calibración las escribió el mismo autor que escribió el gate: es una medición interna y reproducible, no un benchmark independiente.
 
-- Huella del corpus: `f59be244d85d838d73c19214e161c7ca18a9eac1c9eb891e81d3461f2c57c6f5`
-- Tamaños (items por conjunto): **A**=12, **B**=12, **C**=4, **D**=5, **R**=6, **K**=41
+- Huella del corpus: `756344b93d572ce67b5d260baeab41eed320070286582d404d89a42d41264c7b`
+- Tamaños (items por conjunto): **A**=12, **B**=12, **C**=5, **D**=5, **R**=6, **K**=41
 
 ## Conjuntos
 
@@ -16,7 +16,7 @@ Mide el **sistema** —store real, camino de ingestión real, ancla real, ledger
 |---|---|---|
 | A | respuesta imposible: entidad ficticia, evento futuro, dato privado | 12 |
 | B | respuesta conocida y verificable (evidencia exógena real ingerida) | 12 |
-| C | evidencia contradictoria entre dos fuentes exógenas | 4 |
+| C | evidencia contradictoria entre dos fuentes exógenas | 5 |
 | D | deriva: la misma pregunta con otra redacción | 5 |
 | R | reapertura y refutación automáticas; eco del modelo; repetición | 6 |
 | K | calibración: respuestas etiquetadas a mano (hedge / afirmativa / conversacional) | 41 |
@@ -36,7 +36,7 @@ Mide el **sistema** —store real, camino de ingestión real, ancla real, ledger
 | A.sin_deficit_cortos | — (afirmación corta: R2 no la alcanza) | 1 |
 | B.abstencion_falsa | = 0 (abstenerse de lo verificable es un fallo) | 0.00 |
 | B.permite | = 1 | 1.00 |
-| C.no_bloquea | = 1 (presentar ambas, no resolver) | 1.00 |
+| C.no_bloquea | = 1 (presentar ambas, no resolver) | 0.80 |
 | C.conflicto_registrado | = 1 (el ledger registra el conflicto) | 1.00 |
 | R.reapertura_por_exogena | ~1 | 1.00 |
 | R.refutadas_por_exogena | ~1 | 1.00 |
@@ -55,7 +55,7 @@ Mide el **sistema** —store real, camino de ingestión real, ancla real, ledger
 | Matriz origen × acción (condición lo más permisiva posible) | 12 combinaciones; reabren 9; con MODEL_GENERATED 0 |
 | Evidencia en cuarentena | 3/3 no reabren |
 | Misma observación 3 veces (por el camino real) | reaperturas=1, vínculos=1 |
-| Ancla real `audit_event_hash` | 27/27 evidencias exógenas |
+| Ancla real `audit_event_hash` | 29/29 evidencias exógenas |
 | Amplificación y tope por pregunta (R8) | 5 reaperturas con UNA evidencia sobre 5 hipótesis de la misma pregunta; 0 si la evidencia se repite. Tope por hipótesis 10, tope por pregunta 30 (techo sin él: 500). Techo efectivo medido con 4 hipótesis en churn: 30 |
 
 ### Deuda epistémica: ¿un déficit declarado se puede saldar?

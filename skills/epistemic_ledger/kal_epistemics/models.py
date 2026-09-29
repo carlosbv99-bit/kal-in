@@ -62,7 +62,22 @@ from kal_epistemics.errors import (
 )
 from kal_epistemics.safety import validate_keywords, validate_sources
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+"""Versión del snapshot que se ESCRIBE.
+
+Subió a 2 cuando C (exclusión entre alternativas) y D1 (validez temporal de la
+evidencia) agregaron campos. La regla de compatibilidad es de lectura, no de
+escritura: se LEEN todas las versiones de `VERSIONES_LEGIBLES` y se escribe
+siempre la actual. Fallar cerrado sigue significando lo mismo que siempre —no
+reinterpretar un estado de un esquema que NO sabemos leer—, y no "tirar el
+estado que sí sabemos leer pero que es de ayer". El bump anterior (1) es
+exactamente el estado de F0–F8.
+"""
+
+VERSIONES_LEGIBLES: tuple[int, ...] = (1, SCHEMA_VERSION)
+"""Versiones que `from_snapshot` acepta. Agregar una acá es declarar que el
+código sabe leerla; quitarla es declarar que ya no. Un snapshot de una versión
+FUERA de esta tupla se rechaza ruidosamente, que es la promesa que importa."""
 
 
 # --------------------------------------------------------------------------
@@ -191,6 +206,11 @@ class Flag(str, Enum):
     - `DEPENDENCY_REFUTED`: alguna dependencia (transitiva) fue refutada.
     - `UNVERIFIABLE_PROVENANCE`: hay evidencia sin ancla (`anchor` vacío).
     - `RESTING_ON_QUARANTINED`: se apoya en evidencia puesta en cuarentena.
+    - `CONFLICTING_SUPPORT` (C): es una alternativa incompatible con otra que
+      también está RESPALDADA. Dos conclusiones que no pueden ser verdad juntas y
+      las dos tienen respaldo: el sistema no puede elegir en silencio.
+    - `EXPIRED_SUPPORT` (D1): algún vínculo de sostén apunta a una observación
+      cuya ventana de validez ya cerró. Marca, no cambia estado.
     """
 
     GROUNDED_IN_EXOGENOUS = "grounded_in_exogenous"
@@ -202,6 +222,8 @@ class Flag(str, Enum):
     DEPENDENCY_REFUTED = "dependency_refuted"
     UNVERIFIABLE_PROVENANCE = "unverifiable_provenance"
     RESTING_ON_QUARANTINED = "resting_on_quarantined"
+    CONFLICTING_SUPPORT = "conflicting_support"
+    EXPIRED_SUPPORT = "expired_support"
 
 
 class ReopenAction(str, Enum):
@@ -284,8 +306,19 @@ class Evidence:
     method: str = ""  # cómo se obtuvo (nombre de tool + operación de kernel)
     acquired_at: float = 0.0
     recheckable: bool = False
+    # D1: hasta cuándo vale esta observación. `None` es "sin vencimiento
+    # declarado" — que es distinto de "vale para siempre": es "nadie lo declaró",
+    # y por eso no se marca nada. El vencimiento MARCA (Flag.EXPIRED_SUPPORT) y NUNCA
+    # cambia el estado de una hipótesis: el ledger solo cambia estado por reglas
+    # declaradas, y que un dato envejezca no es una observación nueva.
+    valid_from: float | None = None
+    valid_until: float | None = None
     status: EvidenceStatus = EvidenceStatus.ACCEPTED
     quarantine_reason: str = ""
+
+    def is_expired_at(self, at: float) -> bool:
+        """True si su ventana de validez ya cerró. Sin `valid_until` no vence."""
+        return self.valid_until is not None and at > self.valid_until
 
     @property
     def is_exogenous(self) -> bool:
@@ -343,6 +376,8 @@ class Evidence:
             "method": self.method,
             "acquired_at": self.acquired_at,
             "recheckable": self.recheckable,
+            "valid_from": self.valid_from,
+            "valid_until": self.valid_until,
             "status": self.status.value,
             "quarantine_reason": self.quarantine_reason,
         }
@@ -361,6 +396,10 @@ class Evidence:
             method=data.get("method", ""),
             acquired_at=data.get("acquired_at", 0.0),
             recheckable=data.get("recheckable", False),
+            # v1 no traía ventana de validez: default None (sin vencimiento
+            # declarado), que es exactamente lo que significaba en v1.
+            valid_from=data.get("valid_from"),
+            valid_until=data.get("valid_until"),
             status=EvidenceStatus(data.get("status", EvidenceStatus.ACCEPTED.value)),
             quarantine_reason=data.get("quarantine_reason", ""),
         )
@@ -586,6 +625,11 @@ class Hypothesis:
     question_id: str = ""
     status: HypothesisStatus = HypothesisStatus.OPEN
     depends_on: tuple[str, ...] = ()
+    # C: alternativas INCOMPATIBLES con esta (no "distintas": excluyentes). La
+    # relación es SIMÉTRICA y la mantiene el ledger en las dos direcciones, porque
+    # una exclusión de un solo lado es una trampa: el conflicto se vería desde una
+    # hipótesis y no desde la otra.
+    excludes: tuple[str, ...] = ()
     evidence_links: tuple[EvidenceLink, ...] = ()
     reopen_conditions: tuple[ReopenCondition, ...] = ()
     validity_conditions: tuple[str, ...] = ()
@@ -612,6 +656,12 @@ class Hypothesis:
         if self.id in self.depends_on:
             raise InvalidHypothesis(
                 f"'{self.id}' no puede depender de sí misma (ciclo de longitud 1)."
+            )
+
+        if self.id in self.excludes:
+            raise InvalidHypothesis(
+                f"'{self.id}' no puede excluirse a sí misma: una alternativa "
+                "incompatible consigo misma no es una alternativa."
             )
 
         vistos: set[tuple[str, LinkPolarity]] = set()
@@ -662,6 +712,7 @@ class Hypothesis:
             "question_id": self.question_id,
             "status": self.status.value,
             "depends_on": list(self.depends_on),
+            "excludes": list(self.excludes),
             "evidence_links": [l.to_dict() for l in self.evidence_links],
             "reopen_conditions": [rc.to_dict() for rc in self.reopen_conditions],
             "validity_conditions": list(self.validity_conditions),
@@ -679,6 +730,8 @@ class Hypothesis:
             question_id=data.get("question_id", ""),
             status=HypothesisStatus(data.get("status", HypothesisStatus.OPEN.value)),
             depends_on=tuple(data.get("depends_on", ())),
+            # v1 no tenía exclusiones: default vacío.
+            excludes=tuple(data.get("excludes", ())),
             evidence_links=tuple(
                 EvidenceLink.from_dict(l) for l in data.get("evidence_links", ())
             ),
@@ -808,10 +861,10 @@ def _check_schema(data: Mapping[str, Any]) -> None:
     forma silenciosa de corromper procedencia.
     """
     version = data.get("schema_version")
-    if version != SCHEMA_VERSION:
+    if version not in VERSIONES_LEGIBLES:
         raise SchemaVersionMismatch(
-            f"Se esperaba schema_version={SCHEMA_VERSION} y llegó {version!r}. "
-            "Migrar explícitamente; no reinterpretar."
+            f"Se esperaba schema_version en {VERSIONES_LEGIBLES} y llegó {version!r}. "
+            "Un esquema que no sabemos leer no se reinterpreta: migrar explícitamente."
         )
 
 

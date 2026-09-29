@@ -227,8 +227,20 @@ def test_lo_verificable_no_se_abstiene(reporte):
 
 
 def test_el_conflicto_entre_fuentes_se_registra_y_no_se_resuelve(reporte):
+    """
+    `C.conflicto_registrado` sigue en 1.0: TODOS los items de C quedan como se
+    esperaba. `C.no_bloquea` bajó de 1.0 a 0.8 con C05, y es el resultado
+    buscado, no una regresión: C05 es el caso de dos alternativas incompatibles
+    las dos respaldadas, y ahí el gate tiene que ADVERTIR (mostrar las dos) en
+    vez de dejar pasar la elección en silencio. Si este número volviera a 1.0
+    sería porque R3 dejó de dispararse.
+    """
     assert reporte.metricas["C.conflicto_registrado"] == 1.0
-    assert reporte.metricas["C.no_bloquea"] == 1.0
+    assert reporte.metricas["C.no_bloquea"] == pytest.approx(0.8)
+
+    c05 = [r for r in reporte.resultados if r.id == "C05"]
+    assert c05 and c05[0].observado.motivo == "alternativas_respaldadas_en_conflicto"
+    assert "conflicting_support" in c05[0].observado.flags
 
 
 def test_las_reaperturas_no_dependen_del_modelo(reporte):

@@ -172,3 +172,108 @@ def test_los_hedges_declarados_no_se_bloquean(hedge):
     store.ledger("s").open_question("¿Por qué se cayó?", missing=["el log del kernel"])
 
     assert _gate(store, hedge).outcome is GateOutcome.PERMITIR
+
+
+# --- R3 (C): alternativas incompatibles, las dos respaldadas --------------
+
+
+def _store_con_conflicto() -> EpistemicStore:
+    """
+    El caso real, por el camino real: dos candidatas a la misma pregunta, cada una
+    respaldada por una observación distinta que entra por `ingest_tool_result`
+    (el mismo camino que usa el loop). Nada de `set_status`: ningún camino del
+    host pone SUPPORTED, así que una regla que dependiera de ese estado no se
+    dispararía nunca en una conversación.
+    """
+    store = _store()
+    ledger = store.ledger("s")
+    pregunta, _ = ledger.open_question("¿Por qué se cayó el servicio a las 3:14?")
+    from kal_epistemics import ReopenCondition
+
+    primera = ledger.record_hypothesis(
+        "Se cayó por falta de memoria",
+        question_id=pregunta.id,
+        reopen_conditions=[ReopenCondition.from_untrusted(content_keywords=("OutOfMemory",))],
+    )
+    ledger.record_hypothesis(
+        "Se cayó por el deploy",
+        question_id=pregunta.id,
+        reopen_conditions=[ReopenCondition.from_untrusted(content_keywords=("deploy",))],
+        excludes=(primera.id,),
+    )
+    store.ingest_tool_result(
+        session_id="s", tool_name="run_code",
+        observation="kernel: OutOfMemory killed process 4821",
+    )
+    store.ingest_tool_result(
+        session_id="s", tool_name="browser",
+        observation="el evento coincide con el deploy 2026.09.29-3",
+    )
+    return store
+
+
+def test_r3_advierta_que_hay_alternativas_respaldadas_en_conflicto():
+    store = _store_con_conflicto()
+
+    decision = _gate(store, _AFIRMATIVA_LARGA, evidence_before=0)
+
+    assert decision.outcome is GateOutcome.ADVERTIR
+    assert decision.reason == "alternativas_respaldadas_en_conflicto"
+    assert "Conflicto sin resolver" in decision.answer
+    assert "mostrá las dos" in decision.answer
+
+
+def test_r3_no_marca_una_respuesta_que_ya_muestra_las_dos():
+    """Una respuesta que ya admite incertidumbre está haciendo lo que la regla
+    pide: marcar sería ruido (misma lógica que el filtro de R2, medido en F6)."""
+    store = _store_con_conflicto()
+
+    decision = _gate(
+        store,
+        "Hay dos lecturas y no lo sé resolver: el kernel muestra falta de memoria y el "
+        "panel atribuye el evento al deploy de esa madrugada.",
+        evidence_before=0,
+    )
+
+    assert decision.outcome is GateOutcome.PERMITIR, decision.reason
+
+
+def test_sin_conflicto_la_regla_no_existe():
+    """El control: dos candidatas de la misma pregunta, una sola respaldada."""
+    store = _store()
+    ledger = store.ledger("s")
+    pregunta, _ = ledger.open_question("¿Por qué se cayó?")
+    from kal_epistemics import ReopenCondition
+
+    primera = ledger.record_hypothesis(
+        "Se cayó por falta de memoria",
+        question_id=pregunta.id,
+        reopen_conditions=[ReopenCondition.from_untrusted(content_keywords=("OutOfMemory",))],
+    )
+    ledger.record_hypothesis(
+        "Se cayó por el deploy",
+        question_id=pregunta.id,
+        excludes=(primera.id,),
+    )
+    store.ingest_tool_result(
+        session_id="s", tool_name="run_code", observation="kernel: OutOfMemory killed 4821"
+    )
+
+    decision = _gate(store, _AFIRMATIVA_LARGA, evidence_before=0)
+
+    assert decision.reason != "alternativas_respaldadas_en_conflicto"
+
+
+def test_el_expediente_muestra_el_conflicto_aunque_las_dos_esten_resueltas():
+    """
+    El conflicto va en una sección PROPIA porque `open_hypotheses()` excluye las
+    SUPPORTED: si se mostrara solo ahí, el caso que importa —dos alternativas
+    incompatibles, las dos respaldadas— no aparecería nunca.
+    """
+    store = _store_con_conflicto()
+
+    bloque = store.context_block("s", provider="local")
+
+    assert "CONFLICTO SIN RESOLVER" in bloque
+    assert "Se cayó por falta de memoria" in bloque
+    assert "Se cayó por el deploy" in bloque

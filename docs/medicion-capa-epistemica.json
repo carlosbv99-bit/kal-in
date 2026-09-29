@@ -1161,6 +1161,32 @@
       "ok": true
     },
     {
+      "conjunto": "C",
+      "etiqueta": "alternativas_incompatibles_respaldadas",
+      "fallos": [],
+      "id": "C05",
+      "observado": {
+        "abstencion_identica": false,
+        "ancladas": 2,
+        "claves_canonicas": 0,
+        "estado": "reactivated",
+        "evidencia_exogena": 2,
+        "flags": [
+          "conflicting_support",
+          "grounded_in_exogenous",
+          "no_falsifier"
+        ],
+        "gate": "advertir",
+        "motivo": "alternativas_respaldadas_en_conflicto",
+        "nota_reapertura": true,
+        "observaciones_ejecutadas": 2,
+        "observaciones_totales": 2,
+        "reaperturas": 1,
+        "registros_entre_sesiones": 0
+      },
+      "ok": true
+    },
+    {
       "conjunto": "D",
       "etiqueta": "cosmetica_puntuacion",
       "fallos": [],
@@ -1433,8 +1459,8 @@
       "tope_por_pregunta": 30
     },
     "ancla_audit_event_hash": {
-      "con_ancla": 27,
-      "evidencia_exogena": 27
+      "con_ancla": 29,
+      "evidencia_exogena": 29
     },
     "cuarentena": {
       "casos": 3,
@@ -1459,6 +1485,25 @@
         "el_deficit_tiene_condicion_de_pago": true,
         "evidencia_que_matchea": true,
         "gate_sobre_respuesta_afirmativa": "permitir"
+      }
+    },
+    "exclusion_y_validez": {
+      "conflicto": {
+        "control_sin_exclusion": 0,
+        "flag_en_ambas": true,
+        "gate_afirmativa": "alternativas_respaldadas_en_conflicto",
+        "gate_hedged": "ok",
+        "marcadas_igual": true,
+        "pares_detectados": 1
+      },
+      "validez": {
+        "control_no_vence": false,
+        "control_sin_ventana_marca": false,
+        "estado_control": "reactivated",
+        "estado_tras_vencer": "reactivated",
+        "vencida_cambia_estado": false,
+        "vencida_es_la_de_ventana_cerrada": true,
+        "vencida_marca": true
       }
     },
     "matriz_origenes_x_acciones": {
@@ -1498,7 +1543,7 @@
       "vinculos": 1
     }
   },
-  "huella_corpus": "f59be244d85d838d73c19214e161c7ca18a9eac1c9eb891e81d3461f2c57c6f5",
+  "huella_corpus": "756344b93d572ce67b5d260baeab41eed320070286582d404d89a42d41264c7b",
   "metricas": {
     "A.abstencion_correcta": 0.8333333333333334,
     "A.advertidos": 0.08333333333333333,
@@ -1512,7 +1557,7 @@
     "B.abstencion_falsa": 0.0,
     "B.permite": 1.0,
     "C.conflicto_registrado": 1.0,
-    "C.no_bloquea": 1.0,
+    "C.no_bloquea": 0.8,
     "D.abstencion_estable": 1.0,
     "D.dedup_cosmetica": 1.0,
     "D.dedup_entre_sesiones": 1.0,
@@ -1527,7 +1572,7 @@
   "tamanos": {
     "A": 12,
     "B": 12,
-    "C": 4,
+    "C": 5,
     "D": 5,
     "K": 41,
     "R": 6

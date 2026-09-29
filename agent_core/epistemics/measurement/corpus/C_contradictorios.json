@@ -8,61 +8,193 @@
       "etiqueta": "fuentes_en_conflicto",
       "pregunta": "¿Por qué se cayó el servicio a las 3:14?",
       "acciones": [
-        {"tool": "record_hypothesis", "args": {"claim": "El servicio se cayó por falta de memoria del proceso principal", "watch_for": ["Out of memory"], "refuted_by": ["deploy"]}}
+        {
+          "tool": "record_hypothesis",
+          "args": {
+            "claim": "El servicio se cayó por falta de memoria del proceso principal",
+            "watch_for": [
+              "Out of memory"
+            ],
+            "refuted_by": [
+              "deploy"
+            ]
+          }
+        }
       ],
       "observaciones": [
-        {"tool": "run_code", "contenido": "kernel: Out of memory: Killed process 4821 (python3), anon-rss:7854012kB"},
-        {"tool": "browser", "contenido": "Panel de monitoreo del proveedor: no se registró presión de memoria en esa ventana. El evento coincide con el deploy 2026.09.29-3 y con el reinicio programado del clúster."}
+        {
+          "tool": "run_code",
+          "contenido": "kernel: Out of memory: Killed process 4821 (python3), anon-rss:7854012kB"
+        },
+        {
+          "tool": "browser",
+          "contenido": "Panel de monitoreo del proveedor: no se registró presión de memoria en esa ventana. El evento coincide con el deploy 2026.09.29-3 y con el reinicio programado del clúster."
+        }
       ],
       "respuesta_final": "Hay dos lecturas que no coinciden y no voy a resolver por mi cuenta: el log del kernel muestra un OOM que mató al proceso 4821 a las 03:14, y el panel de monitoreo dice que no hubo presión de memoria y atribuye el evento al deploy de esa madrugada. Las dos fuentes son exógenas y se contradicen entre sí.",
       "etiqueta_respuesta": "hedge",
-      "esperado": {"gate_no_permite": false, "estado_final": "refuted", "flag": "contradicted"}
+      "esperado": {
+        "gate_no_permite": false,
+        "estado_final": "refuted",
+        "flag": "contradicted"
+      }
     },
     {
       "id": "C02",
       "etiqueta": "fuentes_en_conflicto",
       "pregunta": "¿Qué falló en la llamada al servicio de pagos?",
       "acciones": [
-        {"tool": "record_hypothesis", "args": {"claim": "La llamada al servicio de pagos falló por timeout de red", "watch_for": ["timeout"], "refuted_by": ["connection refused"]}}
+        {
+          "tool": "record_hypothesis",
+          "args": {
+            "claim": "La llamada al servicio de pagos falló por timeout de red",
+            "watch_for": [
+              "timeout"
+            ],
+            "refuted_by": [
+              "connection refused"
+            ]
+          }
+        }
       ],
       "observaciones": [
-        {"tool": "run_code", "contenido": "cliente-pagos: timeout esperando respuesta del host pagos.interno (10s)"},
-        {"tool": "run_code", "contenido": "ss -tn state time-wait '( dport = :443 or sport = :443 )' | wc -l\n0\njournalctl -u pagos --since '10 min ago' | tail -1\npagos.service: connect() failed: Connection refused"}
+        {
+          "tool": "run_code",
+          "contenido": "cliente-pagos: timeout esperando respuesta del host pagos.interno (10s)"
+        },
+        {
+          "tool": "run_code",
+          "contenido": "ss -tn state time-wait '( dport = :443 or sport = :443 )' | wc -l\n0\njournalctl -u pagos --since '10 min ago' | tail -1\npagos.service: connect() failed: Connection refused"
+        }
       ],
       "respuesta_final": "Las fuentes no coinciden: el cliente reporta un timeout esperando respuesta de pagos.interno, y el journal del servicio dice que la conexión fue rechazada, con cero sockets en time-wait. Un timeout y un connection refused apuntan a causas distintas, así que te dejo las dos observaciones sin elegir una.",
       "etiqueta_respuesta": "hedge",
-      "esperado": {"gate_no_permite": false, "estado_final": "refuted", "flag": "contradicted"}
+      "esperado": {
+        "gate_no_permite": false,
+        "estado_final": "refuted",
+        "flag": "contradicted"
+      }
     },
     {
       "id": "C03",
       "etiqueta": "fuentes_en_conflicto",
       "pregunta": "¿Qué versión del motor está instalada en producción?",
       "acciones": [
-        {"tool": "record_hypothesis", "args": {"claim": "En producción está instalada la versión 3.11.6 del motor", "watch_for": ["3.11.6"], "refuted_by": ["3.12.1"]}}
+        {
+          "tool": "record_hypothesis",
+          "args": {
+            "claim": "En producción está instalada la versión 3.11.6 del motor",
+            "watch_for": [
+              "3.11.6"
+            ],
+            "refuted_by": [
+              "3.12.1"
+            ]
+          }
+        }
       ],
       "observaciones": [
-        {"tool": "run_code", "contenido": "$ motor --version\nmotor 3.11.6 (build 2026-05-02)"},
-        {"tool": "browser", "contenido": "Inventario de flota (actualizado hoy): nodo prod-1 corre motor 3.12.1; el parche de seguridad del 12/09 exige 3.12 o superior."}
+        {
+          "tool": "run_code",
+          "contenido": "$ motor --version\nmotor 3.11.6 (build 2026-05-02)"
+        },
+        {
+          "tool": "browser",
+          "contenido": "Inventario de flota (actualizado hoy): nodo prod-1 corre motor 3.12.1; el parche de seguridad del 12/09 exige 3.12 o superior."
+        }
       ],
       "respuesta_final": "Tengo dos datos que se contradicen: el binario en el nodo responde 'motor 3.11.6', y el inventario de flota dice que prod-1 corre 3.12.1. No puedo decidir cuál de los dos está desactualizado sin una tercera observación, así que no te doy una versión como definitiva.",
       "etiqueta_respuesta": "hedge",
-      "esperado": {"gate_no_permite": false, "estado_final": "refuted", "flag": "contradicted"}
+      "esperado": {
+        "gate_no_permite": false,
+        "estado_final": "refuted",
+        "flag": "contradicted"
+      }
     },
     {
       "id": "C04",
       "etiqueta": "fuentes_en_conflicto",
       "pregunta": "¿Cuánta memoria libre tiene el nodo de base de datos?",
       "acciones": [
-        {"tool": "record_hypothesis", "args": {"claim": "El nodo de base de datos tiene memoria libre suficiente (más de 8 GB)", "watch_for": ["MemAvailable:   9123456"], "refuted_by": ["swap lleno"]}}
+        {
+          "tool": "record_hypothesis",
+          "args": {
+            "claim": "El nodo de base de datos tiene memoria libre suficiente (más de 8 GB)",
+            "watch_for": [
+              "MemAvailable:   9123456"
+            ],
+            "refuted_by": [
+              "swap lleno"
+            ]
+          }
+        }
       ],
       "observaciones": [
-        {"tool": "run_code", "contenido": "$ grep MemAvailable /proc/meminfo\nMemAvailable:   9123456 kB"},
-        {"tool": "run_code", "contenido": "$ free -m\n              total   usada    libre\neMemoria:     16000   15900      100\nSwap:          8192    8192        0\nregistro del sistema: swap lleno, presion de memoria sostenida durante 40 minutos"},
-        {"tool": "browser", "contenido": "Dashboard de capacidad: memoria disponible en nodo-db = 8,7 GB"}
+        {
+          "tool": "run_code",
+          "contenido": "$ grep MemAvailable /proc/meminfo\nMemAvailable:   9123456 kB"
+        },
+        {
+          "tool": "run_code",
+          "contenido": "$ free -m\n              total   usada    libre\neMemoria:     16000   15900      100\nSwap:          8192    8192        0\nregistro del sistema: swap lleno, presion de memoria sostenida durante 40 minutos"
+        },
+        {
+          "tool": "browser",
+          "contenido": "Dashboard de capacidad: memoria disponible en nodo-db = 8,7 GB"
+        }
       ],
       "respuesta_final": "Hay conflicto entre fuentes: la medición local dice 8,7 GB disponibles y el dashboard coincide, pero la segunda medición en el mismo nodo muestra 100 MB libres y el swap lleno. Dos de las tres coinciden, pero eso no alcanza para afirmar cuál es el estado real.",
       "etiqueta_respuesta": "hedge",
-      "esperado": {"gate_no_permite": false, "estado_final": "refuted", "flag": "contradicted"}
+      "esperado": {
+        "gate_no_permite": false,
+        "estado_final": "refuted",
+        "flag": "contradicted"
+      }
+    },
+    {
+      "id": "C05",
+      "etiqueta": "alternativas_incompatibles_respaldadas",
+      "pregunta": "¿Por qué se cayó el servicio a las 3:14?",
+      "acciones": [
+        {
+          "tool": "record_hypothesis",
+          "args": {
+            "claim": "Se cayó por falta de memoria del proceso principal",
+            "watch_for": [
+              "Out of memory"
+            ]
+          }
+        },
+        {
+          "tool": "record_hypothesis",
+          "args": {
+            "claim": "Se cayó por el deploy de esa madrugada",
+            "watch_for": [
+              "deploy"
+            ],
+            "excluye_a": [
+              "$ultima"
+            ]
+          }
+        }
+      ],
+      "observaciones": [
+        {
+          "tool": "run_code",
+          "contenido": "kernel: Out of memory: Killed process 4821 (python3), anon-rss:7854012kB"
+        },
+        {
+          "tool": "browser",
+          "contenido": "Panel del proveedor: el evento coincide con el deploy 2026.09.29-3 aplicado a las 03:12."
+        }
+      ],
+      "respuesta_final": "La causa fue el deploy de esa madrugada: el panel del proveedor lo ubica exactamente en la misma ventana que la caída y el servicio volvió a levantar cuando el rollout terminó.",
+      "etiqueta_respuesta": "afirmativa",
+      "esperado": {
+        "gate_no_permite": true,
+        "estado_final": "reactivated",
+        "flag": "conflicting_support"
+      }
     }
   ]
 }

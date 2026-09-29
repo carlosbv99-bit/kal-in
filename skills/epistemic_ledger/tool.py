@@ -84,13 +84,41 @@ _CLAVES_POR_OPERACION: dict[str, frozenset[str]] = {
     "consultar": frozenset({"estado", "limite"}),
     "abrir_pregunta": frozenset({"estado", "pregunta", "faltantes", "reabrir_con"}),
     "registrar_hipotesis": frozenset(
-        {"estado", "claim", "pregunta_id", "depende_de", "reabrir_con", "refutar_con"}
+        {
+            "estado",
+            "claim",
+            "pregunta_id",
+            "depende_de",
+            "reabrir_con",
+            "refutar_con",
+            "excluye_a",
+        }
     ),
     "ingerir_evidencia": frozenset(
-        {"estado", "contenido", "origen", "fuente", "ancla", "ancla_tipo", "metodo"}
+        {
+            "estado",
+            "contenido",
+            "origen",
+            "fuente",
+            "ancla",
+            "ancla_tipo",
+            "metodo",
+            "valido_desde",
+            "valido_hasta",
+        }
     ),
     "simular_evidencia": frozenset(
-        {"estado", "contenido", "origen", "fuente", "ancla", "ancla_tipo", "metodo"}
+        {
+            "estado",
+            "contenido",
+            "origen",
+            "fuente",
+            "ancla",
+            "ancla_tipo",
+            "metodo",
+            "valido_desde",
+            "valido_hasta",
+        }
     ),
     "abstencion": frozenset(
         {"estado", "pregunta_id", "pregunta", "faltantes", "necesita_condicion"}
@@ -265,11 +293,17 @@ def _operar(operacion: str, entrada: dict) -> tuple[dict, HypothesisLedger]:
         condiciones = _condiciones(entrada, clave="reabrir_con") + _condiciones(
             entrada, clave="refutar_con"
         )
+        excluye = entrada.get("excluye_a") or []
+        if not isinstance(excluye, list) or not all(isinstance(x, str) for x in excluye):
+            raise _ErrorDeContrato("'excluye_a' tiene que ser una lista de ids de hipótesis")
         hipotesis = ledger.record_hypothesis(
             claim,
             question_id=entrada.get("pregunta_id") or "",
             depends_on=entrada.get("depende_de") or (),
             reopen_conditions=condiciones,
+            # C: alternativas INCOMPATIBLES. La exclusión es simétrica y la
+            # mantiene la librería, no esta fachada.
+            excludes=excluye,
         )
         return {
             "hipotesis_id": hipotesis.id,
@@ -277,6 +311,7 @@ def _operar(operacion: str, entrada: dict) -> tuple[dict, HypothesisLedger]:
             "nivel": ledger.level(hipotesis.id),
             # El estado no lo elige quien registra: nace OPEN y lo cambia la
             # evidencia. Es la misma frontera que las tools del host.
+            "excluye_a": sorted(excluye),
             "nota": "nace SIN respaldo; el estado lo cambia la evidencia, no el llamador",
         }, ledger
 
@@ -295,6 +330,14 @@ def _operar(operacion: str, entrada: dict) -> tuple[dict, HypothesisLedger]:
         # MODEL_GENERATED se puede registrar (pesa 0 y queda trazable), pero el
         # matcher nunca lo deja reabrir nada: la regla es estructural y vive en la
         # librería, no acá.
+        def _instante(clave: str) -> float | None:
+            valor = entrada.get(clave)
+            if valor is None:
+                return None
+            if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+                raise _ErrorDeContrato(f"'{clave}' tiene que ser un número (epoch) o ausente")
+            return float(valor)
+
         evidencia = Evidence.from_content(
             contenido,
             origin=origen,
@@ -304,6 +347,10 @@ def _operar(operacion: str, entrada: dict) -> tuple[dict, HypothesisLedger]:
             anchor_kind=str(entrada.get("ancla_tipo") or ""),
             acquired_at=time.time(),
             recheckable=True,
+            # D1: la ventana la declara quien trae el dato. Vencer MARCA, no
+            # cambia estados: la fachada no decide nada con esto.
+            valid_from=_instante("valido_desde"),
+            valid_until=_instante("valido_hasta"),
         )
 
         if operacion == "simular_evidencia":

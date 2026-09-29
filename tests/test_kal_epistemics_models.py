@@ -256,11 +256,30 @@ def test_round_trip_de_evidence_question_y_deficit():
 
 
 def test_una_version_de_esquema_distinta_se_rechaza_en_vez_de_reinterpretarse():
+    """
+    Falla cerrado ante un esquema que NO sabemos leer. Eso sigue significando lo
+    mismo que siempre: no reinterpretar. Lo que cambió con el bump a v2 es que
+    "no sé leer" se mide contra `VERSIONES_LEGIBLES`, no contra la versión actual
+    — tirar un estado de ayer que sí sabemos leer no es prudencia, es perder el
+    activo (ver el test de compatibilidad de abajo).
+    """
     datos = _evidence().to_dict()
     datos["schema_version"] = 99
 
-    with pytest.raises(SchemaVersionMismatch, match="Migrar explícitamente"):
+    with pytest.raises(SchemaVersionMismatch, match="migrar explícitamente"):
         Evidence.from_dict(datos)
+
+
+def test_una_version_anterior_pero_legible_se_lee():
+    """v1 se lee: el corte es "no sé leer", no "no es la última"."""
+    datos = _evidence().to_dict()
+    datos["schema_version"] = 1
+    datos.pop("valid_from", None)
+    datos.pop("valid_until", None)
+
+    ev = Evidence.from_dict(datos)
+
+    assert ev.valid_from is None and ev.valid_until is None
 
 
 # --- dedup y clave canónica ----------------------------------------------
