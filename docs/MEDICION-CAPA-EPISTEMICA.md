@@ -56,7 +56,7 @@ Mide el **sistema** —store real, camino de ingestión real, ancla real, ledger
 | Evidencia en cuarentena | 3/3 no reabren |
 | Misma observación 3 veces (por el camino real) | reaperturas=1, vínculos=1 |
 | Ancla real `audit_event_hash` | 27/27 evidencias exógenas |
-| Amplificación de R8 (R8 sin tope por pregunta) | 5 reaperturas con UNA evidencia sobre 5 hipótesis de la misma pregunta; 0 si la evidencia se repite; 5 con otra evidencia con el mismo marcador. Techo teórico por pregunta: 500 |
+| Amplificación y tope por pregunta (R8) | 5 reaperturas con UNA evidencia sobre 5 hipótesis de la misma pregunta; 0 si la evidencia se repite. Tope por hipótesis 10, tope por pregunta 30 (techo sin él: 500). Techo efectivo medido con 4 hipótesis en churn: 30 |
 
 ### Deuda epistémica: ¿un déficit declarado se puede saldar?
 

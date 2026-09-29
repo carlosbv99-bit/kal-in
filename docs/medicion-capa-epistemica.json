@@ -1427,8 +1427,10 @@
       "reaperturas_con_la_misma_evidencia_repetida": 0,
       "reaperturas_con_una_evidencia": 5,
       "reaperturas_con_una_evidencia_nueva": 5,
-      "techo_teorico_por_pregunta": 500,
-      "tope_por_hipotesis": 10
+      "techo_efectivo_medido": 30,
+      "techo_teorico_sin_tope_por_pregunta": 500,
+      "tope_por_hipotesis": 10,
+      "tope_por_pregunta": 30
     },
     "ancla_audit_event_hash": {
       "con_ancla": 27,

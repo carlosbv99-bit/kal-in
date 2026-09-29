@@ -72,6 +72,25 @@ todo, la hipótesis no puede cambiar de estado más de N veces. Sin esto, la
 calidad de la palabra clave sería la única defensa, y la calidad de un texto
 escrito por el modelo no es una garantía.
 """
+MAX_REOPEN_APPLICATIONS_PER_QUESTION = 30
+"""
+Presupuesto de reaperturas automáticas por PREGUNTA (R8 del roadmap).
+
+Por qué hace falta además del tope por hipótesis: ese tope no acota el total de
+una pregunta, porque la MISMA observación se evalúa contra TODAS las hipótesis
+del ledger, cada una con su propio presupuesto. La medición de F6 lo dejó medido:
+con 5 hipótesis de la misma pregunta mirando el mismo marcador, **una sola
+observación produce 5 reaperturas**, y el techo teórico de una pregunta es
+10 × 50 = 500 aplicaciones.
+
+El valor (30 = 3 × el tope por hipótesis) sale de la medición, no de una
+intuición: una pregunta puede acumular el desgaste de tres hipótesis completas
+antes de que el sistema deje de reabrir, mientras que en el corpus de F6 el
+máximo observado por pregunta es 1–2. Es un valor inicial revisable con tráfico
+real, y su costo está declarado: un tope así también puede impedir que una
+hipótesis legítima reciba el respaldo que le llegó, así que si ese caso aparece,
+el número se sube — con el dato de que está pasando.
+"""
 MAX_EVIDENCE_CONTENT_LENGTH = 100_000
 """
 Tope de contenido por evidencia. Es un backstop del ledger, no la política de

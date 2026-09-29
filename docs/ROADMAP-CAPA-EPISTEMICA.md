@@ -9,7 +9,8 @@
 > marcadores de hedge y del umbral, reporte generado y guarda de regresión).
 > F2b, F3 y F5 pendientes. **F4 completa** (D4: SQLite propio; D5: ámbito por
 > instalación): el ledger sobrevive al proceso, la misma pregunta en otra sesión
-> cae en el mismo registro, y el estado se compacta por presupuesto.
+> cae en el mismo registro, el estado se compacta por presupuesto, y las
+> reaperturas tienen presupuesto por hipótesis **y por pregunta** (R8).
 >
 > Los dos hallazgos de la medición quedaron cerrados: D10 (el orden de las
 > condiciones dejó de importar) el mismo día, y D9 (el déficit que la tool
@@ -695,19 +696,19 @@ diseño es exactamente el error que este proyecto evita. Hoy no ocurre (un únic
 ledger vivo por ámbito). Hay un test sobre el port y otro sobre SQLite que lo
 dicen.
 
-**R8 (límite de reaperturas por pregunta), ahora con número.** La medición de F6
-lo mide: con 5 hipótesis de la misma pregunta mirando el mismo marcador, **una
-sola observación produce 5 reaperturas** (una por hipótesis, cada una con su
-presupuesto individual), repetir la misma evidencia produce 0, y otra evidencia
-con el mismo marcador produce 5 más. El único tope que existe es por hipótesis
-(10), así que el techo teórico de una pregunta es 10 × 50 = **500 aplicaciones**.
-El tope por pregunta que pide este mismo apartado es **lo único que queda de F4
-sin implementar**, y el número también dice su costo: un tope así puede impedir
-que una hipótesis legítima reciba el respaldo que le llegó. Se decide con este
-dato, no antes — y la pregunta concreta es solo el valor: con el techo medido en
-500 aplicaciones por pregunta y 5 por evidencia, un tope de, digamos, 30 no
-cambiaría ningún caso real del corpus y acotaría el amplificador de una condición
-genérica.
+**R8 (límite de reaperturas por pregunta): implementado, con el número medido.**
+El tope por hipótesis no acota el total de una pregunta, porque la misma
+observación se evalúa contra TODAS las hipótesis: con 5 hipótesis mirando el mismo
+marcador, **una sola observación produce 5 reaperturas**, y el techo teórico de
+una pregunta era 10 × 50 = **500**. Ahora hay un presupuesto por pregunta
+(`MAX_REOPEN_APPLICATIONS_PER_QUESTION = 30`, tres veces el de una hipótesis), y
+la medición verifica el techo **efectivo** dejando una pregunta en churn: da 30,
+no 500. Se **deriva** de los contadores por hipótesis, así que viaja en el
+snapshot sin agregar estado; una hipótesis sin pregunta solo tiene su propio
+presupuesto. El valor es un inicial revisable, y su costo queda declarado: un
+tope así también puede impedir que una hipótesis legítima reciba el respaldo que
+le llegó — en el corpus, el máximo observado por pregunta es 1–2, así que ningún
+caso real se acerca al tope.
 
 ---
 

@@ -640,3 +640,104 @@ def test_open_question_sin_condiciones_deja_el_deficit_pendiente_para_siempre():
     led.consider(_ev(content="kernel: Out of memory: Killed 4821", content_hash="hash_oom"))
 
     assert led.missing_descriptions(q.id) == ("el log del kernel",)
+
+
+# --- R8: el presupuesto por PREGUNTA --------------------------------------
+#
+# Hallazgo medido en F6: el tope por hipótesis no acota el total de una pregunta,
+# porque la misma observación se evalúa contra TODAS las hipótesis del ledger.
+# Con 5 hipótesis mirando el mismo marcador, UNA observación produce 5
+# reaperturas; el techo teórico de una pregunta era 10 × 50 = 500.
+
+
+def _evidencia_distinta(indice: int) -> Evidence:
+    """Evidencia nueva cada vez (hash distinto) que matchea el mismo marcador."""
+    return _ev(content=f"el rebuild avanzó, paso {indice}", content_hash=f"hash_{indice}")
+
+
+def test_el_presupuesto_por_pregunta_acota_el_total_de_una_pregunta():
+    from kal_epistemics.safety import MAX_REOPEN_APPLICATIONS_PER_QUESTION
+
+    led = _ledger()
+    pregunta, _ = led.open_question("¿Qué pasó con el índice?")
+    hipotesis = [
+        led.record_hypothesis(
+            f"Hipótesis {i}",
+            question_id=pregunta.id,
+            reopen_conditions=[ReopenCondition.from_untrusted(content_keywords=("rebuild",))],
+        )
+        for i in range(4)
+    ]
+
+    # Se ingieren evidencias nuevas hasta que el ledger deje de reabrir.
+    for i in range(60):
+        led.consider(_evidencia_distinta(i))
+
+    total = led.reopen_count_of_question(pregunta.id)
+    assert total == MAX_REOPEN_APPLICATIONS_PER_QUESTION, (
+        f"la pregunta acumuló {total} reaperturas con un tope de "
+        f"{MAX_REOPEN_APPLICATIONS_PER_QUESTION}"
+    )
+    # Ninguna hipótesis se pasó de su propio tope, y el que cortó fue el de la
+    # pregunta (4 hipótesis × 10 = 40 > 30).
+    for h in hipotesis:
+        assert led.reopen_count(h.id) <= 10
+
+
+def test_el_presupuesto_por_pregunta_no_afecta_a_una_hipotesis_sin_pregunta():
+    """Una hipótesis sin pregunta solo tiene su presupuesto: agruparla en un
+    cajón común sería inventar una pregunta que nadie hizo."""
+    led = _ledger()
+    h = led.record_hypothesis(
+        "suelta", reopen_conditions=[ReopenCondition.from_untrusted(content_keywords=("rebuild",))]
+    )
+
+    for i in range(30):
+        led.consider(_evidencia_distinta(i))
+
+    assert led.reopen_count(h.id) == 10  # su propio tope, intacto
+
+
+def test_el_presupuesto_por_pregunta_no_frena_una_pregunta_normal():
+    """El costo declarado del tope: puede negar respaldo legítimo. Se verifica
+    que con un uso normal (una hipótesis, tres evidencias) no frene nada."""
+    led = _ledger()
+    pregunta, _ = led.open_question("¿Qué pasó con el índice?")
+    h = led.record_hypothesis(
+        "El rebuild rompió el índice",
+        question_id=pregunta.id,
+        reopen_conditions=[ReopenCondition.from_untrusted(content_keywords=("rebuild",))],
+    )
+
+    for i in range(3):
+        led.consider(_evidencia_distinta(i))
+
+    assert led.reopen_count(h.id) == 3
+    assert led.reopen_count_of_question(pregunta.id) == 3
+
+
+def test_el_presupuesto_por_pregunta_sobrevive_al_round_trip():
+    """
+    Como se DERIVA de los contadores por hipótesis, no hace falta serializarlo:
+    lo que viaja en el snapshot son los contadores, y el tope se vuelve a
+    calcular. Se verifica que después de recargar el ledger siga cortando.
+    """
+    from kal_epistemics.safety import MAX_REOPEN_APPLICATIONS_PER_QUESTION
+
+    led = _ledger()
+    pregunta, _ = led.open_question("¿Qué pasó con el índice?")
+    for i in range(4):
+        led.record_hypothesis(
+            f"Hipótesis {i}",
+            question_id=pregunta.id,
+            reopen_conditions=[ReopenCondition.from_untrusted(content_keywords=("rebuild",))],
+        )
+    for i in range(60):
+        led.consider(_evidencia_distinta(i))
+    assert led.reopen_count_of_question(pregunta.id) == MAX_REOPEN_APPLICATIONS_PER_QUESTION
+
+    recargado = ke.HypothesisLedger.from_snapshot(led.snapshot(), clock=lambda: 1000.0)
+    antes = recargado.reopen_count_of_question(pregunta.id)
+    recargado.consider(_evidencia_distinta(999))
+
+    assert recargado.reopen_count_of_question(pregunta.id) == antes

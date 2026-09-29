@@ -565,17 +565,19 @@ def _medir_amplificacion_por_evidencia() -> dict[str, Any]:
 
     Una condición genérica ("si aparece 'rebuild'") declarada por N hipótesis de
     la MISMA pregunta hace que UNA observación produzca N reaperturas, una por
-    hipótesis, cada una con su propio presupuesto individual. El tope por
-    PREGUNTA que pide el roadmap (R8) no existe hoy: el único tope es por
-    hipótesis, así que el techo teórico de una pregunta es el producto de los dos.
+    hipótesis, cada una con su propio presupuesto individual. Por eso el tope por
+    hipótesis no acota el total de una pregunta: sin el tope por pregunta que pide
+    R8, el techo teórico de una pregunta es el producto de los dos (10 × 50 = 500).
 
-    Este número es lo que hace falta para decidir si el tope por pregunta se
-    justifica — y contra qué costo: un tope así también puede impedir que una
+    Se mide lo que ese tope cambia: cuántas reaperturas acumula una pregunta con
+    cuatro hipótesis mirando el mismo marcador hasta que el ledger deja de
+    reabrir. El costo también queda a la vista: un tope así puede impedir que una
     hipótesis legítima reciba el respaldo que le llegó.
     """
     from kal_epistemics.safety import (
         MAX_HYPOTHESES_PER_QUESTION,
         MAX_REOPEN_APPLICATIONS_PER_HYPOTHESIS,
+        MAX_REOPEN_APPLICATIONS_PER_QUESTION,
     )
 
     led = HypothesisLedger(clock=RELOJ_FIJO)
@@ -605,16 +607,42 @@ def _medir_amplificacion_por_evidencia() -> dict[str, Any]:
     con_la_misma = observar("el rebuild del índice empezó a las 04:00")
     con_otra = observar("el rebuild del índice terminó a las 04:20")
 
+    # Segunda fase: el tope por PREGUNTA (R8). Se ingieren evidencias nuevas
+    # hasta que el ledger deje de reabrir, para medir el techo EFECTIVO en vez de
+    # confiar en la constante.
+    led2 = HypothesisLedger(clock=RELOJ_FIJO)
+    pregunta2, _ = led2.open_question("¿Qué pasó con el índice?")
+    hipotesis2 = [
+        led2.record_hypothesis(
+            f"Hipótesis {i} sobre el índice",
+            question_id=pregunta2.id,
+            reopen_conditions=(ReopenCondition.from_untrusted(content_keywords=("rebuild",)),),
+        )
+        for i in range(4)
+    ]
+    for i in range(60):
+        led2.consider(
+            Evidence.from_content(
+                f"el rebuild avanzó, paso {i}",
+                origin=EvidenceOrigin.KERNEL_OBSERVED,
+                anchor="evt_medicion",
+                anchor_kind="audit_event_hash",
+            )
+        )
+    techo_medido = sum(led2.reopen_count(h.id) for h in hipotesis2)
+
     return {
         "hipotesis_con_la_misma_condicion": len(hipotesis),
         "reaperturas_con_una_evidencia": con_una,
         "reaperturas_con_la_misma_evidencia_repetida": con_la_misma,
         "reaperturas_con_una_evidencia_nueva": con_otra,
         "tope_por_hipotesis": MAX_REOPEN_APPLICATIONS_PER_HYPOTHESIS,
+        "tope_por_pregunta": MAX_REOPEN_APPLICATIONS_PER_QUESTION,
         "hipotesis_por_pregunta_permitidas": MAX_HYPOTHESES_PER_QUESTION,
-        "techo_teorico_por_pregunta": (
+        "techo_teorico_sin_tope_por_pregunta": (
             MAX_REOPEN_APPLICATIONS_PER_HYPOTHESIS * MAX_HYPOTHESES_PER_QUESTION
         ),
+        "techo_efectivo_medido": techo_medido,
     }
 
 

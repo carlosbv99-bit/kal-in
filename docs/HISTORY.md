@@ -9847,3 +9847,48 @@ Tests: **436** en el conjunto epistémico + rutas/loop/orquestador (12 nuevos de
 SQLite, 5 de D9, más los tests actualizados de aislamiento por ámbito), ruff
 `--select=E9,F` limpio, y la medición de F6 regenerada y consistente
 (`--verificar`).
+
+
+## F4, cierre: el presupuesto de reaperturas por pregunta (R8) (2026-09-29)
+
+Lo único que quedaba de F4. El tope por hipótesis no acota el total de una
+pregunta, y la medición de F6 ya lo había dejado medido: **la misma observación se
+evalúa contra TODAS las hipótesis del ledger**, así que con 5 hipótesis mirando el
+mismo marcador una sola observación produce 5 reaperturas, cada una con su
+presupuesto individual, y el techo teórico de una pregunta era 10 × 50 = 500.
+
+Implementado: `MAX_REOPEN_APPLICATIONS_PER_QUESTION = 30` (tres veces el tope por
+hipótesis) en `safety.py`, aplicado en `consider()` junto al de hipótesis. Tres
+decisiones de diseño:
+
+- **Se deriva, no se guarda.** El total de la pregunta es la suma de los
+  contadores por hipótesis (`reopen_count_of_question`), que ya viajan en el
+  snapshot: no hay estado nuevo que pueda quedar inconsistente, no hay migración,
+  y el tope se sigue aplicando después de recargar (hay test de round-trip).
+- **Una hipótesis sin pregunta no entra en ningún presupuesto de pregunta.** Solo
+  tiene el suyo. Agruparlas en un cajón común sería inventar una pregunta que
+  nadie hizo.
+- **Se evalúa con los contadores ya actualizados por la misma llamada**, así que
+  dos hipótesis de la misma pregunta no pueden pasarse del tope entre las dos.
+
+El valor (30) sale de la medición: es 3 × el tope por hipótesis, y en el corpus de
+F6 el máximo observado por pregunta es 1–2, o sea que ningún caso real se acerca.
+Es un inicial revisable, y el costo queda declarado en el propio código: un tope
+así también puede impedir que una hipótesis legítima reciba el respaldo que le
+llegó, y si ese caso aparece, el número se sube con el dato de que está pasando.
+
+La medición de F6 pasó de *reportar* el techo teórico a **medir el techo
+efectivo**: deja una pregunta con cuatro hipótesis en churn (60 evidencias nuevas
+con el mismo marcador) y verifica que el total de reaperturas sea exactamente el
+tope — 30, no 500. El test de la suite compara contra la constante, así que bajar
+o subir el tope sin volver a medir rompe igual que con los marcadores del gate.
+
+Tests: 6 nuevos del presupuesto (incluido el caso "una hipótesis sin pregunta" y
+el de round-trip), 254 de la capa epistémica en verde, ruff `--select=E9,F`
+limpio y la medición regenerada y consistente.
+
+Con esto **F4 queda completa**: los cinco entregables y los cuatro criterios de
+aceptación verificados. Lo que sigue fuera de alcance, como se acordó, es F2b
+(fachada Skill) y F3 (ancla de procedencia en el kernel, cuyo paso 0 es la
+reconciliación del drift, que necesita tu decisión sobre qué versión es canónica
+en cada caso).

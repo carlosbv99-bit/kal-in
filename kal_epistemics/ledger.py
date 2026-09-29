@@ -24,7 +24,13 @@ campo adicional del esquema:
 3. **El nivel epistémico es del grafo, no del nodo.** `level()` lo calcula el
    ledger recorriendo dependencias. No existe forma de declararlo, y por lo
    tanto no existe forma de que un modelo se autoeleve.
-4. **El resultado no depende del orden de las condiciones.** Una misma evidencia
+4. **Dos presupuestos de reapertura, no uno.** Por hipótesis Y por pregunta:
+   el tope por hipótesis no acota el total de una pregunta, porque la misma
+   observación se evalúa contra todas las hipótesis del ledger (medido en F6:
+   5 hipótesis mirando el mismo marcador → 5 reaperturas con UNA observación).
+   El presupuesto se **deriva** de los contadores por hipótesis, así que viaja en
+   el snapshot sin agregar estado.
+5. **El resultado no depende del orden de las condiciones.** Una misma evidencia
    que dispara varias acciones deja los vínculos de TODAS y el estado más cauto
    (`REFUTE > WEAKEN > REOPEN`). El dedup de "esta evidencia ya se aplicó" es por
    (condición, evidencia), no por evidencia: si fuera por evidencia, la segunda
@@ -73,6 +79,7 @@ from kal_epistemics.safety import (
     MAX_MISSING_PER_QUESTION,
     MAX_QUESTION_LENGTH,
     MAX_REOPEN_APPLICATIONS_PER_HYPOTHESIS,
+    MAX_REOPEN_APPLICATIONS_PER_QUESTION,
 )
 from kal_epistemics.models import (
     SCHEMA_VERSION,
@@ -712,6 +719,10 @@ class HypothesisLedger:
         2. **Precedencia explícita** entre acciones que matchean la misma
            evidencia (`_PRECEDENCIA_DE_ACCIONES`): gana la más cauta, y los
            vínculos de todas se registran igual.
+        3. **Dos presupuestos**: por hipótesis y por pregunta. El segundo se
+           evalúa con los contadores ya actualizados por las aplicaciones de
+           esta misma llamada, así que dos hipótesis de la misma pregunta no
+           pueden pasarse del tope entre las dos.
 
         Devuelve las decisiones que matchearon (las que no, se descartan en
         silencio: son la inmensa mayoría y no constituyen información).
@@ -721,6 +732,8 @@ class HypothesisLedger:
 
         for hid in sorted(self._hypotheses):
             if self.reopen_count(hid) >= MAX_REOPEN_APPLICATIONS_PER_HYPOTHESIS:
+                continue
+            if self._presupuesto_de_pregunta_agotado(hid):
                 continue
             coincidencias = self._condiciones_que_matchean(hid, ev)
             if not coincidencias:
@@ -775,11 +788,33 @@ class HypothesisLedger:
     def reopen_count(self, hypothesis_id: str) -> int:
         """
         Cuántas reaperturas automáticas se aplicaron a esta hipótesis. Es el
-        contador del presupuesto: acota cuánto ruido puede meter una condición
+        contador de su presupuesto: acota cuánto ruido puede meter una condición
         demasiado genérica, sin depender de que la palabra clave sea buena.
+
+        El presupuesto de la PREGUNTA se deriva de estos contadores
+        (`reopen_count_of_question`), así que no hay estado duplicado que pueda
+        quedar inconsistente ni que haya que migrar.
         """
         self.hypothesis(hypothesis_id)
         return self._reopen_count.get(hypothesis_id, 0)
+
+    def reopen_count_of_question(self, question_id: str) -> int:
+        """
+        Cuántas reaperturas automáticas acumuló una PREGUNTA: la suma de las de
+        sus hipótesis. Una hipótesis sin pregunta no entra en ningún presupuesto
+        de pregunta (solo en el suyo), y eso es deliberado: agruparlas en un
+        cajón común sería inventar una pregunta que nadie hizo.
+        """
+        q = self.question(question_id)
+        return sum(
+            self._reopen_count.get(hid, 0) for hid in q.hypothesis_ids if hid in self._hypotheses
+        )
+
+    def _presupuesto_de_pregunta_agotado(self, hypothesis_id: str) -> bool:
+        qid = self._hypotheses[hypothesis_id].question_id
+        if not qid:
+            return False
+        return self.reopen_count_of_question(qid) >= MAX_REOPEN_APPLICATIONS_PER_QUESTION
 
     def applied_evidence(self, hypothesis_id: str) -> frozenset[str]:
         """

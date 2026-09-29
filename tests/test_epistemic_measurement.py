@@ -540,25 +540,27 @@ def test_la_ruta_real_no_bloquea_una_respuesta_con_observacion(monkeypatch):
     )
 
 
-def test_hallazgo_la_amplificacion_por_pregunta_no_tiene_tope(reporte):
+def test_la_amplificacion_por_evidencia_esta_acotada_por_pregunta(reporte):
     """
-    HALLAZGO de F6, con el número que decide R8: una condición genérica declarada
-    por N hipótesis de la MISMA pregunta hace que UNA observación produzca N
-    reaperturas, cada una con su propio presupuesto individual. El tope por
-    pregunta que pide el roadmap (R8) no existe: el único tope es por hipótesis,
-    así que el techo de una pregunta es el producto (10 × 50 = 500).
+    R8, medido antes y después. Antes: una condición genérica declarada por N
+    hipótesis de la MISMA pregunta hacía que UNA observación produjera N
+    reaperturas, cada una con su presupuesto individual, y el techo teórico de
+    una pregunta era 10 × 50 = 500. Ahora hay además un presupuesto por pregunta,
+    y el techo EFECTIVO se mide dejando la pregunta en churn: da exactamente el
+    tope, no la constante escrita a mano.
 
-    La dedup por hash sigue haciendo su trabajo dentro de esto: repetir la MISMA
-    evidencia no suma ninguna reapertura.
-
-    Y el número también dice el costo de la solución: un tope por pregunta puede
-    impedir que una hipótesis legítima reciba el respaldo que le llegó, así que la
-    decisión no es gratis.
+    El costo sigue declarado: un tope puede impedir que una hipótesis legítima
+    reciba el respaldo que le llegó, así que el valor se revisa con dato.
     """
+    from kal_epistemics.safety import MAX_REOPEN_APPLICATIONS_PER_QUESTION
+
     amp = reporte.estructural["amplificacion_por_evidencia"]
 
+    # La amplificación sigue existiendo: es el motivo del tope.
     assert amp["hipotesis_con_la_misma_condicion"] == 5
     assert amp["reaperturas_con_una_evidencia"] == 5
     assert amp["reaperturas_con_la_misma_evidencia_repetida"] == 0
-    assert amp["reaperturas_con_una_evidencia_nueva"] == 5
-    assert amp["techo_teorico_por_pregunta"] == 500
+    # Y el tope la acota: el techo medido es el tope, no los 500 teóricos.
+    assert amp["tope_por_pregunta"] == MAX_REOPEN_APPLICATIONS_PER_QUESTION == 30
+    assert amp["techo_teorico_sin_tope_por_pregunta"] == 500
+    assert amp["techo_efectivo_medido"] == MAX_REOPEN_APPLICATIONS_PER_QUESTION

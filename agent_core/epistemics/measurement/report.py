@@ -133,14 +133,16 @@ def render_markdown(reporte: Reporte) -> str:
                 f"{ancla['con_ancla']}/{ancla['evidencia_exogena']} evidencias exógenas",
             ],
             [
-                "Amplificación de R8 (R8 sin tope por pregunta)",
+                "Amplificación y tope por pregunta (R8)",
                 f"{amplificacion['reaperturas_con_una_evidencia']} reaperturas con UNA "
                 f"evidencia sobre {amplificacion['hipotesis_con_la_misma_condicion']} "
                 "hipótesis de la misma pregunta; "
                 f"{amplificacion['reaperturas_con_la_misma_evidencia_repetida']} si la "
-                f"evidencia se repite; {amplificacion['reaperturas_con_una_evidencia_nueva']} "
-                "con otra evidencia con el mismo marcador. Techo teórico por pregunta: "
-                f"{amplificacion['techo_teorico_por_pregunta']}",
+                f"evidencia se repite. Tope por hipótesis "
+                f"{amplificacion['tope_por_hipotesis']}, tope por pregunta "
+                f"{amplificacion['tope_por_pregunta']} (techo sin él: "
+                f"{amplificacion['techo_teorico_sin_tope_por_pregunta']}). Techo efectivo "
+                f"medido con 4 hipótesis en churn: {amplificacion['techo_efectivo_medido']}",
             ],
         ],
     )
