@@ -497,3 +497,109 @@ def test_un_valor_de_ventana_que_no_es_numero_se_ignora(tmp_path):
     _observacion(loop, skill, nombre="browser")
 
     assert _evidencia(store).valid_until is None
+
+
+# --------------------------------------------------------------------------
+# 9. Una ejecución RECHAZADA ANTES DE CORRER no es una observación
+#
+# Bug real encontrado EN VIVO (turno contra el server, 2026-09-29): el modelo
+# mandó código con escapes `\n` literales, el sandbox lo rechazó en validación
+# estática, y las tres observaciones "ERROR (failed): Validación estática falló…"
+# entraron al ledger como `kernel_observed` con ancla. Como el gate cuenta
+# observaciones ingeridas por turno, el turno quedó como verificado — y la
+# respuesta afirmó un número de kernel INVENTADO, sin marca de "sin verificación".
+#
+# El kernel ya lo sabía (audita "Código rechazado antes de ejecutar"); lo que
+# faltaba era que el artefacto lo DECLARARA para que la ingestión lo viera.
+# --------------------------------------------------------------------------
+
+
+def _loop_con_run_code(store, executor_falso):
+    from agent_core.llm.agent_loop import _agent_tool_from_tool
+    from tool_integration.adapters.core_tools import CodeExecutionTool
+
+    loop = AgentLoop(llm_client=object(), task_executor=executor_falso, memory=object(), epistemics=store)
+    herramienta = _agent_tool_from_tool("run_code", CodeExecutionTool(executor_falso))
+    return loop, {"run_code": herramienta}
+
+
+class _ExecutorQueRechaza:
+    """Ejecutor falso: el sandbox rechaza el código en validación estática."""
+
+    def __init__(self, error: str, status=None):
+        from task_execution.task import Task, TaskStatus
+
+        self._tarea = Task(status=status or TaskStatus.FAILED, error=error)
+
+    def submit(self, descripcion):
+        return self._tarea
+
+    def run_sandboxed(self, tarea, code):
+        return self._tarea
+
+
+def test_un_rechazo_de_validacion_estatica_no_entra_al_ledger():
+    store = EpistemicStore(clock=lambda: 1000.0)
+    loop, tools = _loop_con_run_code(
+        store, _ExecutorQueRechaza("Validación estática falló: unexpected character after line continuation character")
+    )
+
+    salida = loop._dispatch_tool("run_code", {"code": "print('x')"}, tools, session_id="s")
+
+    assert "Validación estática falló" in salida, "el modelo TIENE que ver que su código no corrió"
+    assert store.ledger("s").exogenous_evidence_ids() == frozenset()
+    assert store.ingested_count("s") == 0, "un rechazo no puede contar como observación del turno"
+
+
+def test_el_gate_marca_la_respuesta_cuando_lo_unico_que_hubo_fue_un_rechazo():
+    """
+    La consecuencia que importa, y la que se vio EN VIVO: si el rechazo cuenta
+    como observación, el gate cree que el turno tuvo base observada y deja pasar
+    como verificado un dato que el modelo se inventó. Con el rechazo descartado,
+    el turno queda sin observaciones y la respuesta sale marcada.
+    """
+    from agent_core.epistemics.gate import GateOutcome, evaluate_answer
+
+    store = EpistemicStore(clock=lambda: 1000.0)
+    loop, tools = _loop_con_run_code(
+        store, _ExecutorQueRechaza("Validación estática falló: Import prohibido: os en línea 1")
+    )
+    loop._dispatch_tool("run_code", {"code": "import os"}, tools, session_id="s")
+
+    decision = evaluate_answer(
+        "El kernel de esta máquina es 7.0.0-34-generic y tiene 27 GB libres de 289 GB.",
+        store=store, session_id="s", evidence_before=0,
+    )
+
+    assert decision.outcome is GateOutcome.ADVERTIR
+    assert decision.reason == "sin_observaciones_en_el_turno"
+    assert "Sin verificación" in decision.answer
+
+
+def test_un_fallo_en_tiempo_de_ejecucion_SI_se_ingiere():
+    """
+    La contracara, que protege el contrato de F5 y del corpus de F6: un `run_code`
+    que SÍ corrió y falló deja su stderr como observación — ahí el error ES el dato
+    ("No space left on device" es un hecho sobre la máquina).
+    """
+    store = EpistemicStore(clock=lambda: 1000.0)
+    loop, tools = _loop_con_run_code(
+        store, _ExecutorQueRechaza("Traceback (most recent call last):\nOSError: No space left on device")
+    )
+
+    loop._dispatch_tool("run_code", {"code": "x"}, tools, session_id="s")
+
+    assert len(store.ledger("s").exogenous_evidence_ids()) == 1
+    assert store.ingested_count("s") == 1
+
+
+def test_la_declaracion_vale_para_cualquier_tier(tmp_path):
+    """La regla es por DECLARACIÓN del artefacto, no por tier: una observación que
+    se declara a sí misma "no soy una observación" no entra, venga de donde venga."""
+    loop, store = _loop_con_store()
+    skill = _skill(tmp_path, SandboxGuionado(_resultado_ok("contenido", is_observation=False)))
+
+    salida = _observacion(loop, skill)
+
+    assert "contenido" in salida
+    assert store.ledger("s").exogenous_evidence_ids() == frozenset()

@@ -1013,10 +1013,20 @@ observación, porque ahí el error ES el dato.
   corre es la confirmación con contenedor de verdad, y eso está dicho en el
   docstring de la suite en vez de disimulado.
 
-**Dónde iría el arreglo ideal, y por qué no está acá.** La señal de "esto no
-llegó a ejecutarse" la conoce el kernel: lo correcto a futuro es que el artefacto
-lo declare desde `SandboxedSkillTool` (una clave en la metadata, junto a
-`status`). Eso es un archivo COMPARTIDO con kal
+**Dónde iría el arreglo ideal.** La señal de "esto no llegó a ejecutarse" la
+conoce el kernel: lo correcto es que el **artefacto lo declare** (una clave en la
+metadata, junto a `status`) y que la ingestión decida por eso, sin tier ni texto.
+La primera mitad ya está hecha, y no por diseño sino porque **apareció en vivo**: un
+turno real contra el server mostró que un `run_code` RECHAZADO por validación
+estática (el código nunca corrió) entraba al ledger como observación con ancla, y
+como el gate cuenta observaciones por turno, la respuesta afirmaba un kernel
+inventado sin marca de "sin verificación". Ahora `CodeExecutionTool` declara
+`is_observation: False` en ese caso —reusando `classify_sandbox_error`, que ya
+distinguía el rechazo determinista del fallo en ejecución— y `_dispatch_tool`
+descarta la ingestión por esa declaración, para CUALQUIER tier. Un `run_code` que sí
+corrió y falló sigue ingresando su stderr: ahí el error ES el dato. Queda pendiente
+que `SandboxedSkillTool` haga lo mismo (hoy las skills se cubren con la regla por
+tier + `status`), y eso sí toca un archivo compartido con kal. Eso es un archivo COMPARTIDO con kal
 (`kernel/registry/sandboxed_skill.py`), así que va por el proceso de
 sincronización documentado y no de prepo: mientras tanto la regla vive en el
 host, que es donde ya vive la política de ingestión.

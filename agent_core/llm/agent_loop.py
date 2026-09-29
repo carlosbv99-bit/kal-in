@@ -919,33 +919,47 @@ class AgentLoop:
             logger.exception(f"Fallo inesperado ejecutando herramienta '{name}'")
             return f"ERROR inesperado ejecutando '{name}': {e}"
 
-        # F7 (costura seguridad ↔ epistemología): una skill que NO produjo
-        # contenido —la cascada la rechazó, la firma no verificaba, o falló
-        # adentro del sandbox— no produjo ninguna observación del mundo. Ingerir
-        # su mensaje de error sería fabricar un dato a partir de un marcador de
-        # estado (el error que F2 ya encontró con las herramientas asíncronas), y
-        # encima un error que mencione un timeout podría reabrir una hipótesis por
-        # una falla de infraestructura.
-        #
-        # La decisión NO usa una lista de nombres de herramientas (se pudre: la
-        # herramienta nueva no está y nadie se entera) ni el texto del mensaje
-        # (una convención de string): usa el TIER del wrapper —que la cascada ya
-        # calcula por TIPO, nunca leyendo el manifiesto autodeclarado— y el
-        # `status` del artefacto, que es lo que el runner sabe de verdad.
-        #
-        # El artefacto sigue volviendo al modelo tal cual: el modelo tiene que
-        # saber que la verificación no trajo nada. Lo que no hace es entrar al
-        # ledger como evidencia.
+        # F7/F8 (costura seguridad ↔ epistemología): la decisión de ingerir se toma
+        # con lo que el ARTEFACTO declara, nunca con el texto del mensaje ni con una
+        # lista de nombres de herramientas (esa lista se pudre: la herramienta nueva
+        # no está y nadie se entera).
         artefacto = getattr(tool, "last_artifact", None)
         # D1: el PRODUCTOR puede declarar hasta cuándo vale lo que trajo (una
         # verificación de red caduca en minutos; un "el RFC no existe", en años).
-        # Se lee de la metadata del artefacto —código, no modelo— y sólo si es
-        # numérico: cualquier otra cosa se trata como "sin vencimiento declarado".
+        # Solo si es numérico: cualquier otra cosa es "sin vencimiento declarado".
         valido_hasta = None
         if artefacto is not None:
             crudo = artefacto.metadata.get("valid_until")
             if isinstance(crudo, (int, float)) and not isinstance(crudo, bool):
                 valido_hasta = float(crudo)
+
+        # (1) Declaración explícita de "esto no es una observación", sin importar el
+        # tier. Es el caso de una ejecución RECHAZADA ANTES DE CORRER (validación
+        # estática del sandbox): el modelo tiene que ver el error, pero el ledger no
+        # puede registrarlo como algo que pasó en el mundo.
+        #
+        # BUG REAL ENCONTRADO EN VIVO (turno real contra el server, 2026-09-29): el
+        # modelo mandó código con escapes `\n` literales, la validación lo rechazó, y
+        # las TRES observaciones "ERROR (failed): Validación estática falló…" entraron
+        # al ledger como `kernel_observed` con ancla. Como el gate cuenta
+        # observaciones ingeridas por turno, el turno quedó como verificado — y la
+        # respuesta afirmó un número de kernel INVENTADO sin marca de "sin
+        # verificación". El kernel ya lo sabía (audita "Código rechazado antes de
+        # ejecutar"); lo que faltaba era propagarlo hasta acá.
+        if artefacto is not None and artefacto.metadata.get("is_observation") is False:
+            logger.info(
+                "Observación de '%s' descartada: el artefacto declara que no es una "
+                "observación del mundo (la ejecución no llegó a correr).", name,
+            )
+            return observacion
+
+        # (2) Una skill que NO produjo contenido —la cascada la rechazó, la firma no
+        # verificaba, o falló adentro del sandbox— tampoco. El tier lo calcula la
+        # cascada por TIPO, nunca leyendo el manifiesto autodeclarado.
+        #
+        # El artefacto sigue volviendo al modelo tal cual en los dos casos: el modelo
+        # tiene que saber que no hubo verificación. Lo que no hace es entrar al
+        # ledger como evidencia.
         if (
             getattr(tool, "trust_tier", "") == "skill"
             and artefacto is not None

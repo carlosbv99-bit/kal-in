@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent_core.memory.security_policy import is_cloud_provider
+from error_handling.detector import classify_sandbox_error
 from sdk.artifacts import Artifact
 from sdk.skill import Tool, ToolManifest
 from utils.config import settings
@@ -53,11 +54,28 @@ class CodeExecutionTool(Tool):
 
         if result.status == TaskStatus.SUCCESS:
             return Artifact(modality="text", uri="", metadata={"status": "success", "stdout": result.result})
-        return Artifact(
-            modality="text",
-            uri="",
-            metadata={"status": result.status.value, "stderr": result.error},
-        )
+
+        metadata: dict[str, Any] = {"status": result.status.value, "stderr": result.error}
+        # Un RECHAZO DE VALIDACIÓN ESTÁTICA significa que el código nunca llegó a
+        # ejecutarse: el mensaje es información legítima para el modelo (tiene que
+        # saber que su código no corrió), pero NO es una observación del mundo.
+        #
+        # BUG REAL ENCONTRADO EN VIVO (2026-09-29, turno real contra el server):
+        # el modelo mandó código con escapes `\n` literales, la validación lo
+        # rechazó, y las TRES observaciones "ERROR (failed): Validación estática
+        # falló…" entraron al ledger como `kernel_observed` con ancla. Como el
+        # gate cuenta observaciones ingeridas por turno, el turno quedó como
+        # verificado — y la respuesta afirmó un número de kernel INVENTADO
+        # ("7.0.0-34-generic") sin marca de "sin verificación". El kernel ya lo
+        # sabía (audita "Código rechazado antes de ejecutar"); lo que faltaba era
+        # propagarlo a la decisión de ingestión.
+        #
+        # La clasificación se reusa de `error_handling/` (única fuente de verdad de
+        # esa categoría, con sus propios tests) en vez de mirar el texto acá.
+        error_type, _ = classify_sandbox_error(result.error or "")
+        if error_type == "ValidationError":
+            metadata["is_observation"] = False
+        return Artifact(modality="text", uri="", metadata=metadata)
 
 
 class MemoryRememberTool(Tool):

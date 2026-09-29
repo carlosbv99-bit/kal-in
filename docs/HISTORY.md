@@ -10386,3 +10386,55 @@ siguen creando directorios en `/tmp` del harness, así que en esta máquina hay 
 correr con `TMPDIR` compartido para que el sandbox funcione. Está anotado en el
 roadmap ("Nota de entorno") para que la próxima sesión no vuelva a atribuirlo al
 sandbox ni repita la investigación.
+
+
+## Un bug de composición encontrado EN VIVO, con el server corriendo (2026-09-29)
+
+La verificación en vivo que faltaba (contenedor real y ruta real) encontró algo que
+ningún test veía, y que es exactamente la clase de falla que esta capa existe para
+prevenir. Tres turnos contra el server real, con el modelo real:
+
+**Turno 1 (antes del arreglo).** Pedí `uname -a`. El modelo mandó código con escapes
+`\n` literales, el sandbox lo rechazó en validación estática —el código NUNCA se
+ejecutó— y las **tres** observaciones `ERROR (failed): Validación estática falló…`
+entraron al ledger como `kernel_observed`, cada una con su ancla de auditoría. Como
+el gate cuenta observaciones ingeridas por turno, el turno quedó como verificado: la
+respuesta afirmó **"el núcleo 7.0.0-34-generic"** —un dato que nadie observó— y salió
+**sin la marca de "sin verificación"**. El modelo se inventó el número y el sistema lo
+respaldó.
+
+**Turno 3 (después del arreglo).** El mismo tipo de rechazo, una sola ejecución
+fallida, cero observaciones reales: el rechazo **no entró** al ledger y la respuesta
+salió marcada con "[Sin verificación: en este turno no se consultó ninguna fuente ni
+se ejecutó ninguna herramienta…]". El modelo, esta vez, intentó responder con
+conocimiento general ("la versión de kernel es generalmente Linux 5.x") y el gate lo
+marcó. Turno 2, en el medio, sirvió de control: seis rechazos y **una** ejecución real
+—el `run_code` que sí corrió e imprimió la versión— y entró exactamente esa: los seis
+rechazos se descartaron y la respuesta quedó sin marca, porque había una observación
+de verdad. Las dos mitades del criterio en el mismo turno.
+
+**El arreglo.** El kernel ya sabía la diferencia: audita "Código rechazado antes de
+ejecutar (validación estática)" y `error_handling.detector.classify_sandbox_error()`
+categoriza ese rechazo como `ValidationError` desde hace tiempo (con sus propios
+tests, por un bug anterior de reintentos ciegos). Lo que faltaba era **propagarlo
+hasta la decisión de ingestión**: `CodeExecutionTool` ahora declara
+`is_observation: False` en su artefacto para ese caso, y `_dispatch_tool` descarta la
+ingestión por esa declaración **para cualquier tier**, sin mirar el texto del mensaje
+ni una lista de nombres de herramientas. Un `run_code` que sí corrió y falló sigue
+ingresando su stderr: ahí el error ES el dato, y hay un test que lo protege.
+
+Esto completa la mitad de lo que F7 había dejado anotado como "arreglo ideal" —que el
+artefacto lo declare en vez de que el host lo adivine—, y la completa **porque hubo un
+consumidor real**: apareció en producción, con reproducción, no en una discusión de
+diseño. Ninguno de los archivos tocados es compartido con kal: `core_tools.py` y
+`agent_loop.py` son de kal-in, así que no hay nada que portar. Lo que sí queda
+pendiente de la misma idea es que `SandboxedSkillTool` declare lo mismo (hoy las
+skills se cubren con la regla por tier + `status`), y eso sí toca archivo compartido.
+
+**Lo que este episodio dice del método.** Los 442 tests del conjunto epistémico
+estaban en verde —incluidos los e2e con contenedor real de F5, F2b y F7— y el bug
+pasó igual, porque los tests usaban ejecuciones que *corrían* o que *fallaban dentro*
+del sandbox; nadie había ejercitado el caso "el runner rechaza antes de ejecutar" en
+la ruta viva. La verificación en vivo no reemplaza a los tests: encontró el caso que
+a los tests les faltaba, y ahora ese caso es un test (cuatro, en `test_epistemic_seam.py`,
+incluido el control de que un fallo en ejecución SÍ se ingiere).
