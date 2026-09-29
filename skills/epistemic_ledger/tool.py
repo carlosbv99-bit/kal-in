@@ -46,7 +46,20 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
+import sys
 import time
+
+# La librería portable viaja VENDORIZADA al lado de este archivo, pero el runner
+# del kernel carga la skill por RUTA DE ARCHIVO
+# (`importlib.util.spec_from_file_location("/workspace/skill/tool.py")`) y no
+# agrega la carpeta de la skill a `sys.path`. Sin esto, `import kal_epistemics`
+# adentro del contenedor falla con ModuleNotFoundError — y afuera no, porque
+# afuera el repo ya tiene el paquete importable. Bug real: los tests en proceso
+# pasaban y la skill no arrancaba en el sandbox.
+_AQUI = os.path.dirname(os.path.abspath(__file__))
+if _AQUI not in sys.path:
+    sys.path.insert(0, _AQUI)
 
 from sdk.artifacts import Artifact
 from sdk.skill import Tool

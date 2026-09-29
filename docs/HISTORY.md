@@ -10336,3 +10336,51 @@ ellos a través del ledger durable real—, el invariante de simetría en los mo
 R3 y el expediente en el gate, la ventana declarada por el artefacto en la suite de
 costura, y las operaciones nuevas de la fachada (con la copia vendorizada
 re-sincronizada y la skill re-firmada).
+
+
+## La causa de los e2e que no se podían verificar, y un bug real de F2b (2026-09-29)
+
+Desde F5, cada fase cerraba con la misma salvedad: los e2e `requires_docker` no
+corrían en este entorno (`python: can't open file '/workspace/main.py'`), igual que
+los tests de sandbox pre-existentes, así que las propiedades de la costura quedaban
+"verificadas con dobles fieles" y no con contenedor de verdad. **La causa no era el
+sandbox.**
+
+El runner escribe el código en un directorio temporal del host y lo bind-montea en
+`/workspace`. Este entorno le da a cada shell un `/tmp` **privado**, y el demonio de
+Docker es un proceso de afuera: el bind montaba un directorio vacío y el contenedor
+arrancaba sin `main.py`. La prueba es directa —un bind desde `/tmp` llega vacío y el
+mismo bind desde el repo funciona— y la consecuencia práctica también: con `TMPDIR`
+apuntando a una ruta compartida (`data/tmp`, que está en `.gitignore`) los e2e corren
+de verdad. Verificado: los **3 e2e `requires_docker` de F5/F2b/F7 pasan con
+contenedor real**, y el test que ya existía para `workdir_root` —parte de los que
+fallaban— también. Los "49 fallos pre-existentes" del entorno eran, en su gran
+mayoría, esta única causa ambiental.
+
+**Y correr el contenedor de verdad encontró un bug real de F2b.** El runner carga la
+skill **por ruta de archivo** (`spec_from_file_location("/workspace/skill/tool.py")`)
+y **no** agrega su carpeta a `sys.path`. La librería vendorizada vive al lado de
+`tool.py`, así que adentro del contenedor `import kal_epistemics` fallaba con
+`ModuleNotFoundError`: **la fachada no habría arrancado nunca.** Ningún test en
+proceso lo veía —ahí el repo ya tiene el paquete importable— y el test de "proceso
+limpio" tampoco, porque **le regalaba a la skill la condición que en el contenedor no
+tiene**: hacía `sys.path.insert(0, skill_dir)` + `from tool import ...`, que es
+exactamente lo que el runner NO hace.
+
+Arreglado en dos niveles: la skill se asegura de que su propia carpeta sea
+importable (con el comentario que explica por qué), el test ahora imita al runner
+cargando por ruta de archivo, y **el runner mismo pasó a agregar la carpeta de la
+skill a `sys.path`** —el fix en la raíz, que cubre a cualquier skill que vendorice un
+módulo hermano y que es preferible al parche por skill—. Ese archivo
+(`kernel/lifecycle/skill_runner.py`) es COMPARTIDO con kal, así que el cambio entra
+por el proceso de sincronización documentado: queda anotado como pendiente de portar
+allí, igual que los otros archivos del kernel que divergen. Lección de método, que vale más que el bug: **un test
+que arma condiciones más favorables que el entorno real no prueba la portabilidad,
+prueba que el test sabe armar el entorno** — y es la misma clase de fidelidad que F7
+exigió para la costura.
+
+Queda como deuda de entorno, no de código: los tests que usan `tmp_path` de pytest
+siguen creando directorios en `/tmp` del harness, así que en esta máquina hay que
+correr con `TMPDIR` compartido para que el sandbox funcione. Está anotado en el
+roadmap ("Nota de entorno") para que la próxima sesión no vuelva a atribuirlo al
+sandbox ni repita la investigación.

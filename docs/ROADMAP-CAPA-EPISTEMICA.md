@@ -1006,9 +1006,9 @@ observación, porque ahí el error ES el dato.
 - **No vuelve detectable la alucinación.** A10 y A12 siguen medidos y abiertos: el
   gate no juzga verdad, y F7 no cambia eso.
 - **La verificación de punta a punta necesita sandbox sano.** El e2e está marcado
-  `requires_docker` y en el entorno actual falla por el problema pre-existente
-  (`python: can't open file '/workspace/main.py'`, el mismo de los otros e2e de
-  skills). Con dobles fieles del lado del kernel —wrapper real, sandbox
+  `requires_docker`; en el entorno actual falla por el `/tmp` privado del harness
+  hasta que se corre con `TMPDIR` compartido — causa identificada y arreglada en la
+  "Nota de entorno" al final de F8, donde además ese e2e pasa con contenedor real. Con dobles fieles del lado del kernel —wrapper real, sandbox
   guionado— las propiedades quedan verificadas; lo que falta cuando el sandbox no
   corre es la confirmación con contenedor de verdad, y eso está dicho en el
   docstring de la suite en vez de disimulado.
@@ -1214,6 +1214,44 @@ Dos correcciones de encuadre que dejó la revisión:
   **no existe a propósito**.
 
 ---
+
+### Nota de entorno: la causa de los e2e que "no se podían verificar" (2026-09-29)
+
+Desde F5, varias fases cerraban con la misma salvedad: los e2e `requires_docker`
+fallaban en este entorno con `python: can't open file '/workspace/main.py'`, el
+mismo error que arrastraban los tests de sandbox pre-existentes, y por eso las
+propiedades de la costura quedaban "verificadas con dobles fieles" y no con
+contenedor de verdad. **La causa está identificada y no es el sandbox.**
+
+El runner escribe el código en un directorio temporal del host y lo bind-montea en
+`/workspace`. Este entorno le da a cada shell un **`/tmp` privado** —el demonio de
+Docker es un proceso de afuera y no lo ve—, así que el bind montaba un directorio
+**vacío** y el contenedor arrancaba sin `main.py`. La prueba: un bind desde `/tmp`
+llega vacío y el mismo bind desde el repo funciona.
+
+Consecuencia práctica: con `TMPDIR` apuntando a una ruta compartida (por ejemplo
+`data/tmp`, que está en `.gitignore`), los e2e corren de verdad. Verificado: los 3
+e2e `requires_docker` de F5/F2b/F7 pasan con contenedor real, y el test que ya
+existía para `workdir_root` (que era parte de los que fallaban) también. Los
+"49 fallos pre-existentes" del entorno eran, en su gran mayoría, esta única causa.
+
+**Y correr el contenedor de verdad encontró un bug real de F2b**, que ningún doble
+podía encontrar: el runner carga la skill **por ruta de archivo**
+(`spec_from_file_location("/workspace/skill/tool.py")`) y **no** agrega su carpeta a
+`sys.path`. La librería vendorizada vive al lado de `tool.py`, así que dentro del
+contenedor `import kal_epistemics` fallaba con `ModuleNotFoundError`: la fachada no
+habría arrancado nunca. Los tests en proceso no lo veían porque ahí el repo ya tiene
+el paquete importable, y el test de "proceso limpio" tampoco porque **le regalaba a
+la skill la condición que en el contenedor no tiene** (`sys.path.insert(0, skill_dir)`
++ `from tool import ...`). Las dos cosas están arregladas: la skill se asegura de que
+su propia carpeta sea importable, el test ahora imita al runner, y **el runner mismo
+agrega la carpeta de la skill a `sys.path`** (el fix en la raíz, que cubre a cualquier
+skill que vendorice un módulo hermano). Ojo con ese archivo: es compartido con kal, así
+que el cambio va por el proceso de sincronización y queda pendiente de portar. Y una
+observación sobre la forma: conviene `sys.path.append()` y no `insert(0, ...)`, para
+que la carpeta de la skill no quede por delante de la stdlib y del `sdk/`. Lección de método:
+un test que arma las condiciones más favorable que el entorno real no prueba la
+portabilidad — prueba que el test sabe armar el entorno.
 
 ## 3. Lo que NO se hace (y en qué fase)
 

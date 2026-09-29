@@ -121,23 +121,29 @@ def test_la_copia_vendorizada_es_identica_a_la_fuente():
 
 def test_la_copia_vendorizada_funciona_sola_en_un_proceso_limpio():
     """
-    La prueba de que la skill puede correr en un contenedor, donde lo único que
-    existe es su propia carpeta: se ejecuta en un proceso con `sys.path` apuntando
-    SOLO a la carpeta de la skill (mismo criterio que el test de portabilidad de
-    kal_epistemics: importar en un proceso limpio, no declararlo).
+    La prueba de que la skill arranca en un contenedor, donde lo único que existe
+    es su propia carpeta — con una fidelidad que la primera versión de este test NO
+    tenía y que costó un bug real: el runner carga la skill por RUTA DE ARCHIVO
+    (`spec_from_file_location("/workspace/skill/tool.py")`) y **no** agrega la
+    carpeta a `sys.path`. La versión anterior hacía `sys.path.insert(0, skill_dir)`
+    + `from tool import ...`, o sea que le regalaba a la skill la condición que en
+    el contenedor no tiene: el test pasaba y la skill no arrancaba en el sandbox
+    (`ModuleNotFoundError: kal_epistemics`, encontrado recién al correr un
+    contenedor de verdad). Acá se imita al runner.
     """
     guion = textwrap.dedent(
         """
-        import json, sys
-        # La carpeta de la skill PRIMERO: es lo que hace que `kal_epistemics`
-        # resuelva a la copia vendorizada y no a la del repo.
-        sys.path.insert(0, sys.argv[1])
-        # `sdk/` lo copia el runner del kernel al contenedor; acá se le pasa la
-        # raíz del repo para que exista, que es el equivalente.
+        import importlib.util, json, sys
+        # Igual que kernel/lifecycle/skill_runner.py: por ruta de archivo y sin
+        # agregar la carpeta de la skill a sys.path. Lo único que se agrega es la
+        # raíz del repo, que en el contenedor equivale a que el runner copia `sdk/`.
         sys.path.append(sys.argv[2])
+        spec = importlib.util.spec_from_file_location("kal_sandboxed_skill", sys.argv[1])
+        modulo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modulo)
+        herramienta = modulo.EpistemicLedgerTool()
+        r = herramienta.execute(operacion="estado_vacio").metadata["respuesta"]
         import kal_epistemics
-        from tool import EpistemicLedgerTool
-        r = EpistemicLedgerTool().execute(operacion="estado_vacio").metadata["respuesta"]
         print(json.dumps({
             "ok": r["ok"],
             "claves": sorted(r["estado"]),
@@ -146,7 +152,7 @@ def test_la_copia_vendorizada_funciona_sola_en_un_proceso_limpio():
         """
     )
     resultado = subprocess.run(
-        [sys.executable, "-c", guion, str(SKILL_DIR), str(RAIZ)],
+        [sys.executable, "-c", guion, str(SKILL_DIR / "tool.py"), str(RAIZ)],
         capture_output=True, text=True, cwd=str(SKILL_DIR), timeout=120,
         env={"PATH": "/usr/bin:/bin"},  # sin PYTHONPATH
     )
