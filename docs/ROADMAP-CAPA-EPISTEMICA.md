@@ -625,6 +625,13 @@ convertirse en un cementerio ni en una fuente de alucinaciones.
   registro es la continuidad que se busca; el día que haya multiusuario se cambia
   el valor de la clave sin migrar la forma de nada.
 
+Sobre **"append-only"**: lo que es append-only es el HISTORIAL del ledger
+(cada transición de estado agrega una entrada y no existe API para mutar una
+pasada — invariante de F0, con test). El archivo del backend no es un log de
+eventos: `guardar()` reemplaza la fila del ámbito, que es lo que el port define.
+Un log append-only era la propiedad que ofrecía la opción JSONL y no fue la
+elegida; el historial append-only se conserva igual, adentro del snapshot.
+
 **Implementado, en la librería portable (`kal_epistemics/`):**
 
 - **`snapshot()` / `from_snapshot()`** — estado COMPLETO y determinista (dos
@@ -694,9 +701,13 @@ sola observación produce 5 reaperturas** (una por hipótesis, cada una con su
 presupuesto individual), repetir la misma evidencia produce 0, y otra evidencia
 con el mismo marcador produce 5 más. El único tope que existe es por hipótesis
 (10), así que el techo teórico de una pregunta es 10 × 50 = **500 aplicaciones**.
-El tope por pregunta que pide este mismo apartado sigue pendiente, y el número
-también dice su costo: un tope así puede impedir que una hipótesis legítima
-reciba el respaldo que le llegó. Se decide con este dato, no antes.
+El tope por pregunta que pide este mismo apartado es **lo único que queda de F4
+sin implementar**, y el número también dice su costo: un tope así puede impedir
+que una hipótesis legítima reciba el respaldo que le llegó. Se decide con este
+dato, no antes — y la pregunta concreta es solo el valor: con el techo medido en
+500 aplicaciones por pregunta y 5 por evidencia, un tope de, digamos, 30 no
+cambiaría ningún caso real del corpus y acotaría el amplificador de una condición
+genérica.
 
 ---
 
