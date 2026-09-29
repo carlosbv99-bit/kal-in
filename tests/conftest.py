@@ -33,6 +33,25 @@ def _disable_conversation_engine_network_calls(monkeypatch):
     monkeypatch.setattr(orchestrator.conversation_engine, "classify", lambda goal: None)
 
 
+@pytest.fixture(autouse=True)
+def _aislar_ledger_epistemico(monkeypatch):
+    """
+    El runtime del agente usa un ledger durable (SQLite en data/epistemics/,
+    decisión D4). En tests eso sería estado COMPARTIDO entre tests y entre
+    corridas: una hipótesis o un déficit de un test bloquearía al siguiente.
+
+    Cada test arranca con un store en memoria limpio. Los tests que quieren
+    ejercitar el backend lo construyen ellos (ver tests/test_kal_epistemics_sqlite.py),
+    y los que quieren el store real del endpoint /chat lo parchean después de este
+    fixture, que gana porque corre antes.
+    """
+    from agent_core.epistemics import EpistemicStore
+
+    monkeypatch.setattr(
+        orchestrator.agent, "epistemics", EpistemicStore(clock=lambda: 1000.0)
+    )
+
+
 def docker_available() -> bool:
     try:
         docker.from_env().ping()

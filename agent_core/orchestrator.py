@@ -37,6 +37,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from agent_core.context_service import ContextService
 from agent_core.conversation_engine import ConversationEngine
 from agent_core.default_tools import register_default_static_tools
+from agent_core.epistemics import EpistemicStore, almacen_persistente
 from agent_core.llm.agent_loop import AgentLoop
 from agent_core.llm.ollama_client import OllamaClient
 from agent_core.llm.openai_compatible_client import OpenAICompatibleClient
@@ -148,7 +149,16 @@ class Orchestrator:
         self.context_service = ContextService()
         self.conversation_engine = ConversationEngine()
         self.llm = build_llm_client()
-        self.agent = AgentLoop(llm_client=self.llm, task_executor=self.tasks, memory=self.memory)
+        # Capa epistémica con backend durable (D4: SQLite en data/epistemics/):
+        # sin esto, las hipótesis y los "no lo sé" se pierden en cada reinicio y
+        # la misma pregunta vuelve a crear un registro nuevo. Es explícito acá y
+        # no un default de EpistemicStore para que los tests no toquen disco.
+        self.agent = AgentLoop(
+            llm_client=self.llm,
+            task_executor=self.tasks,
+            memory=self.memory,
+            epistemics=EpistemicStore(almacen=almacen_persistente()),
+        )
         self.planning_agent = PlanningAgentLoop(self.agent)
         self.self_diagnosis = SelfDiagnosisAgent(llm_client=self.llm)
 

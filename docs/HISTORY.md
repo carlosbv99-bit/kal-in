@@ -9468,3 +9468,382 @@ sin ninguna lógica distinta.
   mantienen como estaban acá — es la misma divergencia cosmética de
   siempre, no algo a unificar. 12/12 tests de
   `test_kernel_bus_socket_server.py` pasan igual.
+
+
+## Capa epistémica F6: medir el gate y calibrarlo con números (2026-09-29)
+
+F6 era la fase que faltaba para que el gate dejara de ser "anda en los tests" y
+pasara a ser algo con números encima. Los tests de F1/F2 usan dobles (stores
+construidos a mano, respuestas inyectadas); acá se corre el corpus por el camino
+REAL y se mide. 19 tests nuevos de la suite de medición, 183 de la capa
+epistémica en total, `ruff --select=E9,F` limpio.
+
+**Qué es real y qué está scripteado** (es lo que decide cuánto valen los
+números, así que va primero): real el `EpistemicStore`, el camino de ingestión
+(`AgentLoop._dispatch_tool`), el registro de tools, el ancla al audit log
+encadenado por HMAC, el ledger, el gate, y el endpoint `/chat` con su choke
+point. Scripteado, porque en CI no hay modelo ni mundo: las llamadas a tools y
+la respuesta final del modelo (las declara el corpus) y el contenido que
+devuelve cada herramienta. Consecuencia que hay que decir en voz alta: **esto
+mide el sistema dado un comportamiento fijo del modelo, no mide al modelo.**
+
+**Qué se construyó:**
+
+- `agent_core/epistemics/measurement/corpus/` — el corpus como DATOS: 12
+  escenarios imposibles (A), 12 verificables (B), 4 contradictorios (C), 6 de
+  reapertura (R), 5 de deriva (D), y 41 respuestas etiquetadas a mano para
+  calibrar (K). El loader falla cerrado (etiqueta desconocida, id duplicado,
+  expectativa vacía) y **falla si un texto comparte calibración y evaluación**.
+- `agent_core/epistemics/measurement/{corpus,harness,report}.py` — carga,
+  ejecución por el camino real, métricas, verificaciones estructurales
+  exhaustivas, calibración y render.
+- `scripts/measure_epistemics.py` — `--escribir` regenera el JSON y el
+  markdown; `--verificar` falla si lo commiteado quedó viejo.
+- `docs/MEDICION-CAPA-EPISTEMICA.md` + `docs/medicion-capa-epistemica.json` —
+  el reporte, generado (ningún número escrito a mano).
+
+**Los números** (huella del corpus `f59be244…`, A=12 B=12 C=4 R=6 D=5 K=41):
+
+| Métrica | Valor |
+|---|---|
+| A: no sale como hecho (bloqueado o marcado) | 10/12 = 0.83 |
+| A: con déficit declarado, bloqueado por R1 | 9/10 = 0.90 |
+| A: afirmación larga sin déficit, marcada por R2 | 2/2 = 1.00 |
+| B: abstención falsa | 0/12 = 0.00 |
+| C: conflicto registrado en el ledger / gate no bloquea | 4/4 y 4/4 |
+| R: reapertura por evidencia exógena | 2/2 = 1.00 |
+| R: refutación por evidencia exógena | 1/1 = 1.00 |
+| R: repetición (3 veces la misma observación) → 1 reapertura, 1 vínculo | 1/1 |
+| R: eco del modelo no reabre ni ingiere | 2/2 = 1.00 |
+| R: hipótesis que se auto-sostienen | 0/6 = 0.00 |
+| D: dedup cosmética / abstención estable | 1.00 y 1.00 |
+| D: dedup entre sesiones (brecha de F4, medida) | 0.00 |
+| Estructural: 12 combinaciones origen × acción | MODEL_GENERATED reabre: 0 |
+| Estructural: ancla real | 27/27 evidencias |
+
+**Calibración, que era el punto de la fase.** Con los 12 marcadores originales,
+sobre K: 11 hedges reconocidos, **7 sin reconocer** (con un déficit declarado,
+esos 7 se BLOQUEABAN: castigar al modelo por ser honesto, el peor incentivo
+posible) y 1 afirmación tomada por hedge. Se agregaron los 12 candidatos del
+corpus que eliminan un falso negativo sin agregar ningún falso positivo
+(regla mecánica, no criterio): la matriz pasa a **18 TP / 0 FN / 1 FP / 17 TN**,
+exactitud 0.78 → 0.97. El único falso positivo que queda —`podría` sobre una
+afirmación disfrazada de duda— está medido (K28) y sigue en el conjunto de
+evaluación (A12) para que su costo no se pierda de vista.
+
+El umbral de "respuesta larga" pasó de **240 a 64** caracteres: con 240, solo 1
+de 10 afirmaciones sin respaldo del corpus quedaba marcada (R2 casi no existía);
+con 64 quedan 9 de 10 y ninguna respuesta de trámite. La calibración destapó
+además un efecto que no era obvio: la regla marcaba también a los hedges y a las
+abstenciones (8 de 8 en el contexto sin observaciones), o sea le ponía el cartel
+de "sin verificación" a respuestas que ya decían "no lo sé". R2 ahora exige que
+la respuesta NO admita incertidumbre; el precio está medido y es que A12 deja de
+marcarse (los dos huecos conocidos quedan listados en el reporte y en un test).
+
+**Tres hallazgos reales, los tres por medir en vez de suponer:**
+
+1. **El déficit declarado por la tool no tiene condición de pago.** El
+   mecanismo de saldar un déficit existe y funciona por el camino de código
+   (`add_evidence_request` + evidencia que matchea → 0 déficits pendientes → el
+   gate permite). Pero `open_question` —el ÚNICO camino del modelo— crea el
+   déficit SIN condiciones, así que `unsatisfied_deficits()` nunca lo suelta y
+   R1 queda enclavado: la evidencia que faltaba llega y el gate **bloquea la
+   respuesta correcta** (medido: caso 3 de la tabla de deuda epistémica). Es
+   abstención falsa (riesgo R4) causada por el cableado, no por el gate. La
+   decisión de contrato es del usuario (ver decisión D9 del roadmap).
+2. **Una misma observación no puede reabrir y refutar a la vez.** El dedup de
+   evidencia aplicada es por HIPÓTESIS, no por condición, así que la primera
+   condición que matchea gana y la segunda se descarta en silencio. Con dos
+   observaciones distintas el conflicto se registra bien (`refuted` +
+   `contradicted`); con una sola que contiene los dos marcadores, queda
+   `reactivated` y sin marca de contradicción — aunque el texto que la reabrió
+   contenía la refutación. Medido y fijado en un test (decisión D10).
+3. **El harness se comió su propio bug, y lo atrapó su propia guarda.** La
+   primera versión preparaba el "mundo" scripteado por NOMBRE de herramienta, así
+   que dos observaciones de la misma herramienta en el mismo turno devolvían el
+   MISMO contenido (el último): 27 de 29 observaciones ejecutadas, y los items
+   del conjunto C pasando por el motivo equivocado. Lo detectó la verificación
+   que exige que todo contenido del corpus haya llegado de verdad al ledger
+   (`observaciones_ejecutadas == observaciones_totales`) — la misma clase de
+   control inerte que el detector de ReDoS que no detectaba nada, pero esta vez
+   el control existía y funcionó.
+
+**Lo que el reporte dice de sí mismo, y hay que respetar:** las etiquetas las
+escribió el mismo autor que el gate, así que es una medición interna y
+reproducible, no un benchmark externo; el umbral depende de la distribución de
+longitudes del corpus; y "presentar ambas fuentes" (conjunto C) NO está
+verificado, porque el gate no puede comprobarlo sin entender el texto (lo que sí
+se verifica es que el ledger registre el conflicto y que el gate no fuerce una
+resolución).
+
+**Gate de salida de F6, ahora mecánico:** `tests/test_epistemic_measurement.py`
+exige que los marcadores y el umbral de `gate.py` sean exactamente los que el
+reporte dice haber medido, y que lo commiteado en
+`docs/medicion-capa-epistemica.json` siga coincidiendo con el código y el corpus.
+Tocar el heurístico sin volver a medir rompe la suite.
+
+**Qué sigue:** F4 (ledger durable), que además es lo que cierra el 0.00 de
+"dedup entre sesiones" ya medido, y necesita dos decisiones del usuario (backend
+y alcance). Las dos decisiones nuevas que dejó F6 (D9, D10) están en el roadmap
+con los números que las motivan.
+
+
+### F6, cierre: el orden de las condiciones dejó de importar (2026-09-29)
+
+El usuario revisó el hallazgo D10 y señaló algo que la medición no había
+desarmado del todo: **eran dos problemas apilados**, y arreglar solo el primero
+habría mudado el bug un nivel más adentro sin eliminarlo.
+
+1. **Dedup por evidencia en vez de por condición.** `_applied` era un solo set
+   por hipótesis, cargado con `ev.dedup_key` apenas aplicaba la PRIMERA condición
+   que matcheaba; la segunda condición de la misma evidencia se evaluaba con ese
+   dedup_key ya presente y `should_reopen()` la descartaba creyendo que era una
+   repetición. El mecanismo que garantiza el invariante de F1 (misma evidencia
+   tres veces → una aplicación) se disparaba de más, porque no distinguía "esta
+   evidencia ya se aplicó por ESTA condición" de "por CUALQUIER condición".
+   Arreglo: clave `(condition_id, dedup_key)`. Para la misma condición, la
+   evidencia repetida sigue dedupeada igual (el invariante de F1 intacto, con
+   test); para condiciones distintas, cada una aplica una vez.
+2. **`_aplicar()` pisaba el estado sin regla de precedencia.** Con el dedup
+   arreglado, las dos condiciones aplican y quedan los dos `EvidenceLink`, pero
+   `status` terminaba siendo el de la ÚLTIMA condición de la tupla: el bug de "el
+   orden manda" no desaparecía, se mudaba de "cuál condición se aplica" a "cuál
+   estado queda". Arreglo: precedencia explícita **`REFUTE > WEAKEN > REOPEN`**,
+   la lectura más cauta, alineada con el fail-closed del §0.4. Los vínculos de
+   todas las acciones se registran igual (nunca se pierde la mitad de la señal, y
+   `Flag.CONTRADICTED` queda puesto), y el presupuesto de reaperturas se consume
+   UNA vez por evidencia, no una por condición: el ruido que acota es el dato.
+   El historial gana una entrada `precedence` cuando hubo más de una acción, para
+   que la regla no parezca arbitraria en una auditoría.
+
+**El test que cierra esto**, tal como lo pidió el usuario: la misma evidencia,
+con las condiciones declaradas en los DOS órdenes posibles
+(`[reapertura, refutación]` y `[refutación, reapertura]`), tiene que dar el mismo
+estado final — mismos dos vínculos, mismo `Flag.CONTRADICTED`, mismo `status`.
+Si se arreglara solo el dedup, ese test falla igual. Está parametrizado en
+`tests/test_kal_epistemics_ledger.py`, con dos tests más (precedencia en los tres
+pares de acciones, y el invariante de F1 intacto), y la medición de F6 ahora
+reporta `orden_independiente: true` con los tres casos idénticos y verificables
+en `docs/MEDICION-CAPA-EPISTEMICA.md`.
+
+**Y se comprobó que el test discrimina de verdad**, no que pasa de casualidad:
+emulando "dedup arreglado sin precedencia" (la última condición de la tupla pisa
+el estado), los dos órdenes dan `refuted` y `reactivated` respectivamente — el
+test parametrizado falla con el arreglo a medias, que es exactamente para lo que
+se escribió.
+
+Detalle de diseño que vale registrar: el `already_applied` de `should_reopen()`
+quedó documentado como **alcance del llamador** — el ledger lo lleva por
+(condición, evidencia). Pasarle todas las claves de la hipótesis es lo que
+producía el bug, y era una decisión del llamador, no del matcher.
+
+Tests: **189** de la capa epistémica (6 nuevos del ledger, uno de ellos
+parametrizado en los dos órdenes), **399** del conjunto epistémico + rutas/loop/
+orquestador/audit sin regresiones, ruff `--select=E9,F` limpio.
+
+
+## F4, la mitad que no depende del backend: estado durable y compactación (2026-09-29)
+
+F4 está bloqueada por dos decisiones del usuario (D4: backend; D5: alcance), pero
+no entera: el **estado serializable** y la **política de qué se tira** son
+contrato, no motor de almacenamiento, y van en la librería portable. Eso es lo
+que se hizo, con 29 tests nuevos en `tests/test_kal_epistemics_durable.py` (la
+ronda siguiente sumó 12 más al mismo archivo, ver el cierre de abajo).
+
+**`HypothesisLedger.snapshot()` / `from_snapshot()`.** Estado completo y
+determinista: dos ledgers en el mismo estado producen el mismo diccionario y el
+mismo JSON (ordenado), así que el backend puede hashearlo. Incluye lo que no se
+ve en los objetos públicos y también hay que preservar:
+
+- **qué evidencia se aplicó, por condición** — el dato que agregó el arreglo de
+  D10. Sin él, recargar volvería a aplicar la segunda condición como si fuera
+  nueva.
+- **el presupuesto de reaperturas consumido.** Sin él, reiniciar el proceso
+  reabriría una hipótesis ya reabierta con la misma observación: el mismo dato
+  contaría dos veces por haber habido un reinicio (R8, bucles de reapertura).
+  Hay un test con ese nombre exacto.
+
+Recargar **falla cerrado**: versión de esquema distinta, evidencia o dependencia
+desconocida, clave canónica que no corresponde a su texto, hipótesis que apunta a
+una pregunta o un déficit inexistente, déficit huérfano, o contador de
+reaperturas de una hipótesis que no está. No reinterpreta ni completa nada: la
+trazabilidad es lo único que esta capa tiene para ofrecer, y reinterpretarla en
+silencio es la forma más barata de perderla. Los ciclos inyectados a mano (que al
+cargar de disco ya no están garantizados por el orden de construcción, como anotó
+F1) sobreviven el round-trip sin colgarse: `level()` = `None` y `Flag.CIRCULAR`.
+
+**`compact()` + `kal_epistemics/compaction.py`.** La regla del roadmap —"se tira
+el detalle de las hipótesis largas, se conserva el déficit y la razón de la
+abstención"— traducida a decisiones ejecutables:
+
+- **Nunca una hipótesis viva** (`OPEN`/`REACTIVATED`/`WEAKENED`/`SUSPENDED`): es
+  una deuda abierta. Solo se compactan terminales (`REFUTED`/`SUPERSEDED`/
+  `UNDETERMINABLE`), y solo las más viejas por pregunta, por encima del cupo.
+- **Nunca nada estructural**: estado, vínculos de evidencia, dependencias,
+  condiciones de reapertura, `question_id`. Si se tiraran los vínculos, una
+  hipótesis `SUPPORTED` dejaría de poder validarse al recargar; si se tiraran las
+  condiciones, una refutada nunca más podría reabrirse — justo lo contrario de
+  para qué se conserva. Hay un test que verifica que una refutada compactada
+  SIGUE siendo reabrible, y otro que exige que las `flags` derivadas no cambien.
+- **Nunca promueve**: ningún estado cambia, no aparece evidencia nueva, no
+  aparece ningún `SUPPORTED` (el criterio de aceptación del roadmap, como test).
+- **Idempotente**: la marca de compactación se reemplaza, no se acumula; si no,
+  cada escritura del store durable dejaría una marca nueva y el archivo crecería
+  igual que sin compactar.
+- **`conserva_lo_irrenunciable()` se verifica ANTES de escribir**: la promesa del
+  docstring es una condición ejecutable, y si falla se aborta sin tocar el estado.
+
+Tres de los cuatro criterios de aceptación de F4 quedaron verificados sin
+backend: "compactar no pierde `missing[]`", "una hipótesis nunca se promueve", y
+la no-reapertura al recargar. El cuarto —la misma pregunta en otra sesión cae en
+el mismo registro— es exactamente lo que aporta el store, y sigue midiendo 0.00
+en el reporte de F6.
+
+**Lo que queda, con la decisión que lo desbloquea:** el store (D4: SQLite propio
+en `data/epistemics/`, JSONL append-only, o extender el backend de memoria —
+donde el riesgo R2 es acercar el ledger al camino de `recall()`), la clave de
+alcance (D5: instalación con clave explícita, por usuario, o global), el punto de
+guardado en `agent_core/epistemics/store.py`, el límite de reaperturas por
+PREGUNTA (R8: hoy es por hipótesis), y el test de no contaminación contra el
+store durable. Las opciones están desglosadas en el roadmap, sección F4.
+
+Tests: **218** de la capa epistémica (29 nuevos), ruff `--select=E9,F` limpio, y
+la medición de F6 sigue consistente con lo commiteado (`--verificar`).
+
+**R8, medido en vez de supuesto.** El apartado de F4 que pide un límite de
+reaperturas por PREGUNTA estaba sin número, así que se agregó la medición al
+reporte de F6: con 5 hipótesis de la misma pregunta mirando el mismo marcador,
+**una sola observación produce 5 reaperturas** (una por hipótesis, cada una con su
+presupuesto individual de 10); repetir la misma evidencia produce 0 —la dedup por
+hash aguanta— y otra evidencia con el mismo marcador produce 5 más. El techo
+teórico de una pregunta es 10 × 50 = 500 aplicaciones. El tope por pregunta sigue
+sin implementarse y ahora tiene el dato que lo justifica o lo descarta, incluido
+su costo: un tope por pregunta también puede impedir que una hipótesis legítima
+reciba el respaldo que le llegó. Hay un test que fija el número para que no se
+pierda.
+
+### F4: el port del almacén y qué significa "el mismo registro" (2026-09-29)
+
+Segunda mitad de F4 que no depende del backend. `kal_epistemics/durable.py`:
+
+- **`AlmacenDurable`** (Protocol): cargar, guardar, descartar, ámbitos. Cuatro
+  operaciones y nada más; cualquier backend las implementa y el ledger no sabe
+  cuál es. Hay un test que exige que la superficie pública del port sean
+  exactamente esas cuatro — un port que crece es un port que ata a un backend.
+- **`AlmacenEnMemoria`**: doble fiel. Pasa por JSON en las dos direcciones a
+  propósito: si el estado guardado tuviera algo no serializable, o el round-trip
+  perdiera un dato, falla en el test y no con un backend de verdad. También es el
+  modo "sin persistencia" (tests, CI, o un agente que se niega a escribir disco).
+- **`LedgerDurable`**: abre el ledger desde el estado guardado, `guardar()`,
+  `guardar_si_cambio()` (para no reescribir el almacén en los turnos que no
+  tocaron nada — la mayoría) y `compactar()`, que guarda si compactó.
+
+**El ámbito explícito es la pieza que faltaba del criterio de F4.** "La misma
+pregunta en otra sesión no crea un registro nuevo" se cumple porque las sesiones
+del mismo ÁMBITO comparten el estado guardado y `canonical_key` es la clave —
+pero *qué* comparten es una decisión (D5), así que el ámbito es un parámetro con
+default explícito (`"instalacion"`), no algo que surja del objeto que uno tenga a
+mano. La alternativa es exactamente cómo se termina compartiendo estado entre
+usuarios sin haberlo decidido; hay un test que exige que dos ámbitos no se vean
+entre sí, y otro que verifica la dedup entre sesiones del mismo ámbito (con la
+reformulación cosmética incluida: `times_asked` sube a 2 y el registro es el
+mismo).
+
+Con esto, **los cuatro criterios de aceptación de F4 quedan verificados** sin
+backend: no pierde `missing[]`, no promueve, no reabre al recargar, y la misma
+pregunta no duplica registro. El de no contaminación se extendió al almacén y al
+registro durable: ninguno expone `recall`/`store` ni es un `MemoryBackend`.
+
+**Límite declarado, con test propio:** `guardar()` escribe el snapshot completo,
+así que dos escritores vivos del mismo ámbito se pisan (gana el último que
+guarda). Hoy no ocurre en kal-in porque hay un único ledger vivo por ámbito, y
+por eso el port no inventa un protocolo de concurrencia antes de saber sobre qué
+backend se apoya. El test documenta el comportamiento actual para que no se
+descubra en producción, y el requisito pasa a la decisión D4: un backend
+transaccional (SQLite en WAL) puede levantarlo; uno de archivo necesita un lock.
+
+Tests: **41** del estado durable (12 nuevos), 229 de la capa epistémica, ruff
+`--select=E9,F` limpio, y la medición de F6 sigue consistente (`--verificar`).
+
+
+## F4 completa: SQLite, ámbito por instalación, y D9 (2026-09-29)
+
+El usuario resolvió las tres decisiones que bloqueaban la fase, y las tres con
+argumento, no con preferencia:
+
+- **D4: SQLite propio.** Lo que decidió no fue "SQLite es mejor" sino el contrato
+  del port: `guardar()` **reemplaza el estado completo de un ámbito**, no escribe
+  eventos incrementales. Con JSONL eso termina siendo un key-value casero sobre
+  líneas —reescritura total con `tempfile` + `os.replace` y un lock propio—, o sea
+  inventar el protocolo de concurrencia que el propio docstring de `durable.py`
+  dice que el port no quiere inventar. SQLite lo trae probado (WAL, locking,
+  transacciones), es stdlib, y el precedente es de este repo:
+  `agent_core/memory/mid_term.py`. La auditabilidad no se pierde: la fila es el
+  snapshot en JSON y se lee con `sqlite3 ... "select snapshot from ledger"` sin la
+  librería, que además es más útil que un `grep` cuando cada línea sería un blob
+  grande y no un evento discreto.
+- **D5: ámbito por instalación**, con la clave explícita. Meter usuario en
+  `sessions.py` ahora sería infraestructura sin consumidor real —el patrón que el
+  proyecto evita en otros lados— y la migración ya es gratis: cambiar el valor de
+  la clave.
+- **D9: `resolved_by`.** La infraestructura de la deuda con condición de pago ya
+  existía y estaba probada (`reopen_conditions` en `EvidenceRequest`,
+  `add_evidence_request()`, el branch de `consider()` que ya iteraba déficits);
+  faltaba cablear `OpenQuestionTool`. No era trabajo nuevo, era terminar de
+  conectar algo construido.
+
+**Lo que se implementó:**
+
+- `kal_epistemics/sqlite_store.py` — `AlmacenSQLite`: una tabla, una fila por
+  ámbito, WAL, transacciones, lock propio (el endpoint corre en el threadpool de
+  FastAPI) y `EstadoIlegible` cuando la fila no se puede leer (distinto de
+  `SchemaVersionMismatch`: ahí los datos se entienden pero son de otra versión,
+  acá no se entienden).
+- `agent_core/epistemics/store.py` — `EpistemicStore` pasa a ser del ÁMBITO:
+  `almacen=` y `ambito=`, guardado después de cada mutación
+  (`_persistir_si_mutó` + `guardar_si_cambio()`, que no reescribe cuando nada
+  cambió) y compactación en el mismo paso. `almacen_persistente()` construye el
+  backend real; el default de la clase sigue siendo en memoria **a propósito**,
+  para que ningún test escriba en `data/`.
+- `agent_core/orchestrator.py` — el runtime usa el backend durable. Sin esto, el
+  ledger seguía siendo efímero.
+- `tests/conftest.py` — fixture autouse que aísla el ledger por test: con el
+  runtime apuntando a `data/`, sin el fixture el estado de un test bloquearía al
+  siguiente.
+- `open_question(text, missing=..., reopen_conditions=...)` en el ledger +
+  `resolved_by` en `OpenQuestionTool` (marcadores por el camino no confiable).
+- `AlmacenEnMemoria` sigue siendo el doble fiel; `AlmacenSQLite` es el backend.
+
+**Números que se movieron, medidos otra vez:**
+
+| Métrica | Antes | Ahora |
+|---|---|---|
+| `D.dedup_entre_sesiones` (criterio de F4) | 0.00 | **1.00** |
+| Deuda epistémica, caso 3 (el camino del modelo) | 1 pendiente, gate `bloquear` | **0 pendientes, gate `permitir`** |
+
+El test de la métrica se invirtió con el número: un número que no cambia cuando
+el sistema cambia es un número que ya no mide nada.
+
+**Cambio de semántica que hay que tener presente:** el ledger era por sesión (F2)
+y ahora es por ámbito (D5). El aislamiento no desapareció, cambió de eje — dos
+ámbitos no se ven entre sí, y hay test. Dentro de una instalación las sesiones
+comparten hipótesis y déficits, que es lo que hace que la misma pregunta no cree
+un registro nuevo y que el "no lo sé" sea el mismo. `ingested_count()` se dejó
+POR SESIÓN a propósito: R2 pregunta por el turno, y contar el ámbito haría que una
+sesión silenciara el aviso de "sin verificación" de otra. La consecuencia que
+queda dicha: un déficit declarado en una sesión es visible en la siguiente (es la
+continuidad buscada), y con D9 ya no queda enclavado.
+
+**Corrección honesta de mi propia comparación.** En la tabla con la que se decidió
+D4 yo había escrito que SQLite "levanta el límite declarado del doble escritor".
+Es medio cierto y había que precisarlo: aporta atomicidad y evita la corrupción y
+el "database is locked" —esa es la parte que resuelve—, pero el
+**last-write-wins por ámbito sigue existiendo**, porque `guardar()` reemplaza el
+snapshot entero y eso es contrato del port, no del motor. Hay un test del port y
+otro de SQLite que lo fijan, para que nadie crea que elegir una biblioteca
+resolvió un problema de diseño.
+
+Tests: **436** en el conjunto epistémico + rutas/loop/orquestador (12 nuevos de
+SQLite, 5 de D9, más los tests actualizados de aislamiento por ámbito), ruff
+`--select=E9,F` limpio, y la medición de F6 regenerada y consistente
+(`--verificar`).

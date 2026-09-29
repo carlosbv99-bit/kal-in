@@ -15,6 +15,7 @@ from agent_core.context_service import EditorContextSignals
 from agent_core.conversation_engine import get_trivial_reply
 from agent_core.llm.provider import ProviderError
 from agent_core.memory import security_policy
+from agent_core.epistemics.gate import GateOutcome, evaluate_answer
 from agent_core.orchestrator import _artifact_url, orchestrator
 from agent_core.tool_need_classifier import predict_needs_tool
 from sdk.artifacts import Artifact
@@ -108,6 +109,59 @@ def _backend_model_for_tool(tool_name: str) -> str | None:
     return mapping.get(tool_name)
 
 
+def _respuesta_final(
+    *,
+    req,
+    session,
+    correlation_id: str,
+    goal: str,
+    status: str,
+    final_answer: str,
+    plan,
+    steps,
+    model_used,
+    gate: bool = False,
+    evidence_before: int = 0,
+):
+    """
+    CHOKE POINT ÚNICO de toda respuesta de /chat.
+
+    Existe por un motivo concreto: este endpoint tenía CUATRO salidas distintas
+    (respuesta trivial, `answer_directly`, Conversation Engine, planner), y un
+    gate puesto en una sola de ellas es un gate que se saltea por las otras
+    tres. Todas pasan por acá, y hay un test que lee este archivo y falla si
+    alguien agrega una quinta puerta con su propia clave de respuesta.
+
+    El gate corre SOLO en la ruta del planner (parámetro `gate`, decisión D8): es la
+    única que produce afirmaciones factuales sobre el mundo usando
+    herramientas. Las otras tres son conversación o aclaración, y bloquear un
+    "hola" porque no tiene respaldo exógeno sería un bug, no una garantía.
+    """
+    if gate:
+        decision = evaluate_answer(
+            final_answer,
+            store=orchestrator.agent.epistemics,
+            session_id=session.id,
+            evidence_before=evidence_before,
+        )
+        if decision.outcome is not GateOutcome.PERMITIR:
+            logger.warning(
+                "Gate epistémico: %s (%s)", decision.outcome.value, decision.reason
+            )
+        final_answer = decision.answer
+
+    return {
+        "session_id": session.id,
+        "correlation_id": correlation_id,
+        "goal": goal,
+        "final_answer": final_answer,
+        "status": status,
+        "plan": plan,
+        "steps": steps,
+        "model_used": model_used,
+    }
+
+
 @router.post(
     "/chat",
     summary="Punto de entrada del agente",
@@ -179,19 +233,14 @@ def chat(req: ChatRequest):
     trivial_reply = get_trivial_reply(req.goal)
     if trivial_reply is not None:
         orchestrator.sessions.record_turn(session, req.goal, trivial_reply)
-        return {
-            "session_id": session.id,
-            "correlation_id": correlation_id,
-            "goal": req.goal,
-            "final_answer": trivial_reply,
-            "status": "trivial_reply",
-            "plan": [],
-            "steps": [],
-            # Ningún modelo resolvió este turno — reflectLastModelUsed()
-            # en frontend/app.js ya maneja un valor falsy sin tocar el
-            # selector visible.
-            "model_used": None,
-        }
+        # Ningún modelo resolvió este turno — reflectLastModelUsed() en
+        # frontend/app.js ya maneja un valor falsy sin tocar el selector
+        # visible.
+        return _respuesta_final(
+            req=req, session=session, correlation_id=correlation_id, goal=req.goal,
+            status="trivial_reply", final_answer=trivial_reply,
+            plan=[], steps=[], model_used=None,
+        )
 
     # Generalización de get_trivial_reply(): un clasificador LOCAL
     # chico (TF-IDF + regresión logística, sin LLM — ver
@@ -241,16 +290,11 @@ def chat(req: ChatRequest):
                 history=context_bundle.history, session_context=context_bundle.session_context,
             )
             orchestrator.sessions.record_turn(session, req.goal, final_answer)
-            return {
-                "session_id": session.id,
-                "correlation_id": correlation_id,
-                "goal": req.goal,
-                "final_answer": final_answer,
-                "status": "no_tool_needed",
-                "plan": [],
-                "steps": [],
-                "model_used": settings.tool_need_classifier.answer_model,
-            }
+            return _respuesta_final(
+                req=req, session=session, correlation_id=correlation_id, goal=req.goal,
+                status="no_tool_needed", final_answer=final_answer,
+                plan=[], steps=[], model_used=settings.tool_need_classifier.answer_model,
+            )
 
     # Conversation Engine (ver agent_core/conversation_engine.py): paso
     # PREVIO y opcional, "fail-open" — si detecta baja confianza (pedido
@@ -266,21 +310,15 @@ def chat(req: ChatRequest):
         })
     if ce_result is not None and ce_result.confidence < settings.conversation_engine.confidence_threshold:
         orchestrator.sessions.record_turn(session, req.goal, ce_result.user_reply)
-        return {
-            "session_id": session.id,
-            "correlation_id": correlation_id,
-            "goal": req.goal,
-            "final_answer": ce_result.user_reply,
-            "status": "needs_clarification",
-            "plan": [],
-            "steps": [],
-            # El modelo que resolvió ESTE turno — acá, el del Conversation
-            # Engine (nunca el "cerebro" principal, ver
-            # utils/config.py::ConversationEngineConfig). Usado por el
-            # frontend para mostrar "Último modelo utilizado" (ver
-            # frontend/app.js).
-            "model_used": settings.conversation_engine.model,
-        }
+        # El modelo que resolvió ESTE turno — acá, el del Conversation Engine
+        # (nunca el "cerebro" principal, ver
+        # utils/config.py::ConversationEngineConfig). Usado por el frontend
+        # para mostrar "Último modelo utilizado" (ver frontend/app.js).
+        return _respuesta_final(
+            req=req, session=session, correlation_id=correlation_id, goal=req.goal,
+            status="needs_clarification", final_answer=ce_result.user_reply,
+            plan=[], steps=[], model_used=settings.conversation_engine.model,
+        )
 
     main_model = req.model or settings.llm.default_model
     orchestrator.sessions.append_progress(session, {"stage": "main_model", "model": main_model})
@@ -296,6 +334,11 @@ def chat(req: ChatRequest):
         orchestrator.sessions.append_progress(session, entry)
 
     try:
+        # Base observada ANTES de este turno: la diferencia contra el valor
+        # posterior es el único dato mecánicamente confiable sobre si la
+        # respuesta tiene o no una observación detrás (ver
+        # agent_core/epistemics/gate.py).
+        evidence_before = orchestrator.agent.epistemics.ingested_count(session.id)
         result = orchestrator.planning_agent.run(
             req.goal, model=req.model, use_planner=use_planner,
             history=context_bundle.history, session_context=context_bundle.session_context,
@@ -327,8 +370,6 @@ def chat(req: ChatRequest):
     # solo se usa para construir ESE historial (ver grep), nada más
     # depende de él — no grabar un turno de error no pierde nada que el
     # usuario necesite (ya ve el error en ESTA respuesta).
-    if result.status != "llm_error":
-        orchestrator.sessions.record_turn(session, req.goal, result.final_answer)
     all_steps = [s for step_result in result.step_results for s in step_result.result.steps]
     for step in all_steps:
         if step.artifact is not None and step.artifact.modality != "text":
@@ -435,26 +476,33 @@ def chat(req: ChatRequest):
             result["filename"] = step.artifact.metadata.get("filename", Path(step.artifact.uri).name)
         return result
 
-    return {
-        "session_id": session.id,
-        "correlation_id": correlation_id,
-        "goal": result.goal,
-        "final_answer": result.final_answer,
-        "status": result.status,
-        "plan": [s.description for s in result.plan.steps],
-        # El modelo que de verdad resolvió este turno — misma resolución
-        # que ya hace OllamaClient.chat() internamente (model or
-        # settings.llm.default_model), expuesta acá para que el frontend
-        # pueda mostrar "Último modelo utilizado" (ver frontend/app.js).
-        "model_used": main_model,
-        "steps": [
+    # El modelo que de verdad resolvió este turno — misma resolución que ya hace
+    # OllamaClient.chat() internamente (model or settings.llm.default_model),
+    # expuesta acá para que el frontend pueda mostrar "Último modelo utilizado"
+    # (ver frontend/app.js).
+    #
+    # Es la ÚNICA ruta que produce afirmaciones factuales usando herramientas,
+    # y por eso la única que se bloquea (D8).
+    respuesta = _respuesta_final(
+        req=req, session=session, correlation_id=correlation_id, goal=result.goal,
+        status=result.status, final_answer=result.final_answer,
+        plan=[s.description for s in result.plan.steps],
+        steps=[
             {
                 "tool": s.tool_name, "arguments": s.arguments, "observation": s.observation,
                 "artifact": _step_artifact(s, i),
             }
             for i, s in enumerate(all_steps)
         ],
-    }
+        model_used=main_model,
+        gate=True, evidence_before=evidence_before,
+    )
+    # Se graba la respuesta YA PASADA POR EL GATE: si se grabara la original, el
+    # próximo turno la vería como su propio mensaje anterior y la afirmación sin
+    # respaldo se propagaría igual, solo que un turno más tarde.
+    if result.status != "llm_error":
+        orchestrator.sessions.record_turn(session, req.goal, respuesta["final_answer"])
+    return respuesta
 
 
 @router.get("/chat/progress/{session_id}", summary="Progreso en vivo de un turno en curso")

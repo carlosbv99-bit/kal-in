@@ -94,6 +94,7 @@ EventType = Literal[
     "skill_permission_denied",
     "skill_execution_signature_invalid",
     "skill_execution_socket_error",
+    "epistemic_evidence_ingested",
 ]
 
 

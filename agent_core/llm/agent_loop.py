@@ -56,6 +56,7 @@ from agent_core.llm.provider import LLMProvider, ProviderError, ToolCall
 from agent_core.llm.self_check_tracker import SelfCheckTracker
 from agent_core.llm.tool_repeat_limiter import ToolRepeatLimiter
 from agent_core.memory.manager import MemoryManager
+from agent_core.epistemics import EpistemicStore
 from audit.audit_log import AuditEvent, audit_log
 from kernel.permissions.permission_cascade import permission_cascade, trust_tier_for
 from kernel.registry.registry import ToolRegistry
@@ -68,6 +69,10 @@ from tool_integration.adapters.core_tools import (
     CodeExecutionTool,
     MemoryRecallTool,
     MemoryRememberTool,
+)
+from tool_integration.adapters.epistemic_tools import (
+    OpenQuestionTool,
+    RecordHypothesisTool,
 )
 from utils.config import settings
 from utils.logger import get_logger
@@ -340,16 +345,39 @@ class AgentLoop:
         memory: MemoryManager | None = None,
         tools: list[AgentTool] | None = None,
         tool_registry: ToolRegistry | None = None,
+        epistemics: EpistemicStore | None = None,
     ):
         self.llm = llm_client or OllamaClient()
         self.task_executor = task_executor or TaskExecutor()
         self.memory = memory or MemoryManager()
+        # Capa epistémica (ver agent_core/epistemics/store.py): ledger de
+        # hipótesis POR SESIÓN. Se inyecta para poder aislarla en tests.
+        self.epistemics = epistemics or EpistemicStore()
         self.tool_registry = tool_registry or default_tool_registry
         # Si se pasa `tools=` explícito, queda fijo tal cual (usado por
         # tests para inyectar dobles) — nunca se mezcla con el registry.
         self._explicit_tools: dict[str, AgentTool] | None = (
             {tool.name: tool for tool in tools} if tools is not None else None
         )
+
+    def _system_content(self, session_context, session_id: str | None) -> str:
+        """
+        Arma el ÚNICO mensaje `system` del turno.
+
+        El bloque epistémico se FUNDE acá en vez de ir como mensaje aparte por
+        un bug real ya documentado en este archivo: con dos mensajes
+        `system`, qwen3-coder:30b ignoraba por completo el contexto de sesión
+        (confirmado con una prueba directa contra Ollama). Un segundo system
+        "más limpio" habría reintroducido ese bug, y hay un test que cuenta los
+        mensajes `system` del archivo para que no vuelva a pasar.
+        """
+        contenido = SYSTEM_PROMPT
+        if session_context:
+            contenido = f"{SYSTEM_PROMPT}\n\n{session_context['content']}"
+        bloque = self.epistemics.context_block(str(session_id) if session_id else None)
+        if bloque:
+            contenido = f"{contenido}\n\n{bloque}"
+        return contenido
 
     def _current_tools(
         self,
@@ -374,6 +402,13 @@ class AgentLoop:
             # con los de cualquier otra sesión activa en el mismo proceso.
             "remember": MemoryRememberTool(self.memory, session_id=session_id),
             "recall": MemoryRecallTool(self.memory, session_id=session_id),
+            # Capa epistémica: el modelo puede ABRIR una pregunta y REGISTRAR
+            # una hipótesis. No puede vincular evidencia ni declarar orígenes
+            # — ver la firma de cada tool en
+            # tool_integration/adapters/epistemic_tools.py: la firma ES la
+            # frontera.
+            "open_question": OpenQuestionTool(self.epistemics, session_id=session_id),
+            "record_hypothesis": RecordHypothesisTool(self.epistemics, session_id=session_id),
         }
         merged: dict[str, Tool] = {**self.tool_registry.active_tools(), **instance_tools}
         excluded = get_client_provider(client).excluded_tool_names()
@@ -564,9 +599,7 @@ class AgentLoop:
         # el ÚNICO mensaje system, lo usó correctamente. El historial
         # (roles user/assistant) sí funciona bien como mensajes propios
         # — el problema es específico de un segundo system.
-        system_content = SYSTEM_PROMPT
-        if session_context:
-            system_content = f"{SYSTEM_PROMPT}\n\n{session_context['content']}"
+        system_content = self._system_content(session_context, session_id)
         messages: list[dict] = [{"role": "system", "content": system_content}]
         if history:
             messages.extend(history)
@@ -750,7 +783,10 @@ class AgentLoop:
                         )
                     logger.warning(f"Tope de repeticiones excedido para '{tool_call.name}' (límite={effective_limit}), rechazado sin ejecutar")
                 else:
-                    observation = self._dispatch_tool(tool_call.name, tool_call.arguments, tools, denied_permissions)
+                    observation = self._dispatch_tool(
+                        tool_call.name, tool_call.arguments, tools, denied_permissions,
+                        session_id=session_id,
+                    )
                     dispatched_tool = tools.get(tool_call.name)
                     artifact = dispatched_tool.last_artifact if dispatched_tool is not None else None
                     self_check.record_artifact(artifact, tool_call.name)
@@ -844,6 +880,7 @@ class AgentLoop:
     def _dispatch_tool(
         self, name: str, arguments: dict[str, Any], tools: dict[str, AgentTool],
         denied_permissions: frozenset[Permission] = frozenset(),
+        session_id: str | None = None,
     ) -> str:
         tool = tools.get(name)
         if tool is None:
@@ -875,9 +912,24 @@ class AgentLoop:
             return reason
 
         try:
-            return tool.handler(**arguments)
+            observacion = tool.handler(**arguments)
         except TypeError as e:
             return f"ERROR: argumentos inválidos para '{name}': {e}"
         except Exception as e:
             logger.exception(f"Fallo inesperado ejecutando herramienta '{name}'")
             return f"ERROR inesperado ejecutando '{name}': {e}"
+
+        # Ingesta epistémica (ver agent_core/epistemics/store.py). Este es el
+        # ÚNICO punto donde se decide que una observación es una observación:
+        # el origen lo fija este camino de código, que efectivamente ejecutó la
+        # herramienta — nunca el modelo. De acá sale, además, la reapertura
+        # automática de una hipótesis guardada (decisión D2): el modelo no
+        # interviene en ese camino.
+        ingesta = self.epistemics.ingest_tool_result(
+            session_id=session_id, tool_name=name, observation=observacion,
+        )
+        if ingesta.note:
+            # La nota va pegada a la observación a propósito: es donde el
+            # modelo está mirando cuando la reapertura ocurre.
+            return f"{observacion}\n\n{ingesta.note}"
+        return observacion
