@@ -6,6 +6,7 @@ para no tocar logs/audit.log real del proyecto.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -292,6 +293,52 @@ def test_hash_chain_is_keyed_not_plain_sha256(tmp_path):
     log_a.record(_event())
     assert log_a.verify_chain() is True
     assert log_b.verify_chain() is False  # misma cadena, clave distinta
+
+
+# --- B-8 (portado desde kal, commit 99dba21, 2026-10-03: medido en vivo
+# en kal-epistemic, proyecto que comparte este mismo audit_log.py) ---
+
+
+def test_read_last_hash_cost_is_bounded_not_proportional_to_file_size(log, monkeypatch):
+    """
+    _read_last_hash() releía el archivo ENTERO en cada record() bajo
+    lock exclusivo — a 100MB, ~100ms por evento, pagado en cada turno
+    de ingesta. Ahora lee solo la cola (seek+scan hacia atrás): el
+    costo debe quedar acotado sin importar cuán grande sea el archivo
+    total, no crecer proporcional a él.
+    """
+    for i in range(500):
+        log.record(_event(summary=f"relleno {i}" * 20))
+    big_size = log.path.stat().st_size
+    assert big_size > 200_000  # confirma que el archivo es realmente "grande" para este test
+
+    amount_read: list[int] = []
+    real_open = open
+
+    def _counting_open(path, mode="r", *args, **kwargs):
+        # Sin filtrar por modo: la versión VIEJA leía todo a través del
+        # mismo fd "a+" que record() ya tenía abierto (nunca abría nada
+        # nuevo), así que solo contar aperturas "rb" no detectaría esa
+        # lectura completa — hay que contar CUALQUIER .read() sobre
+        # este archivo, sin importar en qué modo se abrió.
+        opened = real_open(path, mode, *args, **kwargs)
+        if Path(path) == log.path:
+            original_read = opened.read
+
+            def _tracked_read(n=-1, *a, **kw):
+                data = original_read(n, *a, **kw)
+                amount_read.append(len(data))
+                return data
+
+            opened.read = _tracked_read
+        return opened
+
+    monkeypatch.setattr("audit.audit_log.open", _counting_open, raising=False)
+
+    log.record(_event(summary="evento final"))
+
+    assert sum(amount_read) < 20_000  # muy por debajo de los 200KB+ del archivo total
+    assert sum(amount_read) < big_size / 10
 
 
 def test_a_corrupt_last_line_does_not_break_future_recording(log):

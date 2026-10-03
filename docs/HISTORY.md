@@ -11130,10 +11130,86 @@ estaba midiendo.
 
 Arreglo natural: leer solo la cola (seek cerca del final + escanear hacia atrás hasta la
 última línea parseable, conservando el fail-forward ante línea corrupta), con un test que
-verifique que no se lee más de una ventana acotada. Es un archivo compartido con kal
-(`audit/audit_log.py`), así que va en dirección kal-in → kal. **No se implementó acá**: toca
-la cadena de auditoría, merece su propia ronda con su medición antes/después, y la decisión
-es de la revisión.
+verifique que no se lee más de una ventana acotada.
+
+> **Cerrado el mismo día, y en la dirección contraria a la que escribí acá.** El arreglo ya
+> existía del lado de `kal` (commit `99dba21`, medido en vivo en kal/kal-epistemic, donde el
+> mismo `audit_log.py` se embebe) y **se portó a kal-in**, no al revés. Ver abajo.
+
+## NOTA PENDIENTE (2026-10-03): el fix de `_read_last_hash()` ya existe en kal, falta portarlo acá
+
+El hallazgo de arriba ("record() es O(tamaño del log)") ya se corrigió del lado de `kal`
+(commit `99dba21`, pusheado a `origin/main` el 2026-10-03): `_read_last_hash()` ahora lee solo
+la cola del archivo (seek hacia atrás en chunks de 4096 bytes hasta encontrar la última línea
+completa, en bytes antes de decodificar — "\n" nunca es byte de continuación de una secuencia
+UTF-8 multibyte, así que partir por él en crudo es seguro) en vez de `f.read()` del archivo
+entero. Medido en kal antes/después: ~3ms a 5MB (escala lineal) → ~0.037ms plano a 5/20/50MB.
+Efecto colateral: la rama de "línea corrupta" (A-10 #2) ahora también atrapa
+`UnicodeDecodeError`, no solo `JSONDecodeError`/`KeyError` — antes, un byte no-UTF8 en
+CUALQUIER línea tumbaba `record()` entero sin atrapar, porque el `f.read()` viejo decodificaba
+todo el archivo de una sola vez antes de llegar a ese try/except.
+
+**Portado y verificado en este commit** (la nota original decía "falta portar": quedó
+hecho, y con medición propia en kal-in además de la de kal):
+
+| Medición | Antes | Después |
+|---|---|---|
+| `audit_log.record()` con el log real (15.9 MB) | 14.6 ms | **0.05 ms** |
+| Ingesta epistémica en proceso, log real (15.9 MB) | 15.2 ms | **0.34 ms** |
+| Ingesta epistémica, log chico | 0.35 ms | 0.33 ms |
+| `record()` con un log de 28.6 MB | — | **0.072 ms** (promedio de 20) |
+
+El dato que importa más que la mejora: **0.34 ms con log grande vs 0.33 ms con log chico** —
+dejó de ser proporcional al tamaño, que era el problema real ("más rápido" habría sido un
+factor; esto es O(1)). Y en el archivo de 28.6 MB el encadenado sigue correcto: el `prev_hash`
+del evento nuevo es el `event_hash` de la línea anterior. Los 25 tests de
+`tests/test_audit_log.py` pasan, incluido el test nuevo que cuenta **cualquier** `.read()`
+sobre el path sin filtrar por modo — detalle que importa, porque la versión vieja leía por el
+handle `"a+"` que `record()` ya tenía abierto, así que un test que solo contara aperturas
+`"rb"` no habría detectado la regresión.
+
+La nota original sigue abajo, sin tocar. `kal-in` todavía embebe su propia copia de `audit/audit_log.py` (no
+depende del paquete `kal`, ver `scripts/check_kernel_drift.py`) — correr ese script contra el
+`kal` local el mismo día encontró, además de `audit/audit_log.py`, drift de código REAL (no
+cosmético) en otros 4 archivos: `kernel/api/sandbox_api.py`, `kernel/api/socket_server.py`,
+`kernel/lifecycle/docker_runner.py`, `kernel/registry/skill_market.py`. Ninguno de los cuatro
+se investigó todavía — quedan para revisar en esta ventana junto con el puerto de
+`audit_log.py`. Correr `python3 scripts/check_kernel_drift.py --kal-repo <ruta> --triage`
+para confirmar el estado exacto antes de portar nada (la clasificación puede haber cambiado
+si hubo más commits de cualquiera de los dos lados desde esta nota).
 
 Tests: 2 nuevos (`tests/test_agent_core_epistemics.py`). Los scripts de medición quedaron en
 `data/tmp/` (ignorado por git), no como artefactos del repo.
+
+## Fix: B-8 — costo O(n) por evento en el audit log, portado desde kal (2026-10-03)
+
+Resuelve la nota pendiente de arriba. Portado el fix de `kal` (commit `99dba21`) a la copia
+propia de `audit/audit_log.py` que tiene `kal-in` (no es un paquete compartido — cada repo
+tiene el suyo, por eso el checker de drift sigue marcando este archivo como CODIGO: es
+divergencia deliberada, no un bug de sincronización).
+
+`_read_last_hash()` pasó de recibir el handle `f` (modo texto, ya abierto por `record()` bajo
+`fcntl.flock`) y hacer `f.read()` del archivo COMPLETO, a recibir `path: Path` y abrir su
+propio fd de solo lectura en binario, escaneando hacia atrás desde EOF en bloques de
+`_TAIL_SCAN_CHUNK_BYTES = 4096` hasta encontrar un `\n` completo — todo en bytes antes de
+decodificar (`\n` nunca es byte de continuación de una secuencia UTF-8 multibyte, así que
+partir por él en crudo es seguro; solo la línea final aislada se decodifica). No hace falta
+`flock` propio: el lock exclusivo que `record()` ya sostiene sobre `f` sigue serializando a
+los escritores. Se mantuvo el diseño propio de `kal-in` en la rama de línea corrupta:
+devuelve `"genesis"` (no `"genesis_after_corruption"`, que es la convención de kal) — ya era
+una decisión deliberada de esta sesión, no un desvío nuevo. Igual que en kal, esa rama ahora
+también atrapa `UnicodeDecodeError` además de `JSONDecodeError`/`KeyError` — antes, un byte
+no-UTF8 en CUALQUIER línea tumbaba `record()` entero sin atrapar, porque el `f.read()` viejo
+decodificaba todo de una vez antes de llegar a ese try/except; ahora solo se decodifica la
+última línea, así que ese mismo caso necesita el mismo manejo. `record()` ya no hace
+`f.seek(0)` antes de leer el último hash (quedó innecesario: el `write()` que sigue va
+siempre al final real por `O_APPEND`) y llama a `self._read_last_hash(self.path)` en vez de
+`self._read_last_hash(f)`.
+
+Test nuevo portado (`test_read_last_hash_cost_is_bounded_not_proportional_to_file_size`):
+cuenta bytes leídos de `audit.log` durante un `record()` sobre un archivo de >200 KB —
+confirmado genuino con `git stash`/`stash pop` (falla contra la implementación vieja, pasa
+con la nueva). Los 25 tests preexistentes de `audit_log.py` (líneas corruptas, interleaving
+entre dos instancias, tampering, el marcador `"(ilegible)"` propio de `tail()`/
+`diagnose_chain()`) siguen pasando sin cambios. `ruff check --select=E9,F` de los archivos
+tocados, limpio.

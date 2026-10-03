@@ -1467,13 +1467,25 @@ llamadores" significa que nadie la invoca, no que no esté disponible: lo que fa
 real que la valide, y eso se fija con dos tests para que la disponibilidad no se pierda en
 silencio.
 
-**Hallazgo abierto que salió de esta medición:** `audit_log.record()` es **O(tamaño del
-log)** — `_read_last_hash()` lee el archivo entero en cada evento, así que con 15.2 MB cuesta
-~14.6 ms y crece linealmente (a 100 MB, ~100 ms por evento auditado, en los ~15 call sites
-del proyecto). Es correcto, pero es un costo que crece solo. Arreglo propuesto sin
-implementar: leer solo la cola con una ventana acotada, conservando el fail-forward ante
-línea corrupta; toca `audit/audit_log.py`, que es compartido con kal, y merece su ronda con
-medición antes/después.
+**Hallazgo que salió de esta medición, y ya está cerrado:** `audit_log.record()` era
+**O(tamaño del log)** — `_read_last_hash()` leía el archivo entero en cada evento, así que con
+15.2 MB costaba ~14.6 ms y crecía linealmente (a 100 MB, ~100 ms por evento auditado, en los
+~15 call sites del proyecto). El arreglo ya existía en `kal` (commit `99dba21`, hallazgo B-8) y
+**se portó a kal-in**: lectura de cola en chunks de 4096 bytes, en bytes antes de decodificar
+(`\n` nunca es byte de continuación UTF-8, así que cortar en crudo es seguro), conservando el
+fail-forward ante línea corrupta — que además ahora atrapa `UnicodeDecodeError`, porque el
+`f.read()` viejo decodificaba el archivo entero antes de llegar a ese `try`.
+
+Medido en kal-in después del port: `record()` **0.05 ms** con el log real de 15.9 MB (era
+14.6), **0.072 ms** con uno de 28.6 MB, y la ingesta epistémica **0.34 ms con log grande vs
+0.33 ms con log chico** — o sea O(1) de verdad, no un factor constante más chico. Encadenado
+verificado en el archivo grande, 25 tests de auditoría en verde.
+
+**Queda de aquella nota de revisión, y no se investigó:** los otros 4 archivos con drift de
+**código real** contra kal que encontró el mismo chequeo — `kernel/api/sandbox_api.py`,
+`kernel/api/socket_server.py`, `kernel/lifecycle/docker_runner.py` y
+`kernel/registry/skill_market.py`. `scripts/check_kernel_drift.py --triage` los lista hoy
+junto a `registry.py` (que entró por trabajo de esta sesión) y al propio `audit_log.py`.
 
 ### El hueco a nivel de afirmación: medido, y el umbral no lo cierra (2026-09-30)
 

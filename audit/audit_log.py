@@ -32,6 +32,18 @@ from utils.secure_dir import ensure_private_dir
 
 logger = get_logger(__name__)
 
+# HALLAZGO REAL (B-8, auditoría externa de kal 2026-09-27, diferido ahí
+# a propósito; confirmado con medición real en kal-epistemic —
+# proyecto que comparte audit_log.py con kal, no con esta copia propia
+# de kal-in — el 2026-10-03; portado acá desde kal, commit 99dba21):
+# _read_last_hash() releía TODO el archivo en cada record(), bajo lock
+# exclusivo. Medido en kal: ~3ms a 5MB; en kal-epistemic, ~14.6ms a
+# 15.2MB — escala lineal con el tamaño del log, sin rotación, y la
+# ingesta epistémica lo paga varias veces por turno. Ver más abajo el
+# fix (leer solo la cola) y
+# tests/test_audit_log.py::test_read_last_hash_cost_is_bounded_not_proportional_to_file_size.
+_TAIL_SCAN_CHUNK_BYTES = 4096
+
 AUDIT_LOG_PATH = Path("logs/audit.log")
 ensure_private_dir(AUDIT_LOG_PATH.parent)  # M-4/B-6 en kal, portado acá: 0700, no lo que dé el umask del proceso
 
@@ -190,32 +202,53 @@ class AuditLog:
         self._hmac_key = hmac_key or get_or_create_admin_token(token_path=_HMAC_KEY_PATH).encode("utf-8")
 
     @staticmethod
-    def _read_last_hash(f) -> str:
+    def _read_last_hash(path: Path) -> str:
         """
-        Asume que `f` ya está posicionado al inicio y bajo lock exclusivo.
+        Lee solo la ÚLTIMA línea de `path`, no el archivo completo.
 
-        VULNERABILIDAD REAL ENCONTRADA EN AUDITORÍA EXTERNA (Likay-OS,
-        2026-09-26), A-10 (punto 2): un json.loads() sin try/except acá
-        significaba que UN renglón corrupto (escritura parcial por
-        crash/kill -9 a mitad de un f.write(), el propio módulo ya
-        documenta múltiples escritores concurrentes) hacía fallar
-        record() con JSONDecodeError — y TODO evento posterior se
-        perdía en silencio (nadie llama record() dentro de un
-        try/except en los ~15 call sites reales). Fail-forward acá:
-        si la ÚLTIMA línea no parsea, se sigue escribiendo encadenado
-        desde "genesis" (equivalente a que esa línea corrupta rompa la
-        cadena — ya detectable por verify_chain()/diagnose_chain(),
-        que SÍ deben seguir viendo esa ruptura), en vez de tirar abajo
-        toda auditoría futura por una única línea ilegible.
+        HALLAZGO REAL (B-8, medido en kal y en kal-epistemic el
+        2026-10-03 — ver comentario junto a _TAIL_SCAN_CHUNK_BYTES más
+        arriba): la versión anterior recibía el handle `f` ya abierto
+        por record() (bajo su lock exclusivo) y hacía f.read() del
+        archivo entero solo para quedarse con la última línea — costo
+        O(n) por cada record(), repetido en cada evento, sin rotación
+        de log. Portado desde kal (commit 99dba21): abre un fd propio
+        de solo lectura en binario y escanea hacia atrás desde EOF en
+        bloques de _TAIL_SCAN_CHUNK_BYTES hasta encontrar un '\\n'
+        completo. Todo el escaneo es en bytes — '\\n' nunca es un byte
+        de continuación UTF-8 válido, así que cortar en bytes antes de
+        decodificar es seguro — y solo la línea final aislada se
+        decodifica. No necesita lock propio: el lock exclusivo que
+        record() ya sostiene sobre su propio handle `f` alcanza para
+        serializar escritores, y esta lectura es un fd aparte que solo
+        se abre bajo esa misma exclusión.
         """
-        content = f.read()
-        if not content.strip():
-            return "genesis"
-        last_line = content.strip().splitlines()[-1]
         try:
-            last_entry = json.loads(last_line)
+            file_size = path.stat().st_size
+        except FileNotFoundError:
+            return "genesis"
+        if file_size == 0:
+            return "genesis"
+
+        with open(path, "rb") as f:
+            buffer = b""
+            position = file_size
+            while position > 0:
+                read_size = min(_TAIL_SCAN_CHUNK_BYTES, position)
+                position -= read_size
+                f.seek(position)
+                buffer = f.read(read_size) + buffer
+                if b"\n" in buffer.rstrip(b"\n"):
+                    break
+
+        last_line = buffer.rstrip(b"\n").rsplit(b"\n", 1)[-1]
+        if not last_line.strip():
+            return "genesis"
+
+        try:
+            last_entry = json.loads(last_line.decode("utf-8"))
             return last_entry["event_hash"]
-        except (json.JSONDecodeError, KeyError) as e:
+        except (UnicodeDecodeError, json.JSONDecodeError, KeyError) as e:
             # Mejora de diagnóstico (portada de kal vía
             # scripts/check_kernel_drift.py): antes de esto, este
             # fallback era silencioso — el reinicio de la cadena SÍ
@@ -239,13 +272,18 @@ class AuditLog:
 
         # "a+": crea el archivo si no existe; en POSIX, cada write() de un
         # descriptor abierto en modo append va SIEMPRE al final real del
-        # archivo (O_APPEND), sin importar dónde haya quedado el cursor
-        # tras el seek(0) de lectura de abajo.
+        # archivo (O_APPEND), sin importar la posición del cursor de `f`
+        # (B-8: _read_last_hash() ya no usa este cursor, ver más abajo).
         with open(self.path, "a+", encoding="utf-8") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             try:
-                f.seek(0)
-                event.prev_hash = self._read_last_hash(f)
+                # B-8: ya no se lee desde `f` (eso implicaba decodificar
+                # el archivo completo en modo texto) — _read_last_hash()
+                # abre su propio fd de solo lectura en binario y busca
+                # solo la cola. No hace falta f.seek(0): el write() de
+                # abajo va siempre al final real por O_APPEND, sin
+                # importar en qué posición haya quedado el cursor de `f`.
+                event.prev_hash = self._read_last_hash(self.path)
                 event.event_hash = event.compute_hash(self._hmac_key)
                 f.write(json.dumps(asdict(event)) + "\n")
                 f.flush()
