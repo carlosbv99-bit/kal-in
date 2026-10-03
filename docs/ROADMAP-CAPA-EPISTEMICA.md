@@ -1481,11 +1481,21 @@ Medido en kal-in después del port: `record()` **0.05 ms** con el log real de 15
 0.33 ms con log chico** — o sea O(1) de verdad, no un factor constante más chico. Encadenado
 verificado en el archivo grande, 25 tests de auditoría en verde.
 
-**Queda de aquella nota de revisión, y no se investigó:** los otros 4 archivos con drift de
-**código real** contra kal que encontró el mismo chequeo — `kernel/api/sandbox_api.py`,
-`kernel/api/socket_server.py`, `kernel/lifecycle/docker_runner.py` y
-`kernel/registry/skill_market.py`. `scripts/check_kernel_drift.py --triage` los lista hoy
-junto a `registry.py` (que entró por trabajo de esta sesión) y al propio `audit_log.py`.
+**Los otros 4 archivos con drift de código, investigados el mismo día (2026-10-03):
+ninguno tenía un fix que kal-in necesitara.**
+
+| Archivo | Diferencia | Veredicto |
+|---|---|---|
+| `kernel/api/sandbox_api.py` | `_verify_token`→`require_sandbox_secret`, 401→403 | rename; las dos fallan cerradas con `compare_digest` |
+| `kernel/api/socket_server.py` | excepción y evento de auditoría renombrados | rename; sin tipo huérfano en el `Literal` |
+| `kernel/registry/skill_market.py` | texto de un `logger.debug` | cosmético |
+| `kernel/lifecycle/docker_runner.py` | allowlist `("/workspace","/project")` vs `/workspace` fijo, + `_workdir_visible` y el diagnóstico B-3 | **kal-in adelante por diseño** (necesita `/project` para self-modification); el B-3 va kal-in → kal |
+
+Herramienta nueva para esto: `scripts/check_kernel_drift.py --definiciones ARCHIVO...` imprime
+el diff de código **por definición** (AST sin docstrings) — dice qué función cambió, no qué
+archivo, y reduce 4 archivos a 6 definiciones con diffs de 3 líneas. Es `--triage` un nivel más
+fino, y sirve contra los dos errores ya cometidos acá: la prosa no genera falsos positivos, y
+un rename no queda escondido.
 
 ### El hueco a nivel de afirmación: medido, y el umbral no lo cierra (2026-09-30)
 

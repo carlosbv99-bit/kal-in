@@ -180,3 +180,57 @@ def test_el_triage_cuenta_lo_que_falta_como_su_propia_clase(tmp_path):
 
     assert clases["FALTA_EN_KAL_IN"], "un archivo que falta no es 'solo comentarios'"
     assert clases["SOLO_COMENTARIOS"] == []
+
+
+# --- diff por DEFINICIÓN (2026-10-03) ---------------------------------------
+#
+# Por qué existe: el triage dice qué ARCHIVOS tienen código distinto, pero un archivo de
+# 600 líneas con un rename de una excepción seguía siendo "revisar a mano 600 líneas". La
+# ronda que revisó los 4 archivos con drift de código real lo hizo barato con esto: 4
+# archivos -> 6 definiciones -> diffs de 3 líneas. Y al revés también sirve: un rename
+# legítimo aparece como definición distinta (hay que mirarlo), mientras que un cambio de
+# prosa no saca ninguna.
+
+
+def test_el_diff_por_definicion_ignora_la_prosa(tmp_path):
+    from scripts.check_kernel_drift import definiciones_que_difieren
+
+    _make_repo(tmp_path / "kal_in", {
+        "kernel/x.py": '"""doc de kal-in"""\n\n# comentario propio\n\ndef f(a):\n    """doc de f"""\n    return a\n',
+    })
+    _make_repo(tmp_path / "kal", {
+        "kernel/x.py": '"""doc de kal, distinto y más largo"""\n\ndef f(a):\n    """otro docstring"""\n    return a\n',
+    })
+
+    assert definiciones_que_difieren("kernel/x.py", tmp_path / "kal_in", tmp_path / "kal") == {}
+
+
+def test_el_diff_por_definicion_señala_la_funcion_que_cambio(tmp_path):
+    from scripts.check_kernel_drift import definiciones_que_difieren
+
+    _make_repo(tmp_path / "kal_in", {
+        "kernel/x.py": "def f(a):\n    return a\n\n\ndef g(a):\n    return a + 1\n",
+    })
+    _make_repo(tmp_path / "kal", {
+        "kernel/x.py": "def f(a):\n    return a\n\n\ndef g(a):\n    return a + 2\n",
+    })
+
+    distintas = definiciones_que_difieren("kernel/x.py", tmp_path / "kal_in", tmp_path / "kal")
+
+    assert list(distintas) == ["g"], "solo g cambió; f no debe aparecer"
+
+
+def test_el_diff_por_definicion_reporta_el_rename(tmp_path):
+    """
+    Un rename de excepción ES una diferencia que hay que mirar (el nombre puede ser
+    parte de la API que otro importa), así que tiene que aparecer — pero con su diff
+    de dos líneas, no escondido en un diff de archivo completo.
+    """
+    from scripts.check_kernel_drift import definiciones_que_difieren
+
+    _make_repo(tmp_path / "kal_in", {"kernel/x.py": "class ErrorNuevo(Exception):\n    pass\n"})
+    _make_repo(tmp_path / "kal", {"kernel/x.py": "class ErrorViejo(Exception):\n    pass\n"})
+
+    distintas = definiciones_que_difieren("kernel/x.py", tmp_path / "kal_in", tmp_path / "kal")
+
+    assert set(distintas) == {"ErrorNuevo", "ErrorViejo"}

@@ -11213,3 +11213,39 @@ con la nueva). Los 25 tests preexistentes de `audit_log.py` (líneas corruptas, 
 entre dos instancias, tampering, el marcador `"(ilegible)"` propio de `tail()`/
 `diagnose_chain()`) siguen pasando sin cambios. `ruff check --select=E9,F` de los archivos
 tocados, limpio.
+
+
+## Los 4 archivos con "drift de código real": investigados, y ninguno tenía un fix faltante (2026-10-03)
+
+La nota de revisión que portó el fix B-8 dejó anotado que el chequeo de drift encontraba,
+además de `audit_log.py`, **drift de código real en otros 4 archivos** sin investigar:
+`sandbox_api.py`, `socket_server.py`, `docker_runner.py` y `skill_market.py`. Investigados, el
+resultado es que **kal-in no le faltaba ningún fix de seguridad**: tres son renames o texto, y
+el cuarto es kal-in estando adelante.
+
+| Archivo | Diferencia de código | Veredicto |
+|---|---|---|
+| `kernel/api/sandbox_api.py` | `_verify_token` → `require_sandbox_secret` (header `X-Sandbox-Token` → `X-Sandbox-Secret`, 401 → 403); `execute` solo cambia de cuál depende | **rename**: las dos versiones usan `secrets.compare_digest` y fallan cerradas si el secreto no está configurado |
+| `kernel/api/socket_server.py` | `InvalidEncodingError` → `InvalidLineEncodingError`; evento `kernel_invalid_encoding` → `kernel_line_invalid_encoding`; `_read_line`/`_serve` solo cambian el nombre que levantan/atrapan | **rename**: el `Literal` de `audit_log.py` ya tiene solo el nombre nuevo (sin tipo huérfano) |
+| `kernel/registry/skill_market.py` | `list_market_skills`: cambia el orden de los datos en el mensaje de `logger.debug` | **cosmético** |
+| `kernel/lifecycle/docker_runner.py` | `_ALLOWED_EXTRA_MOUNT_ROOTS` = `("/workspace", "/project")` vs `/workspace` hardcodeado; `_workdir_visible`; `_diagnosticar_workdir_invisible`; la llamada en `run` | **kal-in adelante por diseño**: necesita `/project` para el pipeline de self-modification, y los otros dos son el diagnóstico B-3. Nada que portar *hacia* kal-in |
+
+El caso de `_validate_extra_mounts` vale el detalle, porque un diff apurado lo lee como
+"kal-in es más permisivo": kal hardcodea `/workspace` y kal-in usa una allowlist. Pero la
+allowlist es `("/workspace", "/project")` —angosta, no `/`— y `/project` es exactamente donde
+el pipeline de self-modification monta el proyecto a copiar. Ni un agujero ni un fix
+faltante: una extensión que kal no necesita porque no tiene esa función. (El reverso sí es
+trabajo pendiente y está anotado: `_workdir_visible`, `_diagnosticar_workdir_invisible` y la
+allowlist son cosas que kal-in tiene de más, y el diagnóstico B-3 tiene que ir kal-in → kal.)
+
+**El instrumento que hizo barata la ronda se quedó en el repo:** `scripts/check_kernel_drift.py
+--definiciones ARCHIVO...` imprime el diff de CÓDIGO **por definición** (AST sin docstrings),
+así que dice *qué función* cambió en vez de *qué archivo*. Con eso, los 4 archivos se
+redujeron a 6 definiciones y a diffs de 3 líneas; sin eso, era "revisar a mano 4 archivos de
+600 líneas entre comentarios". Es el mismo movimiento que `--triage` un nivel más fino, y
+sirve en las dos direcciones en que este proyecto ya se equivocó: un diff de prosa no saca
+ninguna definición (no genera falsos positivos), y un rename legítimo **sí** sale (no lo
+esconde) pero con su diff mínimo al lado en vez de perdido entre comentarios.
+
+Tests: 3 nuevos en `tests/test_check_kernel_drift.py` (prosa → sin definiciones; cambio real
+en una función → solo esa; rename → las dos, como diferencia a mirar).

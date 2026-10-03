@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import difflib
 import filecmp
 import subprocess
 import sys
@@ -164,11 +165,82 @@ def clasificar_drift(kal_in_root: Path, kal_root: Path) -> dict[str, list[str]]:
     return clases
 
 
+def _definiciones(ruta: Path) -> dict[str, str]:
+    """
+    Cada definición (función/clase/método) del archivo, con el código normalizado por
+    `ast.unparse` y sin docstrings. Sirve para comparar DEFINICIÓN POR DEFINICIÓN: un
+    rename de una excepción o un evento sale como una definición distinta (y hay que
+    mirarla), pero un archivo donde solo cambió la prosa no saca ninguna.
+    """
+    arbol = ast.parse(ruta.read_text(encoding="utf-8"))
+    salida: dict[str, str] = {}
+
+    def visitar(nodo: ast.AST, prefijo: str = "") -> None:
+        for hijo in ast.iter_child_nodes(nodo):
+            if isinstance(hijo, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                nombre = f"{prefijo}{hijo.name}"
+                copia = ast.parse(ast.unparse(hijo))
+                for n in ast.walk(copia):
+                    if isinstance(
+                        n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+                    ):
+                        cuerpo = n.body
+                        if (
+                            cuerpo
+                            and isinstance(cuerpo[0], ast.Expr)
+                            and isinstance(cuerpo[0].value, ast.Constant)
+                            and isinstance(cuerpo[0].value.value, str)
+                        ):
+                            n.body = cuerpo[1:] or [ast.Pass()]
+                salida[nombre] = ast.unparse(copia)
+                if isinstance(hijo, ast.ClassDef):
+                    visitar(hijo, nombre + ".")
+
+    visitar(arbol)
+    return salida
+
+
+def definiciones_que_difieren(
+    rel: str, kal_in_root: Path, kal_root: Path
+) -> dict[str, str]:
+    """
+    Definiciones cuyo CÓDIGO difiere entre los dos repos, con el diff unificado listo
+    para imprimir. Es el complemento de `--triage`: el triage dice QUÉ ARCHIVOS tienen
+    código distinto (y no solo prosa), y esto dice QUÉ FUNCIÓN — que es lo que hace
+    barata la revisión. Un rename legítimo (una excepción, un evento de auditoría)
+    aparece acá y se mira en 3 líneas, en vez de que un diff de archivo completo lo
+    esconda entre comentarios.
+    """
+    try:
+        a = _definiciones(kal_in_root / rel)
+        b = _definiciones(kal_root / rel)
+    except (SyntaxError, UnicodeDecodeError, OSError):
+        return {"(archivo no comparable)": ""}
+    resultado: dict[str, str] = {}
+    for nombre in sorted(set(a) | set(b)):
+        if a.get(nombre) == b.get(nombre):
+            continue
+        diff = difflib.unified_diff(
+            (b.get(nombre) or "(no existe en kal)").splitlines(),
+            (a.get(nombre) or "(no existe en kal-in)").splitlines(),
+            "kal", "kal-in", lineterm="", n=2,
+        )
+        resultado[nombre] = "\n".join(diff)
+    return resultado
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         "--kal-repo", type=Path, default=None,
         help="Ruta local a un clon de kal ya existente (si no se pasa, se clona fresco a un directorio temporal)",
+    )
+    parser.add_argument(
+        "--definiciones", nargs="*", metavar="ARCHIVO", default=None,
+        help=(
+            "Para cada archivo compartido indicado, imprime el diff de CÓDIGO por "
+            "definición (AST sin docstrings): dice qué función cambió, no qué archivo"
+        ),
     )
     parser.add_argument(
         "--triage", action="store_true",
@@ -189,6 +261,21 @@ def main() -> int:
             print(f"Clonando {KAL_REPO_URL}...")
             _clone_kal(kal_root)
             problems = check_drift(kal_in_root, kal_root)
+
+    if args.definiciones is not None:
+        if args.kal_repo is None:
+            print("--definiciones necesita --kal-repo (un clon local).", file=sys.stderr)
+            return 2
+        for rel in args.definiciones:
+            distintas = definiciones_que_difieren(rel, kal_in_root, args.kal_repo)
+            print(f"\n===== {rel} =====")
+            if not distintas:
+                print("(sin diferencias de código: solo prosa)")
+                continue
+            for nombre, diff in distintas.items():
+                print(f"\n--- {nombre} ---")
+                print(diff or "(una de las dos versiones no tiene esta definición)")
+        return 0
 
     if args.triage:
         # Se recalcula desde el repo (una sola pasada por archivo, no hace falta
