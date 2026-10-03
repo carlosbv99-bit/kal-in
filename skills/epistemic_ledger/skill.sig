@@ -1,9 +1,9 @@
 {
   "algorithm": "ed25519",
   "author_public_key": "8f5dbe66a4959f6935b0c9f31c9f835359702e272d9aa854feeaae5dc50f6f50",
-  "signature": "b52da98999b5eedcdcb3e7bab459b71c3a98cbe828eb842c58422f6527877671c84181231808db988919b6223abdbd056be0ea981d07ac3f0e419580e446010f",
+  "signature": "dc5a667f8d96310a74e26c23745ec07681542d1ce53094d80f50165d11b307d088b09bd48d55cf0b8f4e58db8c7cd0f10a79126d3e8990365a46606c594fea0b",
   "files": {
-    "kal_epistemics/__init__.py": "e2f330e525bcb5e14db55b648e7d36668c737648f83d519572e48dd23524f7db",
+    "kal_epistemics/__init__.py": "2f1c5478398d5f88a97ac966adad329c2b74503f79ab306409aade3b8516a414",
     "kal_epistemics/abstention.py": "bb840774c6df4f5974eb7d31f1163631894259f5390e10d222838070ffee2343",
     "kal_epistemics/compaction.py": "008818ca4b2d8e5c07d9b261d5924a60164810f8b23e6f8adc27de8e21bbaea1",
     "kal_epistemics/conditions.py": "c3443d408ff4089583c0237ecc5bd343a9328fe396a38a80ce15ec0a5b31897d",

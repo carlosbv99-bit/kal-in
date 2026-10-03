@@ -99,6 +99,11 @@ def _resultado_error(motivo: str) -> SandboxResult:
 
 def _skill(tmp_path: Path, sandbox, *, nombre: str = "claim_verifier", red: bool = False):
     skill_dir = tmp_path / f"skill_{nombre}"
+    # `mkdir()` SIN `exist_ok` a propósito: si alguien pasa un directorio compartido
+    # (en vez del `tmp_path` del test), esto falla ruidosamente en la segunda corrida
+    # en vez de compartir estado en silencio entre tests. Así se encontró este bug:
+    # un test pasaba `Path("/tmp")` y la suite fallaba con FileExistsError al correr
+    # dos veces seguidas.
     skill_dir.mkdir()
     (skill_dir / "tool.py").write_text("", encoding="utf-8")
     return SandboxedSkillTool(
@@ -300,7 +305,7 @@ def test_una_skill_que_fallo_adentro_del_sandbox_no_produce_evidencia(tmp_path):
     assert store.ledger("s").exogenous_evidence_ids() == frozenset()
 
 
-def test_una_skill_rechazada_por_la_cascada_no_produce_evidencia():
+def test_una_skill_rechazada_por_la_cascada_no_produce_evidencia(tmp_path):
     """
     La versión sin dobles: la skill real (`claim_verifier`) declara `network`, la
     cascada del kernel no se lo otorga al tier 'skill' por defecto, y el rechazo
@@ -321,7 +326,7 @@ def test_una_skill_rechazada_por_la_cascada_no_produce_evidencia():
         entry_point=manifest.entry_point,
         image="python:3.11-slim",
         sandbox=SandboxExecutor(runner=object()),
-        artifacts_root=Path("/tmp") / f"artefactos_{time.time_ns()}",
+        artifacts_root=tmp_path / "artefactos",
     )
 
     salida = _observacion(loop, skill, nombre="claim_verifier")
@@ -432,7 +437,7 @@ def test_end_to_end_de_la_costura_con_contenedor_real(tmp_path, monkeypatch):
     assert evidencia.anchor_kind == "audit_event_hash"
 
 
-def test_los_nombres_de_esta_suite_son_ingeribles_y_los_dobles_son_fieles():
+def test_los_nombres_de_esta_suite_son_ingeribles_y_los_dobles_son_fieles(tmp_path):
     """
     Chequeo de coherencia del propio instrumento: los tests de arriba solo tienen
     sentido si `claim_verifier` es ingerible (si no, nunca habría evidencia que
@@ -442,7 +447,7 @@ def test_los_nombres_de_esta_suite_son_ingeribles_y_los_dobles_son_fieles():
     from kernel.permissions.permission_cascade import trust_tier_for
 
     assert "claim_verifier" in OBSERVATION_TOOLS
-    assert trust_tier_for(_skill(Path("/tmp"), SandboxGuionado(_resultado_ok("x")))) == "skill"
+    assert trust_tier_for(_skill(tmp_path, SandboxGuionado(_resultado_ok("x")))) == "skill"
 
 
 # --------------------------------------------------------------------------

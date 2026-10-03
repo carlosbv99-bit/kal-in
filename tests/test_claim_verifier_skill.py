@@ -440,7 +440,7 @@ def test_fail_closed_si_la_skill_no_esta_registrada_no_hay_evidencia_ni_invarian
     assert store.unsatisfied_deficits("s") == ()
 
 
-def test_fail_closed_si_el_permiso_de_red_no_esta_otorgado():
+def test_fail_closed_si_el_permiso_de_red_no_esta_otorgado(tmp_path):
     """
     El caso real: la skill declara `network` y la cascada del kernel no se lo
     otorga al tier 'skill' (config.yaml: trust_tier_caps.skill = [filesystem_read]).
@@ -452,9 +452,8 @@ def test_fail_closed_si_el_permiso_de_red_no_esta_otorgado():
     from agent_core.llm.agent_loop import AgentLoop, _agent_tool_from_tool
     from kernel.registry.sandboxed_skill import SandboxedSkillTool
     from sdk.skill import ToolManifest
-    import tempfile
 
-    tmp = Path(tempfile.mkdtemp())
+    tmp = tmp_path
     (tmp / "tool.py").write_text(
         "from sdk.skill import Tool\nfrom sdk.artifacts import Artifact\n"
         "class X(Tool):\n    def execute(self, **kw):\n"
@@ -483,7 +482,7 @@ def test_fail_closed_si_el_permiso_de_red_no_esta_otorgado():
 # --------------------------------------------------------------------------
 
 
-def test_el_fallo_del_runner_no_se_ingiere_como_evidencia():
+def test_el_fallo_del_runner_no_se_ingiere_como_evidencia(tmp_path):
     """
     Si la verificación no llegó a traer nada (el sandbox falló, el entry point
     explotó), el mensaje del runner NO es una observación del mundo: ingerirlo
@@ -497,8 +496,6 @@ def test_el_fallo_del_runner_no_se_ingiere_como_evidencia():
     contra el store: el store confía en su llamador (y hay un test abajo que fija
     esa división de responsabilidades).
     """
-    import tempfile
-    from pathlib import Path as _Path
 
     from agent_core.llm.agent_loop import AgentLoop, _agent_tool_from_tool
     from kernel.lifecycle.docker_runner import SandboxResult
@@ -509,7 +506,7 @@ def test_el_fallo_del_runner_no_se_ingiere_como_evidencia():
         def execute_trusted(self, source_code, **kw):
             return SandboxResult(status="error", stdout="", stderr="timeout del contenedor", exit_code=1)
 
-    tmp = _Path(tempfile.mkdtemp())
+    tmp = tmp_path
     (tmp / "tool.py").write_text("", encoding="utf-8")
     skill = SandboxedSkillTool(
         manifest=ToolManifest(name="claim_verifier", description="d", created_by="system"),

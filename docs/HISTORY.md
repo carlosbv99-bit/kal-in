@@ -11028,3 +11028,40 @@ Tests: 5 nuevos en `tests/test_epistemic_measurement.py` (B nunca marcado en nin
 el intercambio exacto en 16 y la esterilidad de 32; K19 como confirmación en la calibración;
 monotonía del umbral; y A12 escapando siempre, para no vender la palanca como si cerrara el
 hueco).
+
+
+## Un test que escribía en `/tmp` literal: colisión en la segunda corrida (2026-09-30)
+
+Revisión encontró dos rutas literales en `tests/test_epistemic_seam.py` donde correspondía
+el fixture `tmp_path`. El primero era peor de lo que parecía: el helper `_skill()` hace
+`mkdir()` **sin** `exist_ok`, así que pasarle `Path("/tmp")` creaba `/tmp/skill_claim_verifier`
+y **la segunda corrida de la suite fallaba** con `FileExistsError`. Reproducido corriendo el
+test dos veces en el mismo shell:
+
+```
+--- corrida 1 ---  1 passed
+--- corrida 2 ---  FileExistsError: [Errno 17] File exists: '/tmp/skill_claim_verifier'
+```
+
+Y dejaba el directorio ahí (basura persistente, con un `tool.py` adentro). El segundo uso
+(`artifacts_root=Path("/tmp") / f"artefactos_{time.time_ns()}"`) no colisionaba por el
+timestamp, pero escribía igual en un directorio que nadie limpia.
+
+**Arreglado en los cuatro lugares donde aparece la clase**, no solo en el reportado:
+`test_los_nombres_de_esta_suite_son_ingeribles_y_los_dobles_son_fieles` y
+`test_una_skill_rechazada_por_la_cascada_no_produce_evidencia` (los dos de la suite de
+costura) ahora reciben `tmp_path`; y en `tests/test_claim_verifier_skill.py` los dos
+`tempfile.mkdtemp()` —que no colisionaban pero **filtraban**, porque nadie los borra— pasaron
+a `tmp_path`, que pytest limpia solo.
+
+**Y el `mkdir()` estricto se quedó como canario, con el motivo escrito al lado**: si alguien
+vuelve a pasar un directorio compartido en vez del `tmp_path` del test, falla ruidosamente en
+la segunda corrida en vez de compartir estado en silencio entre tests. Poner `exist_ok=True`
+habría escondido exactamente este bug.
+
+Verificación: las dos suites corren **dos veces seguidas en el mismo shell** (mismo `/tmp`)
+y dan 50 passed cada una, sin dejar nada en `/tmp`.
+
+Queda un `mkdtemp()` pre-existente en `tests/test_sandboxed_skill.py` (no es de estos
+cambios): misma clase, sin colisión, y no lo toqué para no ampliar el diff sin que nadie lo
+haya pedido — queda anotado.
