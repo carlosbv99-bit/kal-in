@@ -1444,6 +1444,37 @@ decisión es el evento*. El reverso también importa y quedó aplicado: los rech
 operacionales y los caminos felices no se auditan, porque un log que registra todo es un
 log que nadie lee. La auditoría sirve para lo que alguien va a querer investigar después.
 
+### Los tres caminos y por qué el automático NO se sandboxea (2026-09-30)
+
+Decisión cerrada con medición, porque la pregunta era si "kal-in usa la skill de verdad"
+obliga a mover el camino automático al sandbox (consistencia) o no:
+
+| Camino | Dónde corre | Frecuencia | Costo medido |
+|---|---|---|---|
+| Ingesta automática (`EpistemicStore.ingest_tool_result`) | en proceso | varias por turno | **~15 ms** (0.35 ms de lógica + **14.6 ms de ancla de auditoría**, ver abajo) |
+| `open_question` / `record_hypothesis` (tools, ya existían) | en proceso | ocasional | ~0 |
+| `epistemic_ledger` (fachada, **ya registrada y expuesta**) | sandbox (Docker) | ocasional, decisión explícita del modelo | **226.7 ms** (246.0 / 263.2 / 246.9) |
+
+**No se sandboxea el camino automático**: el principio de "no confiar en el propio código"
+aplica a la frontera entre el kernel y un AGENTE no confiable; `EpistemicStore` es la
+contabilidad propia de kal-in sobre su propio estado, en el mismo proceso que decide qué
+tools existen y qué se audita. Sandboxearlo sería pagar el costo de un modelo de amenaza que
+no aplica — y ahora además está medido: multiplicaría por ~15 cada ingesta automática.
+
+**Y la fachada ya está expuesta al modelo** (verificado en el runtime: activa en el registro,
+`SandboxedSkillTool`, 9 operaciones en el esquema, sin exclusiones por cliente). "Cero
+llamadores" significa que nadie la invoca, no que no esté disponible: lo que falta es tráfico
+real que la valide, y eso se fija con dos tests para que la disponibilidad no se pierda en
+silencio.
+
+**Hallazgo abierto que salió de esta medición:** `audit_log.record()` es **O(tamaño del
+log)** — `_read_last_hash()` lee el archivo entero en cada evento, así que con 15.2 MB cuesta
+~14.6 ms y crece linealmente (a 100 MB, ~100 ms por evento auditado, en los ~15 call sites
+del proyecto). Es correcto, pero es un costo que crece solo. Arreglo propuesto sin
+implementar: leer solo la cola con una ventana acotada, conservando el fail-forward ante
+línea corrupta; toca `audit/audit_log.py`, que es compartido con kal, y merece su ronda con
+medición antes/después.
+
 ### El hueco a nivel de afirmación: medido, y el umbral no lo cierra (2026-09-30)
 
 Revisión señaló la asimetría del sistema: las **acciones** pasan por el kernel, pero las

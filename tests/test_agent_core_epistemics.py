@@ -472,3 +472,42 @@ def test_si_no_se_puede_auditar_la_evidencia_no_se_pierde_pero_queda_sin_ancla(m
     ledger = store.ledger("s")
     hipotesis = ledger.record_hypothesis("A", evidence_links=[ingesta.evidence.id])
     assert Flag.UNVERIFIABLE_PROVENANCE in ledger.flags(hipotesis.id)
+
+
+# --- la fachada tiene que llegarle al modelo (2026-09-30) -------------------
+#
+# Revisión planteó registrar `epistemic_ledger` "como tool nueva, porque hoy hay cero
+# llamadores". Cero llamadores es cierto, pero **no** porque no esté expuesta: el loader
+# de skills la registra como tool activa y el catálogo del LLM se arma con
+# `{**self.tool_registry.active_tools(), **instance_tools}` (agent_loop.py). Estos dos
+# tests fijan esa cadena: si alguien alguna vez la saca del registro o la agrega a las
+# exclusiones de un cliente, el modelo deja de ver la fachada y esto se pone rojo —
+# en vez de que nadie se entere de que "cero llamadores" pasó a ser "cero forma de
+# llamarla".
+
+
+def test_la_fachada_esta_activa_en_el_registro_real_de_kal_in():
+    from agent_core.orchestrator import orchestrator
+
+    tool = orchestrator.tools.active_tools().get("epistemic_ledger")
+
+    assert tool is not None, "el loader de skills ya no registra la fachada"
+    # Tiene que ser la versión SANDBOXEADA (el contrato de un agente de terceros),
+    # no un atajo en proceso.
+    assert type(tool).__name__ == "SandboxedSkillTool"
+    assert "operacion" in tool.manifest.parameters_schema["properties"]
+
+
+def test_ningun_cliente_excluye_la_fachada_del_catalogo():
+    """
+    `_build_tools_from_registry` filtra por `excluded_tool_names()` del cliente. Si la
+    fachada entrara en alguna de esas listas, quedaría activa en el registro y a la vez
+    invisible para el modelo — la peor combinación, porque los tests del registro
+    seguirían pasando.
+    """
+    from agent_core.client_provider import get_client_provider
+
+    for cliente in ("web", "vscode"):
+        excluidas = set(get_client_provider(cliente).excluded_tool_names())
+
+        assert "epistemic_ledger" not in excluidas, f"el cliente {cliente} la esconde"

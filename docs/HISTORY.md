@@ -11077,3 +11077,63 @@ y dan 50 passed cada una, sin dejar nada en `/tmp`.
 > `grep` que encontró la palabra `mkdtemp` sin leer su contexto — la misma clase de "afirmar
 > sin medir" que el triage del drift y la expectativa del umbral en 32. Dejo el registro
 > porque el patrón es el que hay que corregir, no la frase.
+
+
+## La fachada ya estaba expuesta al modelo — y el costo real no estaba donde se creía (2026-09-30)
+
+Revisión planteó la arquitectura correcta de tres caminos (ingesta automática en proceso /
+`open_question`+`record_hypothesis` como tools en proceso / `epistemic_ledger` sandboxeada
+para consultas explícitas) y propuso el paso concreto: **registrar `epistemic_ledger` en el
+catálogo de tools de kal-in**, porque "hoy tiene cero llamadores". Verificado antes de
+implementar, y hay dos correcciones:
+
+**1. El registro ya existe.** No había nada que registrar:
+
+```
+total activas: 24 | epistemic_ledger activa: True | clase: SandboxedSkillTool
+descripción: 'Fachada ADVISORY de la capa epistémica para agentes de terceros...'
+parameters_schema: 9 operaciones (estado_vacio, consultar, abrir_pregunta, ingerir_evidencia, ...)
+exclusiones por cliente: web no la excluye, vscode tampoco
+```
+
+El loader de skills la registra como tool activa y el catálogo del LLM se arma con
+`{**self.tool_registry.active_tools(), **instance_tools}` (`agent_loop.py:413`), así que el
+modelo **ya puede** invocarla. "Cero llamadores" es cierto, pero significa "nadie la invoca",
+no "no está expuesta" — y lo que falta no es registrarla, es que alguien (o el modelo) la use
+y validarla con tráfico real, que es lo que la propia revisión apuntaba como propósito.
+
+Se fija con dos tests nuevos, porque la duda era razonable y la peor combinación posible es
+"activa en el registro pero invisible para el modelo": uno verifica que está activa y que es
+la versión **sandboxeada** con su contrato; el otro, que ningún cliente la excluye.
+
+**2. El costo real de los dos caminos, medido** (y el camino rápido no es "microsegundos"):
+
+| Camino | Medición |
+|---|---|
+| Fachada sandboxeada (Docker), por el registro real | **226.7 ms** (246.0 / 263.2 / 246.9) — coincide con el 150–290 ms estimado |
+| Ingesta en proceso con el audit log real (15.2 MB) | **15.2 ms** |
+| Ingesta en proceso con un audit log chico | **0.35 ms** |
+| Solo `audit_log.record(...)` contra el log real | **14.6 ms** |
+
+O sea: la lógica epistémica en proceso cuesta ~0.35 ms (cientos de microsegundos, como se
+suponía), pero **el 96% del costo medido del camino automático es el ancla de auditoría**, no
+la capa epistémica. La conclusión arquitectónica no solo se sostiene: se refuerza — sandboxear
+el camino automático lo llevaría de ~15 ms a ~227 ms **por ingesta**, varias veces por turno.
+
+**3. Y aparece un problema de rendimiento que no buscábamos: `record()` es O(tamaño del log).**
+`_read_last_hash()` hace `content = f.read()`: **lee el archivo de auditoría ENTERO en cada
+evento** (audit/audit_log.py, bajo lock exclusivo, en los ~15 call sites del proyecto). Con
+15.2 MB son ~14.6 ms por evento y crece linealmente: a 100 MB serían ~100 ms por evento
+auditado, y la ingesta epistémica lo paga varias veces por turno. No es un bug de
+correctitud —la cadena sigue siendo correcta— pero es un costo que crece solo y que nadie
+estaba midiendo.
+
+Arreglo natural: leer solo la cola (seek cerca del final + escanear hacia atrás hasta la
+última línea parseable, conservando el fail-forward ante línea corrupta), con un test que
+verifique que no se lee más de una ventana acotada. Es un archivo compartido con kal
+(`audit/audit_log.py`), así que va en dirección kal-in → kal. **No se implementó acá**: toca
+la cadena de auditoría, merece su propia ronda con su medición antes/después, y la decisión
+es de la revisión.
+
+Tests: 2 nuevos (`tests/test_agent_core_epistemics.py`). Los scripts de medición quedaron en
+`data/tmp/` (ignorado por git), no como artefactos del repo.
