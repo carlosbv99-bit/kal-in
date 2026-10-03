@@ -234,7 +234,7 @@ def _id_de_la_ultima(store: EpistemicStore, sid: str) -> str | None:
     return hipotesis[-1].id if hipotesis else None
 
 
-def _ejecutar_item(item: Item) -> ResultadoItem:
+def _ejecutar_item(item: Item, *, umbral: int | None = None) -> ResultadoItem:
     sid = _SESION.format(id=item.id)
     store = EpistemicStore(clock=RELOJ_FIJO)
     loop, tools = _loop_ejecutable(store, sid)
@@ -273,6 +273,7 @@ def _ejecutar_item(item: Item) -> ResultadoItem:
         store=store,
         session_id=sid,
         evidence_before=evidence_before,
+        umbral_respuesta_larga=umbral,
     )
 
     exogenas = ledger.exogenous_evidence_ids()
@@ -522,7 +523,9 @@ def _corta(resultado: ResultadoItem, items: Mapping[str, Item]) -> bool:
 # --------------------------------------------------------------------------
 
 
-def verificaciones_estructurales(resultados: Sequence[ResultadoItem]) -> dict[str, Any]:
+def verificaciones_estructurales(
+    resultados: Sequence[ResultadoItem], corpus: Corpus | None = None
+) -> dict[str, Any]:
     """
     Lo que se puede medir EXHAUSTIVAMENTE en vez de por muestreo, y por lo
     tanto no depende de que el corpus tenga el caso: la matriz completa de
@@ -605,6 +608,10 @@ def verificaciones_estructurales(resultados: Sequence[ResultadoItem]) -> dict[st
         "misma_evidencia_dos_condiciones": _verificar_misma_evidencia_dos_condiciones(),
         "amplificacion_por_evidencia": _medir_amplificacion_por_evidencia(),
         "exclusion_y_validez": _verificar_exclusion_y_validez(),
+        # Sin corpus no hay barrido (los tests unitarios de esta función la llaman
+        # solo con resultados): no se inventa un corpus vacío que daría una tabla
+        # de ceros con apariencia de medición.
+        **({"claim_level": barrido_de_umbral(corpus)} if corpus is not None else {}),
     }
 
 
@@ -1003,6 +1010,71 @@ class MatrizMarcadores:
         }
 
 
+UMBRALES_CANDIDATOS: tuple[int, ...] = (0, 16, 32, 64)
+"""
+Umbrales de "respuesta larga" que se barren en la medición, incluido el de
+producción (64).
+
+Existe porque el umbral hace de **detector de afirmaciones de facto**: R2 solo marca
+respuestas sin observación en el turno si superan cierta longitud, así que una
+afirmación CORTA sin respaldo pasa sin marca (hueco A10, medido). Antes de tocar esa
+constante —o de proponer un parser de afirmaciones— hay que saber qué compra bajarla y
+qué cuesta, y eso es lo que mide `barrido_de_umbral()`.
+"""
+
+
+def barrido_de_umbral(
+    corpus: Corpus, candidatos: Sequence[int] = UMBRALES_CANDIDATOS
+) -> dict[str, Any]:
+    """
+    Corre el corpus con cada umbral candidato y reporta el intercambio, por conjunto:
+
+    - **A (imposibles)**: cuántos items pasan de "permitir" a marcados/bloqueados. Es
+      lo que el umbral COMPRA: los huecos de afirmaciones sin respaldo que dejan de
+      pasar en silencio.
+    - **B (verificables)**: cuántos se marcan. Tiene que ser 0 en todos los umbrales:
+      estos items traen observación en el turno, así que R2 no puede dispararse —
+      es el control de que bajar el umbral no ensucia lo verificado.
+    - **K (calibración)**: cuántos se marcan, por etiqueta humana. Acá está el COSTO
+      real: una respuesta conversacional corta sin observaciones ("Listo, ya está.")
+      no afirma nada sobre el mundo y marcarla sería el bug que el propio docstring
+      de la ruta advierte ("bloquear un 'hola' porque no tiene respaldo exógeno").
+    """
+    resultado: dict[str, Any] = {}
+    for umbral in candidatos:
+        a_items = [i for i in corpus.items if i.conjunto == "A"]
+        b_items = [i for i in corpus.items if i.conjunto == "B"]
+        k_items = corpus.calibracion
+        marcados_a = []
+        for item in a_items:
+            r = _ejecutar_item(item, umbral=umbral)
+            if r.observado.gate != "permitir":
+                marcados_a.append(r.id)
+        marcados_b = [
+            r.id for item in b_items if (r := _ejecutar_item(item, umbral=umbral)).observado.gate != "permitir"
+        ]
+        k_por_etiqueta: dict[str, list[str]] = {}
+        for item in k_items:
+            decision = evaluate_answer(
+                item.texto, store=EpistemicStore(clock=RELOJ_FIJO), session_id="k",
+                evidence_before=0, umbral_respuesta_larga=umbral,
+            )
+            if decision.outcome is not GateOutcome.PERMITIR:
+                k_por_etiqueta.setdefault(item.etiqueta, []).append(item.id)
+        fila = {
+            "A_marcados": marcados_a,
+            "A_permitidos": [i.id for i in a_items if i.id not in marcados_a],
+            "B_marcados": marcados_b,
+            "K_marcados_por_etiqueta": {k: v for k, v in sorted(k_por_etiqueta.items())},
+        }
+        resultado[str(umbral)] = fila
+    return {
+        "umbral_de_produccion": _UMBRAL_RESPUESTA_LARGA,
+        "candidatos": list(candidatos),
+        "por_umbral": resultado,
+    }
+
+
 def matriz_marcadores(
     items: Sequence[ItemCalibracion], marcadores: Sequence[str]
 ) -> MatrizMarcadores:
@@ -1186,7 +1258,7 @@ def correr_suite(corpus: Corpus | None = None) -> Reporte:
         huella_corpus=corpus.huella,
         tamanos=tamanos(corpus),
         metricas=calcular_metricas(resultados, corpus),
-        estructural=verificaciones_estructurales(resultados),
+        estructural=verificaciones_estructurales(resultados, corpus),
         calibracion=calibrar(corpus),
         resultados=resultados,
     )

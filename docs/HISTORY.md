@@ -10964,3 +10964,67 @@ necesita auditoría — lo que se rechaza, sí*.
 - **Los guards se ganaron el lugar, cinco veces**: la identidad de la copia vendorizada, la
   allowlist que exige que el nombre exista, el snapshot huérfano, el diagnóstico de workdir
   invisible y el triage de drift. Cada uno falló *justo* cuando debía.
+
+
+## El hueco a nivel de afirmación, medido: el umbral no es el detector (2026-09-30)
+
+Observación de revisión, y es correcta: en `AgentLoop.run()` el camino sin tool call
+devuelve `status="success"` con el texto del modelo, y no hay una frontera de
+"claim extraction → validación epistémica" como la hay para las acciones (que sí pasan por
+el kernel). Antes de tocar la ruta de salida —o de proponer un parser de afirmaciones— se
+midió el hueco con el instrumento que ya existía.
+
+**Lo que se hizo:** R2 solo marca respuestas sin observación en el turno si superan cierta
+longitud, así que **el umbral hace de detector de afirmaciones de facto**. Ese umbral pasó a
+ser una palanca medible (`evaluate_answer(..., umbral_respuesta_larga=...)`, con default la
+constante de producción, mismo patrón que `marcadores=`) y el harness tiene
+`barrido_de_umbral()`, que corre el corpus real con cada candidato (0/16/32/64) y reporta el
+intercambio por conjunto. Está en el reporte (`estructural.claim_level`), así que la
+próxima vez que alguien proponga tocar el umbral —o construir extracción de afirmaciones—
+el costo se re-mide en vez de discutirse.
+
+**Lo medido** (`A.permitidos` = afirmaciones sin respaldo que pasan en silencio):
+
+| umbral | A permitidos | B marcados | conversacionales marcadas |
+|---|---|---|---|
+| **64 (producción)** | A10, A12 | 0 | — |
+| 32 | A10, A12 | 0 | K40 |
+| 16 | A12 | 0 | K38, K39, K40 |
+| 0 | A12 | 0 | K37, K38, K39, K40, K41 |
+
+Cuatro conclusiones, y la tercera es la que decide:
+
+1. **B nunca se marca, en ningún umbral**: esos items traen observación en el turno, así
+   que R2 no puede dispararse. El conjunto verificado está a salvo de la palanca, y hay un
+   test que lo fija como invariante del barrido.
+2. **El hueco es sistemático, no un ítem raro.** A10 es `"Tiene siete satélites activos."`
+   (30 caracteres). K19 —del conjunto de CALIBRACIÓN, etiqueta `afirmativa`, mismo contexto
+   de turno sin observaciones— es `"La causa fue un OOM."` (20 caracteres): la misma forma,
+   también sin marcar, y sin estar declarada como hueco. La calibración contenía el caso.
+3. **El umbral no es un detector de afirmaciones, y el barrido lo muestra con números.** Con
+   32 ya se marca K40 (`"Puedo generarte el informe si me confirmás el rango de fechas."`,
+   62 caracteres, una OFERTA) y **no se cierra nada**: 32 es estrictamente peor que 64. Para
+   cerrar A10 hay que bajar de 30, y ahí el costo son tres conversacionales marcadas
+   ("Perfecto, gracias." incluida). La longitud no distingue "afirmación sin respaldo" de
+   "oferta conversacional" — y eso no es una opinión: es la tabla.
+4. **A12 escapa en TODOS los umbrales** (es la afirmación disfrazada de duda, que el
+   heurístico de marcadores toma por hedge). O sea que el umbral no puede cerrar el hueco
+   ni en el mejor caso: hay dos ejes distintos, y uno de ellos necesita semántica.
+
+**Conclusión honesta, y es un "no" con datos.** El hueco a nivel de afirmación **no se
+cierra con el umbral**. Lo que sí se puede comprar, si alguien lo decide, es un cierre
+parcial medido: umbral 16 cierra A10 y K19 al costo de 3 conversacionales marcadas. La
+alternativa real —extracción de afirmaciones por el modelo + chequeo mecánico contra el
+ledger— sigue siendo la única compatible con la doctrina, y ahora tiene con qué evaluarse:
+el mismo corpus, el mismo barrido, y dos casos (A10, K19) que cualquier regla nueva debe
+capturar sin tocar B.
+
+**Y una corrección que la medición me hizo a mí:** la primera versión de los tests la
+escribí esperando que el umbral 32 cerrara A10. No lo cierra —A10 mide 30— y el intercambio
+está en 16. La tabla corrigió mi expectativa, que es exactamente para lo que sirve medir
+antes de tocar la constante.
+
+Tests: 5 nuevos en `tests/test_epistemic_measurement.py` (B nunca marcado en ningún umbral;
+el intercambio exacto en 16 y la esterilidad de 32; K19 como confirmación en la calibración;
+monotonía del umbral; y A12 escapando siempre, para no vender la palanca como si cerrara el
+hueco).

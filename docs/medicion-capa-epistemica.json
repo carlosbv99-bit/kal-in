@@ -1462,6 +1462,190 @@
       "con_ancla": 29,
       "evidencia_exogena": 29
     },
+    "claim_level": {
+      "candidatos": [
+        0,
+        16,
+        32,
+        64
+      ],
+      "por_umbral": {
+        "0": {
+          "A_marcados": [
+            "A01",
+            "A02",
+            "A03",
+            "A04",
+            "A05",
+            "A06",
+            "A07",
+            "A08",
+            "A09",
+            "A10",
+            "A11"
+          ],
+          "A_permitidos": [
+            "A12"
+          ],
+          "B_marcados": [],
+          "K_marcados_por_etiqueta": {
+            "afirmativa": [
+              "K11",
+              "K12",
+              "K13",
+              "K14",
+              "K15",
+              "K16",
+              "K17",
+              "K18",
+              "K19",
+              "K20",
+              "K21",
+              "K22",
+              "K23",
+              "K24",
+              "K25",
+              "K26",
+              "K27"
+            ],
+            "conversacional": [
+              "K37",
+              "K38",
+              "K39",
+              "K40",
+              "K41"
+            ]
+          }
+        },
+        "16": {
+          "A_marcados": [
+            "A01",
+            "A02",
+            "A03",
+            "A04",
+            "A05",
+            "A06",
+            "A07",
+            "A08",
+            "A09",
+            "A10",
+            "A11"
+          ],
+          "A_permitidos": [
+            "A12"
+          ],
+          "B_marcados": [],
+          "K_marcados_por_etiqueta": {
+            "afirmativa": [
+              "K11",
+              "K12",
+              "K13",
+              "K14",
+              "K15",
+              "K16",
+              "K17",
+              "K18",
+              "K19",
+              "K20",
+              "K21",
+              "K22",
+              "K23",
+              "K24",
+              "K25",
+              "K26",
+              "K27"
+            ],
+            "conversacional": [
+              "K38",
+              "K39",
+              "K40"
+            ]
+          }
+        },
+        "32": {
+          "A_marcados": [
+            "A01",
+            "A02",
+            "A03",
+            "A04",
+            "A05",
+            "A06",
+            "A07",
+            "A08",
+            "A09",
+            "A11"
+          ],
+          "A_permitidos": [
+            "A10",
+            "A12"
+          ],
+          "B_marcados": [],
+          "K_marcados_por_etiqueta": {
+            "afirmativa": [
+              "K11",
+              "K12",
+              "K13",
+              "K14",
+              "K15",
+              "K16",
+              "K17",
+              "K18",
+              "K20",
+              "K21",
+              "K22",
+              "K23",
+              "K24",
+              "K25",
+              "K26",
+              "K27"
+            ],
+            "conversacional": [
+              "K40"
+            ]
+          }
+        },
+        "64": {
+          "A_marcados": [
+            "A01",
+            "A02",
+            "A03",
+            "A04",
+            "A05",
+            "A06",
+            "A07",
+            "A08",
+            "A09",
+            "A11"
+          ],
+          "A_permitidos": [
+            "A10",
+            "A12"
+          ],
+          "B_marcados": [],
+          "K_marcados_por_etiqueta": {
+            "afirmativa": [
+              "K11",
+              "K12",
+              "K13",
+              "K14",
+              "K15",
+              "K16",
+              "K17",
+              "K18",
+              "K20",
+              "K21",
+              "K22",
+              "K23",
+              "K24",
+              "K25",
+              "K26",
+              "K27"
+            ]
+          }
+        }
+      },
+      "umbral_de_produccion": 64
+    },
     "cuarentena": {
       "casos": 3,
       "no_reabren": 3

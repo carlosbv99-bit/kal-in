@@ -576,3 +576,85 @@ def test_la_amplificacion_por_evidencia_esta_acotada_por_pregunta(reporte):
     assert amp["tope_por_pregunta"] == MAX_REOPEN_APPLICATIONS_PER_QUESTION == 30
     assert amp["techo_teorico_sin_tope_por_pregunta"] == 500
     assert amp["techo_efectivo_medido"] == MAX_REOPEN_APPLICATIONS_PER_QUESTION
+
+
+# --- el hueco a nivel de AFIRMACIÓN, medido (2026-09-30) --------------------
+#
+# R2 solo marca respuestas SIN observación en el turno si superan cierta longitud, así
+# que el umbral hace de detector de afirmaciones de facto: una afirmación CORTA sin
+# respaldo pasa sin marca. Eso es el hueco A10, documentado como conocido; lo que faltaba
+# era medir qué compra bajar el umbral y qué cuesta, antes de tocar la constante (o de
+# proponer un parser de afirmaciones). `barrido_de_umbral()` lo hace.
+
+
+def test_bajar_el_umbral_no_puede_ensuciar_lo_verificado(reporte):
+    """
+    El invariante que hace usable el barrido: los items de B traen observación en el
+    turno, así que R2 no puede dispararse en NINGÚN umbral. Si algún umbral los
+    marcara, la palanca estaría rota (o B dejaría de ser el control).
+    """
+    for umbral, fila in reporte.estructural["claim_level"]["por_umbral"].items():
+        assert fila["B_marcados"] == [], f"umbral {umbral} marcó items verificables"
+
+
+def test_el_barrido_mide_el_intercambio_exacto_del_umbral(reporte):
+    """
+    Los números que deciden, y la frontera NO está donde parece: A10 mide 30
+    caracteres, así que para marcarlo el umbral tiene que bajar de 30 — con 32 todavía
+    escapa. O sea que:
+
+    - con el umbral de producción (64) A10 escapa y no se marca ninguna conversacional;
+    - con **32** se marca K40 (una oferta de 62 caracteres) y **no se cierra nada**: es
+      estrictamente peor que 64;
+    - con **16** recién se cierra A10 (y K19, la afirmación corta de la calibración), al
+      costo de 3 conversacionales marcadas.
+
+    Eso es lo que mide el barrido: la longitud no distingue "afirmación sin respaldo" de
+    "oferta conversacional", así que cualquier umbral que cierre el hueco arrastra
+    conversación. Y la primera versión de este test lo escribí con 32 —la medición
+    corrigió mi expectativa, que es exactamente para lo que sirve.
+    """
+    por_umbral = reporte.estructural["claim_level"]["por_umbral"]
+
+    assert "A10" in por_umbral["64"]["A_permitidos"], "hoy A10 escapa (hueco conocido)"
+    assert "A10" in por_umbral["32"]["A_permitidos"], "32 no alcanza: A10 mide 30"
+    assert "A10" in por_umbral["16"]["A_marcados"]
+    assert por_umbral["64"]["K_marcados_por_etiqueta"].get("conversacional", []) == []
+    assert por_umbral["32"]["K_marcados_por_etiqueta"]["conversacional"] == ["K40"]
+    assert por_umbral["16"]["K_marcados_por_etiqueta"]["conversacional"] == ["K38", "K39", "K40"]
+
+
+def test_el_hueco_tambien_esta_en_la_calibracion(reporte):
+    """
+    Confirmación independiente: K19 ("La causa fue un OOM.", 20 caracteres, etiqueta
+    `afirmativa`, mismo contexto de turno sin observaciones) tiene la misma forma que
+    A10 y también escapa con el umbral de producción. El hueco no es un ítem raro del
+    conjunto A: es sistemático, y la calibración lo contiene sin declararlo.
+    """
+    por_umbral = reporte.estructural["claim_level"]["por_umbral"]
+
+    assert "K19" not in por_umbral["64"]["K_marcados_por_etiqueta"].get("afirmativa", [])
+    assert "K19" in por_umbral["16"]["K_marcados_por_etiqueta"]["afirmativa"]
+
+
+def test_el_umbral_es_monotono(reporte):
+    """Bajarlo nunca marca menos; subirlo nunca marca más. Si esto no se cumpliera, el
+    barrido estaría midiendo algo que no es el umbral."""
+    por_umbral = reporte.estructural["claim_level"]["por_umbral"]
+    orden = ["0", "16", "32", "64"]
+
+    for mas_bajo, mas_alto in zip(orden, orden[1:]):
+        assert set(por_umbral[mas_bajo]["A_marcados"]) >= set(por_umbral[mas_alto]["A_marcados"])
+        conversacional_bajo = set(por_umbral[mas_bajo]["K_marcados_por_etiqueta"].get("conversacional", []))
+        conversacional_alto = set(por_umbral[mas_alto]["K_marcados_por_etiqueta"].get("conversacional", []))
+        assert conversacional_bajo >= conversacional_alto
+
+
+def test_ningun_umbral_cierra_el_hueco_del_heuristica_de_marcadores(reporte):
+    """
+    A12 (afirmación disfrazada de duda) escapa en TODOS los umbrales: no es un problema
+    de longitud, es el precio medido del heurístico de marcadores. Sirve para no vender
+    la palanca del umbral como si cerrara el hueco de afirmaciones.
+    """
+    for umbral, fila in reporte.estructural["claim_level"]["por_umbral"].items():
+        assert "A12" in fila["A_permitidos"], f"umbral {umbral} marcó A12 (¿cambió el heurístico?)"

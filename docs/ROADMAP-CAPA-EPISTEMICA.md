@@ -1444,6 +1444,40 @@ decisión es el evento*. El reverso también importa y quedó aplicado: los rech
 operacionales y los caminos felices no se auditan, porque un log que registra todo es un
 log que nadie lee. La auditoría sirve para lo que alguien va a querer investigar después.
 
+### El hueco a nivel de afirmación: medido, y el umbral no lo cierra (2026-09-30)
+
+Revisión señaló la asimetría del sistema: las **acciones** pasan por el kernel, pero las
+**afirmaciones** no tienen una frontera de validación por claim — `AgentLoop.run()` devuelve
+el texto con `status="success"` y solo el gate de la ruta (R1/R2/R3) puede bloquearlo o
+marcarlo. Es correcto, y es la posición documentada del gate ("NO es un detector de
+alucinaciones"). Lo que faltaba era medirlo antes de discutirlo.
+
+**El umbral de "respuesta larga" es el detector de afirmaciones de facto**, así que se
+convirtió en palanca medible (`umbral_respuesta_larga=`, default = producción) y el reporte
+trae el barrido completo (`estructural.claim_level`). Los números:
+
+| umbral | afirmaciones sin respaldo que pasan | B marcados | conversacionales marcadas |
+|---|---|---|---|
+| 64 (producción) | A10, A12 | 0 | — |
+| 32 | A10, A12 | 0 | K40 |
+| 16 | A12 | 0 | K38, K39, K40 |
+| 0 | A12 | 0 | las 5 |
+
+- **B nunca se marca**: lo verificado está a salvo de la palanca (invariante con test).
+- **El hueco es sistemático**: K19 (`"La causa fue un OOM."`, 20 caracteres) es la misma
+  forma que A10 (`"Tiene siete satélites activos."`, 30) y también escapaba — la
+  calibración contenía el caso sin declararlo.
+- **La longitud no distingue una afirmación de una oferta**: 32 es estrictamente peor que
+  64 (marca K40, una oferta, y no cierra nada); 16 cierra A10 y K19 al costo de 3
+  conversacionales.
+- **A12 escapa en todos los umbrales**: hay dos ejes, y uno necesita semántica.
+
+**Decisión:** el hueco no se cierra con el umbral. Queda sobre la mesa, con números, la
+opción parcial (16, con su costo) y la que sigue siendo la única compatible con la doctrina
+—extracción de afirmaciones por el modelo + chequeo mecánico contra el ledger— que ahora
+tiene instrumento para evaluarse: el mismo corpus y dos casos (A10, K19) que cualquier regla
+nueva debe capturar sin tocar B.
+
 ## 3. Lo que NO se hace (y en qué fase)
 
 - **F0–F2:** nada de persistencia, nada de red, nada de puntajes numéricos

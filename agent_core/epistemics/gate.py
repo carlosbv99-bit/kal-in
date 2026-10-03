@@ -198,6 +198,7 @@ def evaluate_answer(
     session_id: str | None,
     evidence_before: int,
     trivial: bool = False,
+    umbral_respuesta_larga: int | None = None,
 ) -> GateDecision:
     """
     Decide si esta respuesta sale, sale marcada, o no sale.
@@ -214,6 +215,7 @@ def evaluate_answer(
             session_id=session_id,
             evidence_before=evidence_before,
             trivial=trivial,
+            umbral_respuesta_larga=umbral_respuesta_larga,
         )
     except Exception:  # noqa: BLE001 — deliberado: ver docstring del módulo
         logger.exception("El gate falló evaluando la respuesta; se bloquea (fail-closed)")
@@ -234,6 +236,7 @@ def _evaluate(
     session_id: str | None,
     evidence_before: int,
     trivial: bool,
+    umbral_respuesta_larga: int | None = None,
 ) -> GateDecision:
     texto = (answer or "").strip()
     if not texto:
@@ -263,11 +266,16 @@ def _evaluate(
             reason="alternativas_respaldadas_en_conflicto",
         )
 
+    # `umbral_respuesta_larga` existe para lo mismo que `marcadores` en
+    # `_tiene_marcador_de_incertidumbre`: que la MEDICIÓN pueda evaluar umbrales
+    # candidatos sobre el corpus sin tocar la constante que usa producción. El
+    # camino de producción no lo pasa nunca (default = la constante de arriba).
+    umbral = _UMBRAL_RESPUESTA_LARGA if umbral_respuesta_larga is None else umbral_respuesta_larga
     ingeridas = store.ingested_count(session_id) - evidence_before
     if (
         not trivial
         and ingeridas <= 0
-        and len(texto) > _UMBRAL_RESPUESTA_LARGA
+        and len(texto) > umbral
         and not _tiene_marcador_de_incertidumbre(texto)
     ):
         return GateDecision(
