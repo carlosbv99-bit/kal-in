@@ -11062,6 +11062,18 @@ habría escondido exactamente este bug.
 Verificación: las dos suites corren **dos veces seguidas en el mismo shell** (mismo `/tmp`)
 y dan 50 passed cada una, sin dejar nada en `/tmp`.
 
-Queda un `mkdtemp()` pre-existente en `tests/test_sandboxed_skill.py` (no es de estos
-cambios): misma clase, sin colisión, y no lo toqué para no ampliar el diff sin que nadie lo
-haya pedido — queda anotado.
+> **Corrección de esa última frase, el mismo día.** Dije que quedaba un `mkdtemp()`
+> pre-existente "de la misma clase" en `tests/test_sandboxed_skill.py`. **Es falso.**
+> Leído el test, ese `mkdtemp` no es basura: es **el instrumento**. El test
+> (`test_socket_setup_failure_is_an_error_artifact_not_a_crash_and_cleans_up`) monkeypatchea
+> `tempfile.mkdtemp` para capturar la ruta que crea el CÓDIGO DE PRODUCCIÓN, fuerza que
+> `KernelBusSocketServer.start` reviente con `OSError("AF_UNIX path too long")` y después
+> **verifica que no quede tempdir huérfano** (`assert not Path(created_tempdir["path"]).exists()`).
+> Es exactamente el test que verifica el fix B-4. Convertirlo a `tmp_path` no solo no
+> aplica: **destruiría el test**, porque su razón de ser es interceptar la llamada real a
+> `mkdtemp`. Ese archivo ya usa `tmp_path` para todo lo demás, y está bien escrito.
+>
+> El error fue de método y es el tercero del mismo tipo en esta sesión: lo afirmé desde un
+> `grep` que encontró la palabra `mkdtemp` sin leer su contexto — la misma clase de "afirmar
+> sin medir" que el triage del drift y la expectativa del umbral en 32. Dejo el registro
+> porque el patrón es el que hay que corregir, no la frase.
