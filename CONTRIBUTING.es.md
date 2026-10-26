@@ -129,6 +129,34 @@ con:
 python3 scripts/check_kernel_drift.py --kal-repo /ruta/local/a/kal
 ```
 
+### Commits que no mezclan dos casos
+
+La regla de arriba tiene un punto ciego que ya mordió una vez: mientras un port está a
+medio hacer en un repo (archivos compartidos sin commitear), alguien commitea en el otro
+y un `git add -A` se lleva trabajo que no era suyo —o lo deja huérfano—. Desde entonces:
+
+- **Rutas explícitas, nunca `git add -A`.** Si no sabés qué estás por commitear,
+  `git status --short` primero.
+- **Un caso, un repo.** Si el caso toca `kernel/`, `sdk/`, `audit/` o `code_analysis/`,
+  son DOS commits, cada uno en su repo, con el hash del otro referenciado (paso 4). Un
+  commit que mezcla "el fix" con "el port" hace imposible responder después dónde quedó
+  cada cosa.
+- **Antes de commitear, corré el chequeo:**
+
+  ```
+  python3 scripts/estado_de_repos.py --check
+  ```
+
+  Sale 1 si algún repo tiene archivos COMPARTIDOS sin commitear (los cuatro directorios,
+  o una skill con el mismo nombre en ambos). Ese es el único estado en el que un commit
+  puede mezclar dos casos o perder el port; un repo sucio en `agent_core/` o en docs es
+  normal y no bloquea nada. El `pre-commit` también avisa —sin bloquear— cuando detecta
+  ese estado.
+- **Si el cambio es para Likay-OS**, recordá que consume kal por submódulo
+  (`vendor/kal`) fijado a un commit: un fix en kal **no llega solo** a ninguna ISO. El
+  bump del pin es un commit aparte, en Likay, y ahí sí conviene decir en el mensaje qué
+  se está llevando (y hasta cuál commit).
+
 ## Contribuir con una Skill
 
 El Skill Market de Kal-in ([explorarlo acá](https://carlosbv99-bit.github.io/kal-in/))

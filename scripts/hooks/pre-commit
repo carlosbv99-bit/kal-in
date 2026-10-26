@@ -17,3 +17,13 @@ else
 fi
 
 "$PYTHON" scripts/check_staged_skill_signatures.py
+
+# Aviso NO bloqueante (ver CONTRIBUTING.es.md, "Commits que no mezclan dos casos"): si
+# hay archivos COMPARTIDOS sin commitear en cualquier repo, este commit puede mezclar
+# dos casos o dejar un port a medias. No se falla a propósito: durante un port el
+# árbol compartido está sucio casi siempre, y un candado que se dispara en el flujo
+# normal termina desactivado. El gate explícito es `estado_de_repos.py --check`.
+if ! "$PYTHON" scripts/estado_de_repos.py --check > /dev/null 2>&1; then
+  echo "AVISO: hay archivos COMPARTIDOS sin commitear (este commit puede mezclar dos casos)."
+  "$PYTHON" scripts/estado_de_repos.py --check | sed 's/^/  /'
+fi

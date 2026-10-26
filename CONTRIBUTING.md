@@ -125,6 +125,34 @@ checks from kal's side outward). Run it locally at any time with:
 python3 scripts/check_kernel_drift.py --kal-repo /path/to/local/kal
 ```
 
+### Commits that don't mix two cases
+
+The rule above has a blind spot that already bit once: while a port is half-done in one
+repo (shared files uncommitted), someone commits in the other and a `git add -A` sweeps
+work that wasn't theirs — or leaves it orphaned. Since then:
+
+- **Explicit paths, never `git add -A`.** If you're unsure what you're about to commit,
+  run `git status --short` first.
+- **One case, one repo.** If the case touches `kernel/`, `sdk/`, `audit/`, or
+  `code_analysis/`, that's TWO commits, one per repo, each referencing the other's hash
+  (step 4). A commit that mixes "the fix" with "the port" makes it impossible to answer
+  later where each part landed.
+- **Before committing, run the check:**
+
+  ```
+  python3 scripts/estado_de_repos.py --check
+  ```
+
+  It exits 1 if any repo has SHARED files uncommitted (the four directories, or a skill
+  that exists under the same name in both). That's the only state in which a commit can
+  mix two cases or lose the port; a dirty `agent_core/` or docs is normal and does not
+  block anything. The `pre-commit` hook also warns — without blocking — when it sees
+  that state.
+- **If the change is for Likay-OS**, remember it consumes kal through a submodule
+  (`vendor/kal`) pinned to a commit: a fix in kal **does not reach** any ISO on its own.
+  Bumping the pin is a separate commit, in Likay, and its message should say what it is
+  bringing along (and up to which commit).
+
 ## Contributing a Skill
 
 Kal-in's Skill Market ([browse it here](https://carlosbv99-bit.github.io/kal-in/))

@@ -11249,3 +11249,41 @@ esconde) pero con su diff mínimo al lado en vez de perdido entre comentarios.
 
 Tests: 3 nuevos en `tests/test_check_kernel_drift.py` (prosa → sin definiciones; cambio real
 en una función → solo esa; rename → las dos, como diferencia a mirar).
+
+
+## Cada caso en su repo: la regla de commits cruzados se volvió ejecutable (2026-10-26)
+
+El CONTRIBUTING ya tenía el protocolo de cuatro pasos para mantener kal-in y kal
+sincronizados (mismo cambio en los dos repos, tests de cada uno, hash cruzado en el
+segundo commit). Lo que le faltaba era la parte de **higiene de commit**, y esa faltaba
+por un motivo concreto: ya mordió una vez. Mientras un port a medio hacer esperaba en
+`audit/audit_log.py` sin commitear, se commiteó en este repo con `git add -A` — el trabajo
+ajeno pudo colarse en ese commit o quedar huérfano. Es el mismo patrón de "regla escrita
+pero no ejecutable" que esta sesión encontró seis veces en el código.
+
+**Escrito** (en los dos CONTRIBUTING, `es` e `en`): rutas explícitas y nunca `git add -A`;
+un caso, un repo (si toca `kernel/`, `sdk/`, `audit/` o `code_analysis/`, son DOS commits
+con el hash cruzado); y el recordatorio de que **Likay-OS consume kal por submódulo
+fijado** — un fix en kal no llega solo a ninguna ISO, el bump del pin es un commit aparte
+en Likay.
+
+**Ejecutable**: `scripts/estado_de_repos.py` reporta ambos repos (rama, upstream,
+adelante/atrás, sucios, últimos sin pushear) y con `--check` **sale 1 si algún repo tiene
+archivos COMPARTIDOS sin commitear** — los cuatro directorios o una skill con el mismo
+nombre en ambos (`_shared_skill_dirs` del drift checker decide cuáles). Ese es el único
+estado en el que un commit puede mezclar dos casos o perder el port; un repo sucio en
+`agent_core/` o en docs es normal y no bloquea.
+
+El `pre-commit` ahora **avisa sin bloquear** cuando detecta ese estado. No bloquea a
+propósito: durante un port el árbol compartido está sucio casi siempre, y un candado que
+se dispara en el flujo normal termina desactivado — el gate explícito es el `--check`.
+
+Corrida real del chequeo ese día: kal-in limpio con **28 commits sin pushear**; kal limpio
+en lo trackeado, con 2 archivos sin trackear (`audio_controls.py` y
+`docs/RE-AUDITORIA-SEGURIDAD-2026-09-28.md`) que no se tocaron porque no eran de este
+trabajo.
+
+Tests: 4 nuevos (`tests/test_estado_de_repos.py`): compartido sucio se reporta; un archivo
+de `agent_core/` no bloquea; las dos listas de directorios compartidos coinciden con las
+del drift checker (si divergen, el chequeo vigila donde el otro no mira); y una skill
+compartida sucia también se reporta.
