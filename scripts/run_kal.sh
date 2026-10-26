@@ -20,8 +20,41 @@ if ! docker info > /dev/null 2>&1; then
 fi
 
 echo "== Verificando Ollama (opcional, solo afecta /chat) =="
+
+# version_lt A B: verdadero si A < B comparando numéricamente los tres primeros
+# componentes (corta sufijos tipo -rc1). Sin `sort -V`, que no existe en BSD/macOS.
+version_lt() {
+  local IFS='.'
+  local -a a=($1) b=($2)
+  local i x y
+  for i in 0 1 2; do
+    x=${a[i]:-0}; y=${b[i]:-0}
+    x=${x%%[!0-9]*}; y=${y%%[!0-9]*}
+    if ((10#${x:-0} < 10#${y:-0})); then return 0; fi
+    if ((10#${x:-0} > 10#${y:-0})); then return 1; fi
+  done
+  return 1
+}
+
 if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
-  echo "Ollama disponible."
+  # El piso importa: por debajo de 0.17.1 un modelo fabricado puede hacer que Ollama
+  # devuelva trozos de su propia MEMORIA (Bleeding Llama), incluidas variables de
+  # entorno y claves de API; por debajo de 0.23.3 el actualizador automático de
+  # Windows no verifica firmas. Aviso, no bloqueo: el servidor arranca igual.
+  OLLAMA_VERSION=$(curl -sf http://localhost:11434/api/version 2>/dev/null \
+    | sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')
+  if [ -z "$OLLAMA_VERSION" ]; then
+    echo "Ollama disponible (no pude leer la versión: /api/version no respondió)."
+  elif version_lt "$OLLAMA_VERSION" "0.17.1"; then
+    echo "AVISO: Ollama $OLLAMA_VERSION — por debajo de 0.17.1 tiene una vulnerabilidad conocida"
+    echo "  (Bleeding Llama: un modelo fabricado puede hacer que Ollama devuelva memoria del"
+    echo "  proceso, incluidas variables de entorno y claves de API). Actualizá Ollama."
+  elif version_lt "$OLLAMA_VERSION" "0.23.3"; then
+    echo "AVISO: Ollama $OLLAMA_VERSION — por debajo de 0.23.3 el actualizador automático de"
+    echo "  Windows no verifica firmas. Actualizá Ollama."
+  else
+    echo "Ollama $OLLAMA_VERSION disponible."
+  fi
 else
   echo "AVISO: Ollama no responde en localhost:11434 — kal arrancará igual, pero /chat fallará hasta que esté arriba."
 fi

@@ -32,15 +32,14 @@ Regla operativa (ver `CONTRIBUTING.es.md`, "Commits que no mezclan dos casos"):
 
 ## Pendiente en kal-in, en orden
 
-1. **Test del invariante de CORS** (`agent_core/orchestrator.py`): hoy no hay
-   `CORSMiddleware`, y eso protege — la API solo acepta JSON y los endpoints admin piden
-   header propio, así que una página cross-origin no pasa el preflight (DNS rebinding
-   bloqueado por accidente). El día que alguien agregue `allow_origins=["*"]` para que
-   funcione el frontend, abre justo esa puerta. El test tiene que fallar si aparece un
-   comodín.
-2. **Piso de versión de Ollama** (`scripts/run_kal.sh`): hoy avisa si Ollama no responde,
-   no si es viejo. `Bleeding Llama` afecta a todo lo anterior a 0.17.1 y el updater sin
-   firma a lo anterior a 0.23.3. Aviso, no bloqueo.
+1. ~~**Test del invariante de CORS**~~ — **hecho** (`tests/test_orchestrator_cors.py`):
+   por comportamiento, sin cabeceras CORS ante un origen ajeno ni en la petición simple ni
+   en el preflight. Si alguien agrega `allow_origins=["*"]`, esos dos tests fallan con el
+   motivo escrito (DNS rebinding contra loopback).
+2. ~~**Piso de versión de Ollama**~~ — **hecho** (`scripts/run_kal.sh`): lee
+   `/api/version` y avisa por debajo de 0.17.1 (Bleeding Llama: memoria del proceso) y de
+   0.23.3 (updater sin firma en Windows). Aviso, no bloqueo; comparación numérica propia
+   (no `sort -V`), probada con 0.9.0 vs 0.23.3 y con sufijos `-rc1`.
 3. **Huella de la plantilla de chat** — *bloqueado en `kal`*: necesita el tipo de evento de
    auditoría (archivo compartido) antes de la parte del host. Cuando esté, acá va la
    llamada a `/api/show` + hash + registro por sesión, con aviso si cambia a mitad de
