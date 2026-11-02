@@ -81,5 +81,13 @@ jobs:
           pip install -q pip-audit
           pip-audit -r requirements-core.lock -r requirements-dev.lock || true
 
+      # Los tests de sandbox corren contenedores REALES contra
+      # kal-sandbox-minimal:latest. El runner ubuntu-latest trae Docker pero no
+      # la imagen: sin este paso, test_skills.py falla con "sandbox image not
+      # found: kal-sandbox-minimal:latest" y el CI queda en rojo por algo que no
+      # es el código (pasó en 312dde3 y antes).
+      - name: Construir la imagen del sandbox
+        run: bash scripts/build_sandbox_image.sh
+
       - name: Tests
         run: python -m pytest tests/ -q
