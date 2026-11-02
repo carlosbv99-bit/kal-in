@@ -23,7 +23,18 @@ fi
 # dos casos o dejar un port a medias. No se falla a propósito: durante un port el
 # árbol compartido está sucio casi siempre, y un candado que se dispara en el flujo
 # normal termina desactivado. El gate explícito es `estado_de_repos.py --check`.
-if ! "$PYTHON" scripts/estado_de_repos.py --check > /dev/null 2>&1; then
+# BUG REAL (2026-11-02): el aviso decía "no se falla a propósito" y fallaba.
+# El último comando del bloque (`estado_de_repos.py --check | sed`) devuelve
+# el mismo código de error que el `if`, y con `set -euo pipefail` eso rechaza
+# el commit — justo el "candado que se dispara en el flujo normal" que este
+# comentario dice querer evitar. Ahora el estado se captura UNA vez y el
+# bloque no puede fallar: se avisa y se sigue.
+ESTADO=""
+if ! ESTADO="$("$PYTHON" scripts/estado_de_repos.py --check 2>&1)"; then
   echo "AVISO: hay archivos COMPARTIDOS sin commitear (este commit puede mezclar dos casos)."
-  "$PYTHON" scripts/estado_de_repos.py --check | sed 's/^/  /'
+  printf '%s\n' "$ESTADO" | sed 's/^/  /'
 fi
+
+# Explícito: este hook solo BLOQUEA por el chequeo de firmas de skills de
+# arriba. El aviso es informativo.
+exit 0
