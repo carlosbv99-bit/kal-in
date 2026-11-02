@@ -73,8 +73,17 @@ def test_extra_mounts_with_a_container_path_that_is_workspace_itself_is_allowed(
 
 
 def test_extra_mounts_matching_the_one_real_caller_is_allowed(tmp_path):
-    # Mismo patrón exacto que SandboxedSkillTool: tempdir real del host -> /workspace/.kal
-    DockerSandboxRunner._validate_extra_mounts({str(tmp_path): "/workspace/.kal"})
+    """
+    Mismo patrón que SandboxedSkillTool: tempdir real del host ->
+    /workspace/.kal. Se usa la CONSTANTE del llamador, no el literal: si el
+    path del socket cambia, este test cambia con él en vez de seguir
+    afirmando el viejo.
+    """
+    from kernel.registry.sandboxed_skill import _KERNEL_SOCKET_CONTAINER_DIR
+
+    DockerSandboxRunner._validate_extra_mounts(
+        {str(tmp_path): _KERNEL_SOCKET_CONTAINER_DIR}
+    )
 
 
 def test_extra_mounts_matching_self_modification_is_allowed(tmp_path):

@@ -28,6 +28,28 @@ class SandboxExecutor:
         # clase, p.ej. el gate de permisos no soportados más abajo).
         self.runner = runner if runner is not None else DockerSandboxRunner()
 
+    @staticmethod
+    def _contexto_auditoria(
+        context: dict,
+        network_mode: str | None,
+        granted_permissions: frozenset[Permission],
+        **extra: object,
+    ) -> dict:
+        """
+        Contexto común de los eventos `sandbox_execution`.
+
+        `network_mode` y `permissions` viajan SIEMPRE: sin ellos, en el audit
+        log una ejecución con red es indistinguible de una sin red, y no se
+        puede reconstruir qué se le concedió a la skill. `None` se normaliza a
+        "none" para que el campo no dependa de cómo se llamó.
+        """
+        return {
+            **context,
+            "network_mode": network_mode or "none",
+            "permissions": sorted(p.value for p in granted_permissions),
+            **extra,
+        }
+
     def execute(
         self,
         source_code: str,
@@ -50,7 +72,10 @@ class SandboxExecutor:
                 AuditEvent(
                     event_type="sandbox_execution",
                     summary="Ejecución rechazada: permiso sin motor de enforcement real",
-                    context={**context, "unsupported_permissions": sorted(p.value for p in unsupported)},
+                    context=self._contexto_auditoria(
+                        context, network_mode, granted_permissions,
+                        unsupported_permissions=sorted(p.value for p in unsupported),
+                    ),
                     outcome="failure",
                 )
             )
@@ -64,7 +89,10 @@ class SandboxExecutor:
                 AuditEvent(
                     event_type="sandbox_execution",
                     summary="Código rechazado antes de ejecutar (validación estática)",
-                    context={**context, "violations": validation.violations, "syntax_error": validation.syntax_error},
+                    context=self._contexto_auditoria(
+                        context, network_mode, granted_permissions,
+                        violations=validation.violations, syntax_error=validation.syntax_error,
+                    ),
                     outcome="failure",
                 )
             )
@@ -79,7 +107,9 @@ class SandboxExecutor:
             AuditEvent(
                 event_type="sandbox_execution",
                 summary="Ejecución de código en sandbox",
-                context={**context, "exit_code": result.exit_code},
+                context=self._contexto_auditoria(
+                    context, network_mode, granted_permissions, exit_code=result.exit_code
+                ),
                 outcome="success" if result.status == "success" else "failure",
             )
         )
@@ -133,7 +163,10 @@ class SandboxExecutor:
                 AuditEvent(
                     event_type="sandbox_execution",
                     summary="Ejecución de skill rechazada: permiso sin motor de enforcement real",
-                    context={**context, "unsupported_permissions": sorted(p.value for p in unsupported)},
+                    context=self._contexto_auditoria(
+                        context, network_mode, granted_permissions,
+                        unsupported_permissions=sorted(p.value for p in unsupported),
+                    ),
                     outcome="failure",
                 )
             )
@@ -150,7 +183,9 @@ class SandboxExecutor:
             AuditEvent(
                 event_type="sandbox_execution",
                 summary="Ejecución de skill en sandbox (script de confianza, sin validación AST)",
-                context={**context, "exit_code": result.exit_code},
+                context=self._contexto_auditoria(
+                    context, network_mode, granted_permissions, exit_code=result.exit_code
+                ),
                 outcome="success" if result.status == "success" else "failure",
             )
         )

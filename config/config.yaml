@@ -339,6 +339,10 @@ sandbox:
   timeout_seconds: 30
   pids_limit: 64
   filesystem: read_only_except_workspace
+  # Si es true, el sandbox rechaza ejecutar cuando kal corre como root (uid 0)
+  # — el contenedor hereda ese UID. Apagado por defecto: correr kal dentro de
+  # un contenedor es un caso legítimo. Ver docker_runner.py::_rechazo_por_root.
+  refuse_root: false
 
 tool_integration:
   allow_dynamic_tool_creation: true
