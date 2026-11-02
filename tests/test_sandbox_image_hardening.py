@@ -9,6 +9,8 @@ setup, no a la ejecución de tests.
 """
 from __future__ import annotations
 
+import os
+
 import docker
 import pytest
 
@@ -52,10 +54,21 @@ def test_apt_and_dpkg_are_not_available(runner):
     assert "FOUND: []" in result.stdout
 
 
-def test_runs_as_non_root_fixed_uid(runner):
+def test_runs_as_non_root_with_the_host_uid(runner):
+    """
+    El contenedor NO corre como root y usa el UID/GID de ESTE proceso
+    (`run()` fija `user=f"{os.getuid()}:{os.getgid()}"`, ver B-5).
+
+    Antes decía `assert "UID: 1000"`, que asumía que el UID del host es 1000:
+    pasaba en la máquina de desarrollo y fallaba en el runner de GitHub
+    Actions, donde el usuario `runner` es 1001. El invariante real no es
+    "1000": es "no root" + "el UID del proceso".
+    """
     code = "import os\nprint('UID:', os.getuid())"
     result = runner.run(code, image=MINIMAL_IMAGE)
-    assert "UID: 1000" in result.stdout
+    assert result.status == "success"
+    assert "UID: 0" not in result.stdout
+    assert f"UID: {os.getuid()}" in result.stdout
 
 
 def test_python_still_works_normally(runner):
