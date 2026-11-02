@@ -111,6 +111,9 @@ EventType = Literal[
     "skill_execution_signature_invalid",
     "skill_execution_socket_error",
     "epistemic_evidence_ingested",
+    "sandbox_workdir_no_visible",
+    "artifact_downloaded",
+    "skill_proposed",
 ]
 
 
