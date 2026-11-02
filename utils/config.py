@@ -479,6 +479,12 @@ class SandboxConfig(BaseModel):
     # /tmp de este proceso puede apuntar esto a una ruta que sí sea
     # visible para ambos.
     workdir_root: str | None = None
+    # Si está en True y este proceso corre como root (uid 0), el sandbox
+    # RECHAZA ejecutar: `run()` fija user=uid:gid, así que el contenedor
+    # heredaría root. Apagado por defecto porque correr kal dentro de un
+    # contenedor (PID 1 suele ser root) es un caso legítimo; encendido donde
+    # kal corre como servicio en un host. Ver _rechazo_por_root().
+    refuse_root: bool = False
 
 
 class ToolIntegrationConfig(BaseModel):

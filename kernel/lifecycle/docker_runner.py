@@ -179,6 +179,42 @@ class DockerSandboxRunner:
                     f"extra_mounts: container_path '{container_path}' debe estar dentro de ({allowed}) — rechazado."
                 )
 
+    def _rechazo_por_root(self) -> SandboxResult | None:
+        """
+        `sandbox.refuse_root`: con la opción activa y este proceso corriendo
+        como uid 0, RECHAZA la ejecución en vez de solo advertir.
+
+        Por qué existe: `run()` fija `user=f"{os.getuid()}:{os.getgid()}"`, así
+        que un kal corriendo como root produce contenedores root. `cap_drop=ALL`
+        + `no-new-privileges` + `read_only` reducen el impacto pero no lo
+        eliminan, y una advertencia en el log es un control que nadie lee — el
+        patrón que este proyecto evita en el resto de su superficie. Apagado por
+        defecto: correr kal dentro de un contenedor (donde el PID 1 suele ser
+        root) es un caso legítimo; encendido donde kal corre como servicio.
+        """
+        if not self.cfg.refuse_root or os.getuid() != 0:
+            return None
+
+        mensaje = (
+            "Ejecución de sandbox rechazada: este proceso corre como root (uid 0) y "
+            "sandbox.refuse_root está activo. Los contenedores heredan el UID/GID del "
+            "proceso (user=uid:gid), así que correrían como root. Corré kal con un "
+            "usuario sin privilegios, o poné sandbox.refuse_root: false si aceptás el "
+            "riesgo."
+        )
+        logger.error(mensaje)
+        audit_log.record(
+            AuditEvent(
+                event_type="sandbox_execution",
+                summary="Ejecución de sandbox rechazada: el proceso corre como root",
+                context={"uid": os.getuid(), "gid": os.getgid(), "refuse_root": True},
+                outcome="failure",
+            )
+        )
+        return SandboxResult(
+            status="error", stdout="", stderr=mensaje, exit_code=None, resource_usage={}
+        )
+
     @staticmethod
     def _prepare_workdir(
         workdir: Path, source_code: str, workspace_files: dict[str, str | bytes] | None
@@ -281,6 +317,10 @@ class DockerSandboxRunner:
         este sandbox — los límites pensados para un script chico de una
         skill se quedan cortos ahí.
         """
+        rechazo = self._rechazo_por_root()
+        if rechazo is not None:
+            return rechazo
+
         target_image = image or SANDBOX_IMAGE
         target_network_mode = network_mode or self.cfg.network_mode
         target_timeout_seconds = timeout_seconds or self.cfg.timeout_seconds
